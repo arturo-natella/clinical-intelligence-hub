@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clinical Intelligence Hub</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════
+     Passphrase Modal — shown on first load
+     ═══════════════════════════════════════════════════════ -->
+<div id="passphrase-modal" class="modal-overlay">
+    <div class="modal">
+        <div class="modal-title">Clinical Intelligence Hub</div>
+        <p style="text-align:center; color:var(--text-secondary); margin-bottom:20px; font-size:14px;">
+            Enter your passphrase to unlock the vault
+        </p>
+        <input type="password" id="passphrase-input" placeholder="Passphrase" autofocus>
+        <div id="passphrase-error" class="modal-error"></div>
+        <button class="btn btn-primary" style="width:100%;" onclick="App.unlock()">
+            Unlock
+        </button>
+        <p style="text-align:center; color:var(--text-muted); margin-top:16px; font-size:12px;">
+            First time? Enter any passphrase to create your vault.
+        </p>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     Navigation
+     ═══════════════════════════════════════════════════════ -->
+<nav class="nav" id="main-nav" style="display:none;">
+    <div class="nav-brand">Clinical Intelligence Hub</div>
+    <div class="nav-tabs" id="nav-tabs">
+        <button class="nav-tab active" data-view="dashboard">Dashboard</button>
+        <button class="nav-tab" data-view="bodymap">Body Map</button>
+        <button class="nav-tab" data-view="timeline">Timeline</button>
+        <button class="nav-tab" data-view="medications">Medications</button>
+        <button class="nav-tab" data-view="labs">Labs</button>
+        <button class="nav-tab" data-view="imaging">Imaging</button>
+        <button class="nav-tab" data-view="genetics">Genetics</button>
+        <button class="nav-tab" data-view="flags">Patterns &amp; Flags</button>
+        <button class="nav-tab" data-view="crossdisc">Cross-Disciplinary</button>
+        <button class="nav-tab" data-view="community">Community</button>
+        <button class="nav-tab" data-view="chat">Chat</button>
+        <button class="nav-tab" data-view="alerts">Alerts</button>
+        <button class="nav-tab" data-view="report">Report</button>
+    </div>
+    <div class="nav-actions">
+        <button class="btn btn-outline btn-sm" onclick="App.showSettings()">Settings</button>
+        <button class="btn btn-outline btn-sm" onclick="App.clearSession()">New Session</button>
+    </div>
+</nav>
+
+<!-- ═══════════════════════════════════════════════════════
+     Main Container — all views
+     ═══════════════════════════════════════════════════════ -->
+<div class="container" id="main-container" style="display:none;">
+
+    <!-- ── Dashboard ──────────────────────────────────── -->
+    <div id="view-dashboard" class="view active">
+        <div class="card-grid" id="stat-cards">
+            <div class="card stat-card">
+                <div class="stat-value" id="stat-conditions">—</div>
+                <div class="stat-label">Active Conditions</div>
+            </div>
+            <div class="card stat-card">
+                <div class="stat-value" id="stat-meds">—</div>
+                <div class="stat-label">Active Medications</div>
+            </div>
+            <div class="card stat-card">
+                <div class="stat-value" id="stat-labs">—</div>
+                <div class="stat-label">Lab Results</div>
+            </div>
+            <div class="card stat-card">
+                <div class="stat-value" id="stat-flags">—</div>
+                <div class="stat-label">Flagged Findings</div>
+            </div>
+        </div>
+
+        <!-- Drop Zone -->
+        <div class="card" id="upload-card">
+            <div class="drop-zone" id="drop-zone"
+                 ondragover="event.preventDefault(); this.classList.add('drag-over');"
+                 ondragleave="this.classList.remove('drag-over');"
+                 ondrop="App.handleDrop(event);">
+                <div class="drop-zone-icon">+</div>
+                <div class="drop-zone-text">Drop your medical records here</div>
+                <div class="drop-zone-hint">PDF, DICOM, FHIR JSON, images, genetic reports</div>
+            </div>
+            <input type="file" id="file-input" multiple style="display:none;"
+                   accept=".pdf,.dcm,.json,.png,.jpg,.jpeg,.tif,.tiff,.txt,.csv,.vcf"
+                   onchange="App.handleFiles(this.files);">
+            <div style="text-align:center; margin-top:8px;">
+                <button class="btn btn-outline btn-sm" onclick="document.getElementById('file-input').click();">
+                    Or click to browse files
+                </button>
+            </div>
+        </div>
+
+        <!-- Uploaded Files -->
+        <div class="card" id="files-card" style="display:none;">
+            <div class="card-title">Uploaded Files</div>
+            <div id="file-list"></div>
+            <div style="margin-top:16px;">
+                <button class="btn btn-primary" onclick="App.startAnalysis();">
+                    Analyze Records
+                </button>
+            </div>
+        </div>
+
+        <!-- Processing Progress -->
+        <div class="card" id="progress-card" style="display:none;">
+            <div class="card-title">Analyzing Your Records</div>
+            <div class="progress-container">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-fill"></div>
+                </div>
+                <div class="progress-text" id="progress-text">Preparing...</div>
+            </div>
+        </div>
+
+        <!-- Quick Actions (shown after analysis) -->
+        <div class="card" id="actions-card" style="display:none;">
+            <div class="card-title">Quick Actions</div>
+            <div style="display:flex; gap:12px; flex-wrap:wrap;">
+                <button class="btn btn-primary" onclick="App.navigateTo('report');">View Report</button>
+                <button class="btn btn-success" onclick="App.generateReport();">Generate Report</button>
+                <button class="btn btn-outline" onclick="App.navigateTo('crossdisc');">Cross-Disciplinary Insights</button>
+                <button class="btn btn-outline" onclick="App.navigateTo('flags');">View Flags</button>
+                <button class="btn btn-outline" onclick="App.navigateTo('chat');">Ask Questions</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Body Map ───────────────────────────────────── -->
+    <div id="view-bodymap" class="view">
+        <div class="card">
+            <div class="card-title">3D Interactive Anatomy Viewer</div>
+            <div style="display:flex; gap:16px; margin-bottom:16px;">
+                <button class="btn btn-sm btn-outline bodymap-layer active" data-layer="skin" onclick="BodyMap.setLayer('skin')">Skin</button>
+                <button class="btn btn-sm btn-outline bodymap-layer" data-layer="muscle" onclick="BodyMap.setLayer('muscle')">Muscle</button>
+                <button class="btn btn-sm btn-outline bodymap-layer" data-layer="skeleton" onclick="BodyMap.setLayer('skeleton')">Skeleton</button>
+                <button class="btn btn-sm btn-outline bodymap-layer" data-layer="organs" onclick="BodyMap.setLayer('organs')">Organs</button>
+                <div style="flex:1;"></div>
+                <button class="btn btn-sm btn-outline" id="bodymap-side-btn" onclick="BodyMap.toggleSide()">Show Back</button>
+            </div>
+            <div style="display:flex; gap:24px;">
+                <div id="bodymap-container" style="position:relative; width:400px; min-height:600px; flex-shrink:0;">
+                    <img id="bodymap-img" src="/assets/anatomy.png" alt="Body Map"
+                         style="width:100%; height:auto; display:block;">
+                    <!-- SVG overlay for clickable zones -->
+                    <svg id="bodymap-overlay" style="position:absolute; top:0; left:0; width:100%; height:100%;"
+                         viewBox="0 0 400 600" preserveAspectRatio="xMidYMid meet">
+                        <!-- Head -->
+                        <ellipse cx="200" cy="55" rx="50" ry="50" fill="transparent"
+                                 class="bodymap-zone" data-region="head"
+                                 onclick="BodyMap.selectRegion('head')"/>
+                        <!-- Chest -->
+                        <rect x="135" y="120" width="130" height="100" rx="10" fill="transparent"
+                              class="bodymap-zone" data-region="chest"
+                              onclick="BodyMap.selectRegion('chest')"/>
+                        <!-- Abdomen -->
+                        <rect x="140" y="225" width="120" height="80" rx="10" fill="transparent"
+                              class="bodymap-zone" data-region="abdomen"
+                              onclick="BodyMap.selectRegion('abdomen')"/>
+                        <!-- Left Arm -->
+                        <rect x="75" y="130" width="55" height="170" rx="15" fill="transparent"
+                              class="bodymap-zone" data-region="left-arm"
+                              onclick="BodyMap.selectRegion('left-arm')"/>
+                        <!-- Right Arm -->
+                        <rect x="270" y="130" width="55" height="170" rx="15" fill="transparent"
+                              class="bodymap-zone" data-region="right-arm"
+                              onclick="BodyMap.selectRegion('right-arm')"/>
+                        <!-- Pelvis -->
+                        <rect x="145" y="308" width="110" height="60" rx="10" fill="transparent"
+                              class="bodymap-zone" data-region="pelvis"
+                              onclick="BodyMap.selectRegion('pelvis')"/>
+                        <!-- Left Leg -->
+                        <rect x="130" y="375" width="65" height="210" rx="15" fill="transparent"
+                              class="bodymap-zone" data-region="left-leg"
+                              onclick="BodyMap.selectRegion('left-leg')"/>
+                        <!-- Right Leg -->
+                        <rect x="205" y="375" width="65" height="210" rx="15" fill="transparent"
+                              class="bodymap-zone" data-region="right-leg"
+                              onclick="BodyMap.selectRegion('right-leg')"/>
+                    </svg>
+                </div>
+                <div style="flex:1;">
+                    <div class="card" id="bodymap-detail" style="margin-bottom:0;">
+                        <div class="card-title" id="bodymap-region-title">Select a body region</div>
+                        <div id="bodymap-findings" style="color:var(--text-secondary); font-size:14px;">
+                            Click on any body region to see related findings from your medical records.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Timeline ───────────────────────────────────── -->
+    <div id="view-timeline" class="view">
+        <div class="card">
+            <div class="card-title">Health Timeline</div>
+            <div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
+                <button class="btn btn-sm btn-outline timeline-filter active" data-type="all" onclick="Timeline.filter('all')">All</button>
+                <button class="btn btn-sm btn-outline timeline-filter" data-type="medication" onclick="Timeline.filter('medication')">Medications</button>
+                <button class="btn btn-sm btn-outline timeline-filter" data-type="lab" onclick="Timeline.filter('lab')">Labs</button>
+                <button class="btn btn-sm btn-outline timeline-filter" data-type="diagnosis" onclick="Timeline.filter('diagnosis')">Diagnoses</button>
+                <button class="btn btn-sm btn-outline timeline-filter" data-type="procedure" onclick="Timeline.filter('procedure')">Procedures</button>
+                <button class="btn btn-sm btn-outline timeline-filter" data-type="imaging" onclick="Timeline.filter('imaging')">Imaging</button>
+            </div>
+            <div id="timeline-list">
+                <div style="color:var(--text-muted); text-align:center; padding:40px;">
+                    Upload and analyze records to see your health timeline.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Medications ────────────────────────────────── -->
+    <div id="view-medications" class="view">
+        <div class="card">
+            <div class="card-title">Active Medications</div>
+            <table class="data-table" id="meds-active-table">
+                <thead>
+                    <tr>
+                        <th>Medication</th>
+                        <th>Dosage</th>
+                        <th>Frequency</th>
+                        <th>Reason</th>
+                        <th>Started</th>
+                        <th>Source</th>
+                    </tr>
+                </thead>
+                <tbody id="meds-active-body">
+                    <tr><td colspan="6" style="text-align:center; color:var(--text-muted);">No data yet</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="card" id="interactions-card" style="display:none;">
+            <div class="card-title">Drug Interactions</div>
+            <div id="interactions-list"></div>
+        </div>
+    </div>
+
+    <!-- ── Labs ───────────────────────────────────────── -->
+    <div id="view-labs" class="view">
+        <div class="card">
+            <div class="card-title">Lab Results</div>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Test</th>
+                        <th>Value</th>
+                        <th>Unit</th>
+                        <th>Flag</th>
+                        <th>Date</th>
+                        <th>Source</th>
+                    </tr>
+                </thead>
+                <tbody id="labs-body">
+                    <tr><td colspan="6" style="text-align:center; color:var(--text-muted);">No data yet</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- ── Imaging ────────────────────────────────────── -->
+    <div id="view-imaging" class="view">
+        <div class="card">
+            <div class="card-title">Imaging Studies</div>
+            <div id="imaging-list">
+                <div style="color:var(--text-muted); text-align:center; padding:40px;">
+                    No imaging studies found yet.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Genetics ───────────────────────────────────── -->
+    <div id="view-genetics" class="view">
+        <div class="card">
+            <div class="card-title">Genetic Profile</div>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Gene</th>
+                        <th>Variant</th>
+                        <th>Phenotype</th>
+                        <th>Significance</th>
+                        <th>Implications</th>
+                    </tr>
+                </thead>
+                <tbody id="genetics-body">
+                    <tr><td colspan="5" style="text-align:center; color:var(--text-muted);">No genetic data yet</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- ── Patterns & Flags ───────────────────────────── -->
+    <div id="view-flags" class="view">
+        <div class="card">
+            <div class="card-title">Clinical Patterns &amp; Flags</div>
+            <div id="flags-list">
+                <div style="color:var(--text-muted); text-align:center; padding:40px;">
+                    No flags detected yet. Analyze your records to identify patterns.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Cross-Disciplinary ─────────────────────────── -->
+    <div id="view-crossdisc" class="view">
+        <div class="card">
+            <div class="card-title">Cross-Disciplinary Connections</div>
+            <p style="color:var(--text-secondary); font-size:14px; margin-bottom:16px;">
+                Connections that individual specialists might miss. These link findings across
+                medical specialties and adjacent health domains.
+            </p>
+            <div id="crossdisc-list">
+                <div style="color:var(--text-muted); text-align:center; padding:40px;">
+                    Analyze your records to discover cross-disciplinary connections.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Community Insights ─────────────────────────── -->
+    <div id="view-community" class="view">
+        <div class="community-warning">
+            These are <strong>unverified community reports</strong> from Reddit discussions.
+            They are NOT clinical data and should NOT be used for treatment decisions.
+            They may be useful as discussion points with your doctor.
+        </div>
+        <div class="card">
+            <div class="card-title">Community Insights</div>
+            <div id="community-list">
+                <div style="color:var(--text-muted); text-align:center; padding:40px;">
+                    Analyze your records to find relevant community discussions.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Chat ───────────────────────────────────────── -->
+    <div id="view-chat" class="view">
+        <div class="card" style="padding:0; overflow:hidden;">
+            <div class="chat-container">
+                <div class="chat-messages" id="chat-messages">
+                    <div class="chat-message assistant">
+                        <div class="chat-bubble">
+                            Welcome to the Clinical AI Assistant. Ask me anything about your medical records,
+                            medications, lab results, or findings. I'll search your data to give you
+                            a grounded answer.
+                        </div>
+                    </div>
+                </div>
+                <div class="chat-input-row">
+                    <input class="chat-input" id="chat-input" type="text"
+                           placeholder="Ask about your records..."
+                           onkeydown="if(event.key==='Enter')App.sendChat();">
+                    <button class="btn btn-primary" onclick="App.sendChat();">Send</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Alerts ─────────────────────────────────────── -->
+    <div id="view-alerts" class="view">
+        <div class="card">
+            <div class="card-title">Monitoring Alerts</div>
+            <p style="color:var(--text-secondary); font-size:14px; margin-bottom:16px;">
+                Alerts from continuous monitoring of FDA safety databases, PubMed research,
+                clinical guidelines, and drug safety updates.
+            </p>
+            <div id="alerts-list">
+                <div style="color:var(--text-muted); text-align:center; padding:40px;">
+                    No alerts. Monitoring will check for new findings relevant to your profile.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Report ─────────────────────────────────────── -->
+    <div id="view-report" class="view">
+        <div class="card">
+            <div class="card-title">Clinical Intelligence Report</div>
+            <p style="color:var(--text-secondary); font-size:14px; margin-bottom:16px;">
+                A comprehensive 10-section Word document summarizing all findings,
+                with source citations and questions for your doctor.
+            </p>
+            <div id="report-status" style="color:var(--text-muted); margin-bottom:16px;">
+                No report generated yet.
+            </div>
+            <div style="display:flex; gap:12px;">
+                <button class="btn btn-success" onclick="App.generateReport();">Generate Report</button>
+                <button class="btn btn-primary" id="report-download-btn" onclick="App.downloadReport();" style="display:none;">
+                    Download Report
+                </button>
+            </div>
+        </div>
+
+        <!-- Questions for Doctor Preview -->
+        <div class="card" id="questions-card" style="display:none;">
+            <div class="card-title">Questions for Your Doctor</div>
+            <div id="questions-list"></div>
+        </div>
+    </div>
+
+    <!-- ── Settings Modal ─────────────────────────────── -->
+    <div id="settings-overlay" class="modal-overlay" style="display:none;">
+        <div class="modal" style="max-width:500px;">
+            <div class="modal-title">Settings</div>
+
+            <div style="margin-bottom:20px;">
+                <label style="font-size:14px; color:var(--text-secondary); display:block; margin-bottom:8px;">
+                    Google Gemini API Key
+                </label>
+                <input type="password" id="setting-gemini-key" placeholder="AIza..."
+                       style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--border-glass); background:var(--bg-glass); color:var(--text-primary); font-size:14px;">
+                <div id="gemini-key-status" style="font-size:12px; margin-top:4px;"></div>
+            </div>
+
+            <div style="margin-bottom:20px;">
+                <label style="font-size:14px; color:var(--text-secondary); display:block; margin-bottom:8px;">
+                    NCBI API Key (optional, increases PubMed rate limit)
+                </label>
+                <input type="password" id="setting-ncbi-key" placeholder="Your NCBI API key..."
+                       style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--border-glass); background:var(--bg-glass); color:var(--text-primary); font-size:14px;">
+            </div>
+
+            <div style="margin-bottom:20px;">
+                <label style="font-size:14px; color:var(--text-secondary); display:block; margin-bottom:8px;">
+                    OpenFDA API Key (optional, increases rate limit)
+                </label>
+                <input type="password" id="setting-openfda-key" placeholder="Your OpenFDA API key..."
+                       style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--border-glass); background:var(--bg-glass); color:var(--text-primary); font-size:14px;">
+            </div>
+
+            <div style="display:flex; gap:12px; justify-content:flex-end;">
+                <button class="btn btn-outline" onclick="App.hideSettings();">Cancel</button>
+                <button class="btn btn-primary" onclick="App.saveSettings();">Save</button>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     JavaScript
+     ═══════════════════════════════════════════════════════ -->
+<script src="/app.js"></script>
+
+</body>
+</html>
