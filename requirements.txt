@@ -1,12 +1,46 @@
-ollama
-google-genai
-monai
-torch
-python-docx
-pydicom
-cryptography
-flask
-requests
-PyMuPDF
-google-genai
-\nchromadb==0.4.24
+# Clinical Intelligence Hub — Python Dependencies
+# Install: pip install -r requirements.txt
+
+# ── Core Framework ──────────────────────────────
+flask>=3.0
+pydantic>=2.5
+requests>=2.31
+
+# ── AI / ML ─────────────────────────────────────
+ollama>=0.4                    # Local model inference (MedGemma)
+google-genai>=1.0              # Gemini 3.1 Pro + Deep Research
+monai>=1.3                     # Medical image detection models
+torch>=2.2                     # PyTorch (MONAI dependency)
+psutil>=5.9                    # Memory monitoring for model manager
+
+# ── Document Processing ─────────────────────────
+PyMuPDF>=1.24                  # PDF text extraction
+python-docx>=1.1               # Word document report generation
+pydicom>=2.4                   # DICOM medical image files
+Pillow>=10.0                   # Image processing for OCR preprocessing
+fhir.resources>=7.0            # FHIR JSON bundle parsing
+
+# ── OCR ─────────────────────────────────────────
+pyobjc-framework-Vision>=10.0  # Apple Vision OCR (macOS native)
+pytesseract>=0.3               # Tesseract OCR fallback
+
+# ── Security & Encryption ───────────────────────
+cryptography>=42.0             # AES-256-GCM encryption
+argon2-cffi>=23.1              # Argon2id key derivation
+
+# ── Privacy (PII Redaction) ─────────────────────
+presidio-analyzer>=2.2         # Microsoft Presidio PII detection
+presidio-anonymizer>=2.2       # Microsoft Presidio PII redaction
+
+# ── Database & Vector Search ────────────────────
+sqlite-vec>=0.1                # SQLite vector search extension
+
+# ── Standardization (helpers) ───────────────────
+# LOINC, SNOMED CT, RxNorm databases are downloaded separately via setup.sh
+
+# ── Monitoring ──────────────────────────────────
+playwright>=1.40               # Browser automation for guideline monitoring
+schedule>=1.2                  # Job scheduling (backup to launchd)
+
+# ── Testing ─────────────────────────────────────
+pytest>=8.0

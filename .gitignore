@@ -1,6 +1,65 @@
-# Temporary minimal .gitignore for archiving old prototype
-venv/
+# Clinical Intelligence Hub — .gitignore
+
+# Python
 __pycache__/
-*.pyc
-.DS_Store
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Patient data — NEVER commit
+data/uploads/
+data/processed/
+data/databases/
+data/*.json
+data/*.db
+data/*.sqlite
+data/.encryption_key
+
+# Model weights — too large for git
+models/
+
+# Local databases — downloaded on setup
+data/loinc/
+data/snomed/
+data/rxnorm/
+
+# ChromaDB (legacy)
 data/chroma_db/
+
+# macOS
+.DS_Store
+*.swp
+*~
+
+# IDE
+.vscode/
+.idea/
+*.code-workspace
+
+# Environment / secrets
+.env
+.env.local
+*.pem
+*.key
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+
+# Playwright
+playwright/.cache/
+
+# Generated reports (user-specific)
+output/
+*.docx

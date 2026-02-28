@@ -1,27 +1,42 @@
 #!/bin/bash
+# Clinical Intelligence Hub — Launch Script
+# Double-click this file to start the application.
 
-# MedPrep Launch Command
-# This script sets up the local server and opens the patient dashboard.
+set -e
 
-echo "========================================================"
-echo " Starting MedPrep: Patient Medical Records Analyzer..."
-echo "========================================================"
-
-# Get the directory of where this script is physically located
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-cd "$DIR" || { echo "Failed to navigate to project directory"; exit 1; }
+cd "$DIR"
 
-# Activate the Python virtual environment
+echo "╔══════════════════════════════════════════════════╗"
+echo "║   Clinical Intelligence Hub                      ║"
+echo "╚══════════════════════════════════════════════════╝"
+echo ""
+
+# Prevent macOS from sleeping during analysis
+caffeinate -i -w $$ &
+CAFFEINATE_PID=$!
+trap "kill $CAFFEINATE_PID 2>/dev/null" EXIT
+
+# Activate virtual environment
 if [ -f "venv/bin/activate" ]; then
     source venv/bin/activate
 else
-    echo "⚠️ Warning: Python virtual environment not found in 'venv/'."
-    echo "Please ensure the project dependencies are installed."
+    echo "⚠ Virtual environment not found. Run setup.sh first."
+    echo "  chmod +x setup.sh && ./setup.sh"
+    read -p "Press Enter to exit..."
+    exit 1
 fi
 
-# Wait 2 seconds for the Flask server to spin up, then launch the default browser
+# Vault passphrase prompt
+echo "Enter your vault passphrase to decrypt patient data:"
+read -s VAULT_PASSPHRASE
+export VAULT_PASSPHRASE
+echo "  ✓ Vault unlocked"
+echo ""
+
+# Launch browser after short delay
 (sleep 2 && open "http://127.0.0.1:5050") &
 
-# Start the local backend Flask server
-echo "Starting local Python server on port 5050..."
-python backend/app.py
+# Start the Flask server
+echo "Starting Clinical Intelligence Hub on http://127.0.0.1:5050..."
+python -m src.ui.app
