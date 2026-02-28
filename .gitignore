@@ -1,0 +1,6 @@
+# Temporary minimal .gitignore for archiving old prototype
+venv/
+__pycache__/
+*.pyc
+.DS_Store
+data/chroma_db/

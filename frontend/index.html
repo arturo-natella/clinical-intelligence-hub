@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Amaru MedPrep - Patient Dashboard</title>
+    <!-- Modern, premium font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+
+<body>
+    <header class="app-header">
+        <div class="brand">
+            <svg width="40" height="40" viewBox="0 0 100 100" class="brand-logo">
+                <!-- Amaru Red Circle -->
+                <path
+                    d="M50 5 C25 5 5 25 5 50 C5 75 25 95 50 95 C75 95 95 75 95 50 C95 25 75 5 50 5 Z M50 15 C69.3 15 85 30.7 85 50 C85 69.3 69.3 85 50 85 C30.7 85 15 69.3 15 50 C15 30.7 30.7 15 50 15 Z"
+                    fill="#ff0000" />
+                <!-- Dynamic Amaru A-Swoosh -->
+                <path
+                    d="M55 20 L45 20 C40 40 25 60 25 80 L40 80 C40 70 45 50 50 35 L40 60 L50 70 C52 75 55 80 60 80 L75 80 C65 60 60 40 55 20 Z"
+                    fill="#ff0000" />
+            </svg>
+            <div class="brand-text">
+                <h1>Amaru MedPrep</h1>
+                <span class="subtitle">Clinical Intelligence Hub</span>
+            </div>
+        </div>
+        <div class="global-actions">
+            <button id="btn-upload" class="btn btn-glass">📁 Add Records</button>
+            <button id="btn-analyze" class="btn btn-glass">🔄 Analyze Pipeline</button>
+            <button id="btn-settings" class="btn btn-glass">⚙️ Configure</button>
+            <button id="btn-export" class="btn btn-primary">Export Report</button>
+        </div>
+    </header>
+
+    <!-- Unified Spatial Hub -->
+    <div class="spatial-grid">
+
+        <!-- COLUMN 1: The Record (Time & Experience) -->
+        <aside class="panel col-record" id="col-record">
+            <div class="panel-header">
+                <h2>The Record</h2>
+                <span class="panel-meta">Longitudinal Data</span>
+            </div>
+
+            <div class="me-wheel-section">
+                <h3>Daily Experience</h3>
+                <div class="log-row">
+                    <span>Stress Level</span>
+                    <input type="range" id="log-stress" min="1" max="3" value="2">
+                </div>
+                <div class="log-row">
+                    <span>Sleep Quality</span>
+                    <input type="range" id="log-sleep" min="1" max="5" value="3">
+                </div>
+                <div class="symptoms-toggle">
+                    <label class="glass-checkbox"><input type="checkbox" id="check-cough"> Dry Cough</label>
+                    <label class="glass-checkbox"><input type="checkbox" id="check-fatigue"> Severe Fatigue</label>
+                </div>
+            </div>
+
+            <div class="timeline-container" id="timeline-container">
+                <h3>Clinical Timeline</h3>
+                <!-- Tracks vertically stacked -->
+                <div class="timeline-track" id="track-labs">
+                    <span class="track-label">Labs & Vitals</span>
+                    <div class="track-content">
+                        <div class="ghost-placeholder">Scanning records...</div>
+                    </div>
+                </div>
+                <div class="timeline-track" id="track-meds">
+                    <span class="track-label">Medications</span>
+                    <div class="track-content">
+                        <div class="ghost-placeholder">Scanning records...</div>
+                    </div>
+                </div>
+                <div class="timeline-track" id="track-symptoms">
+                    <span class="track-label">Diagnoses & Diary</span>
+                    <div class="track-content">
+                        <div class="ghost-placeholder">Scanning records...</div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- COLUMN 2: The Body (Spatial Focus) -->
+        <main class="panel col-body" id="col-body">
+            <div class="panel-header glass-header">
+                <h2>Interactive Anatomy</h2>
+
+                <div id="bodymap-controls" class="viewer-controls">
+                    <select id="view-layer" class="glass-select">
+                        <option value="skin">Full Body Surface</option>
+                        <option value="muscle">Muscular System</option>
+                        <option value="skeleton">Skeletal Structure</option>
+                        <option value="organs">Internal Organs</option>
+                    </select>
+                    <button id="view-rotate" class="btn-icon layer-accent" title="Rotate View">🔄 Flip</button>
+                    <button id="zoom-in" class="btn-icon" title="Zoom In">➕</button>
+                    <button id="zoom-out" class="btn-icon" title="Zoom Out">➖</button>
+                    <button id="zoom-reset" class="btn-icon" title="Reset View">🔍</button>
+                </div>
+            </div>
+
+            <div id="body-map-viewport" class="viewport-3d">
+                <div id="body-map-placeholder" class="model-canvas">
+                    <!-- High-res background image and SVG interaction zones injected by JS -->
+                </div>
+                <div class="body-glow-overlay"></div>
+            </div>
+        </main>
+
+        <!-- COLUMN 3: The Intelligence (Cross-Discipline Insights & Assistant) -->
+        <aside class="panel col-intelligence" id="col-intelligence">
+            <div class="panel-header">
+                <h2>Cross-Discipline Intelligence</h2>
+                <span class="panel-meta">FDA • CPIC • PubMed • Community</span>
+            </div>
+
+            <div class="intelligence-feed" id="insights-feed">
+                <!-- Smart Cards will be pushed here -->
+                <div class="ghost-message">Awaiting deep analysis pipeline...</div>
+            </div>
+
+            <div class="assistant-dock">
+                <div id="chat-history" class="chat-history">
+                    <div class="chat-msg msg-ai">
+                        Hi. I am the MedPrep Clinical Assistant. I fuse your local medical records with cross-discipline
+                        data (OpenFDA, pharmacogenomics, etc.) to give you full context. How can I help?
+                    </div>
+                </div>
+                <div class="chat-input-wrapper">
+                    <textarea id="chat-input" rows="2"
+                        placeholder="Ask about your records, treatments, or the 3D map..."></textarea>
+                    <button class="btn-send">▲</button>
+                </div>
+            </div>
+        </aside>
+
+    </div>
+
+    <!-- Modals -->
+    <!-- Upload Modal -->
+    <div id="upload-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-content">
+            <h2>Add Medical Records</h2>
+            <p class="modal-sub">Secure local processing. Supported: PDF, DICOM.</p>
+            <div id="drop-zone" class="drop-zone">
+                <p id="drop-text">Drag & Drop files here</p>
+                <input type="file" id="file-input" multiple accept=".pdf,.dcm" style="display: none;">
+                <p id="file-list-preview" class="file-preview"></p>
+            </div>
+            <div class="modal-actions">
+                <button id="btn-cancel-upload" class="btn btn-glass">Cancel</button>
+                <button id="btn-confirm-upload" class="btn btn-primary" disabled>Upload & Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Configuration Modal -->
+    <div id="config-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <h2>API Configuration</h2>
+            <p class="modal-sub">External intelligence feeds. Keys are stored safely on your machine.</p>
+
+            <label>Google Gemini API Key</label>
+            <input type="password" id="input-gemini-key" placeholder="AIzaSy..." class="glass-input">
+
+            <label>OpenFDA API Key (Optional)</label>
+            <input type="password" id="input-openfda-key" placeholder="Get from open.fda.gov..." class="glass-input">
+
+            <label>Reddit API Key (Optional)</label>
+            <input type="password" id="input-reddit-key" placeholder="Reddit Client Secret..." class="glass-input">
+
+            <div class="modal-actions">
+                <button id="btn-cancel-config" class="btn btn-glass">Cancel</button>
+                <button id="btn-save-config" class="btn btn-primary">Save Keys</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- External Libraries -->
+    <script src="https://unpkg.com/@panzoom/panzoom@4.5.1/dist/panzoom.min.js"></script>
+
+    <!-- MedPrep Interactive Dashboard Controllers -->
+    <script src="js/bodymap.js"></script>
+    <script src="js/timeline.js"></script>
+    <script src="js/chat.js"></script>
+    <script src="js/main.js"></script>
+</body>
+
+</html>

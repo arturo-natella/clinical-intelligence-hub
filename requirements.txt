@@ -1,0 +1,12 @@
+ollama
+google-genai
+monai
+torch
+python-docx
+pydicom
+cryptography
+flask
+requests
+PyMuPDF
+google-genai
+\nchromadb==0.4.24
