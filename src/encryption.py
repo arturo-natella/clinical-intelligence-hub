@@ -200,3 +200,16 @@ class EncryptedVault:
                     return False
         # No existing data — any passphrase is fine for first run
         return True
+
+    # ── Session Reset ─────────────────────────────────────
+
+    def clear_patient_profile(self):
+        """
+        Delete the encrypted patient profile for a new session.
+        Keeps API keys intact (they're reusable across sessions).
+        """
+        if self._profile_path.exists():
+            self._profile_path.unlink()
+            logger.info("Encrypted patient profile deleted — ready for new session")
+        else:
+            logger.debug("No patient profile to clear")

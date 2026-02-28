@@ -305,6 +305,26 @@ class Database:
         """, (files_processed, files_failed, run_id))
         conn.commit()
 
+    # ── Session Reset ────────────────────────────────────────
+
+    def clear_patient_data(self):
+        """
+        Clear all patient-specific data for a new session.
+
+        Wipes: processing state, redaction log, alerts, vectors, pipeline runs.
+        Preserves: database schema (tables remain, ready for new data).
+        Does NOT touch: API key vault (encrypted separately).
+        """
+        conn = self._get_conn()
+        conn.execute("DELETE FROM processing_state")
+        conn.execute("DELETE FROM redaction_log")
+        conn.execute("DELETE FROM monitoring_alerts")
+        conn.execute("DELETE FROM pipeline_runs")
+        if self._vec_available:
+            conn.execute("DELETE FROM clinical_vectors")
+        conn.commit()
+        logger.info("All patient data cleared from database — ready for new session")
+
     # ── Cleanup ────────────────────────────────────────────
 
     def close(self):
