@@ -11,13 +11,26 @@
     <script src="/tailwind-config.js"></script>
 
     <!-- Three.js for 3D Anatomy Viewer -->
+    <!-- Three.js — ESM with import map so addons resolve "three" internally -->
     <script type="importmap">
-    {
-        "imports": {
-            "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
-            "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
-        }
-    }
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" } }
+    </script>
+    <script type="module">
+        import * as _THREE from "three";
+        const base = "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm";
+        const { OrbitControls } = await import(base + "/controls/OrbitControls.js");
+        const { GLTFLoader } = await import(base + "/loaders/GLTFLoader.js");
+        // Module namespace is immutable — copy to mutable object
+        const THREE = {};
+        Object.getOwnPropertyNames(_THREE).forEach(k => { THREE[k] = _THREE[k]; });
+        THREE.OrbitControls = OrbitControls;
+        THREE.GLTFLoader = GLTFLoader;
+        try {
+            const { DRACOLoader } = await import(base + "/loaders/DRACOLoader.js");
+            THREE.DRACOLoader = DRACOLoader;
+        } catch (e) { /* DRACO not required */ }
+        window.THREE = THREE;
+        window.dispatchEvent(new Event("three-ready"));
     </script>
 
     <!-- D3.js for Snowball Differential Diagnostician graph -->

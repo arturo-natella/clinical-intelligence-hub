@@ -212,6 +212,11 @@ var App = {
     // ── 3D Body Map Initialization ───────────────────
 
     initBodyMap3D: function() {
+        if (typeof THREE === "undefined") {
+            // Three.js module still loading — wait for it
+            window.addEventListener("three-ready", function() { App.initBodyMap3D(); }, { once: true });
+            return;
+        }
         if (typeof BodyMap3D !== "undefined" && !BodyMap3D.initialized) {
             BodyMap3D.init("bodymap-canvas-container");
         } else if (typeof BodyMap3D !== "undefined" && BodyMap3D.initialized) {

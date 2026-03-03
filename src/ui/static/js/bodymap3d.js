@@ -371,7 +371,7 @@ var BodyMap3D = {
 
         try {
             var draco = new THREE.DRACOLoader();
-            draco.setDecoderPath("https://unpkg.com/three@0.170.0/examples/jsm/libs/draco/");
+            draco.setDecoderPath("https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/libs/draco/");
             loader.setDRACOLoader(draco);
         } catch (e) { /* Draco optional */ }
 
@@ -385,8 +385,34 @@ var BodyMap3D = {
     _onModelReady: function(modelScene, gender) {
         if (this.currentModel) this.scene.remove(this.currentModel);
 
-        this.currentModel = modelScene;
-        this.scene.add(modelScene);
+        // Wrap in group so we can rotate + scale without affecting child transforms
+        var wrapper = new THREE.Group();
+        wrapper.add(modelScene);
+
+        // Normalize model: scale to fit ~2 units tall, center at origin
+        var box = new THREE.Box3().setFromObject(wrapper);
+        var size = box.getSize(new THREE.Vector3());
+        var maxDim = Math.max(size.x, size.y, size.z);
+        var targetHeight = 2.0;
+        var scale = targetHeight / maxDim;
+        wrapper.scale.setScalar(scale);
+
+        // GLB model has height along Z — rotate to stand upright (Y-up)
+        if (size.z > size.y * 1.5) {
+            wrapper.rotation.x = -Math.PI / 2;
+        }
+
+        // Force matrix update, then re-center
+        wrapper.updateMatrixWorld(true);
+        box.setFromObject(wrapper);
+        var center = box.getCenter(new THREE.Vector3());
+        wrapper.position.sub(center);
+        // Lift so feet sit near y=0
+        var halfH = (box.max.y - box.min.y) / 2;
+        wrapper.position.y += halfH * 0.05;
+
+        this.currentModel = wrapper;
+        this.scene.add(wrapper);
 
         // Parse layers
         this.layers = { skin: [], muscle: [], skeleton: [], organs: [] };
