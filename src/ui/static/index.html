@@ -160,6 +160,9 @@
                     <button class="btn btn-secondary btn-sm" onclick="App.prepareForVisit();" id="dash-visit-prep-btn">
                         Visit Prep
                     </button>
+                    <button class="btn btn-outline btn-sm" onclick="App.toggleDashboardChat();" id="dash-chat-toggle-btn" style="color:var(--accent-bluetron); border-color:var(--accent-bluetron);">
+                        Chat
+                    </button>
                 </div>
             </div>
         </div>
@@ -632,24 +635,23 @@
     </div>
 
     <!-- ── Chat ───────────────────────────────────────── -->
-    <div id="view-chat" class="view">
-        <div class="card" style="padding:0; overflow:hidden;">
-            <div class="chat-container">
-                <div class="chat-messages" id="chat-messages">
-                    <div class="chat-message assistant">
-                        <div class="chat-bubble">
-                            Welcome to the Clinical AI Assistant. Ask me anything about your medical records,
-                            medications, lab results, or findings. I'll search your data to give you
-                            a grounded answer.
-                        </div>
-                    </div>
+    <!-- Dashboard Chat Panel (docked right) -->
+    <div id="dashboard-chat" class="fixed right-0 top-0 h-screen w-80 bg-surface-card border-l border-border-faint flex flex-col z-40 transition-transform duration-200" style="transform:translateX(100%);">
+        <div class="p-4 border-b border-border-faint flex justify-between items-center">
+            <span class="font-medium text-white">Clinical Assistant</span>
+            <button onclick="App.toggleDashboardChat();" class="text-gray-400 hover:text-white text-lg" style="background:none; border:none; cursor:pointer;">&times;</button>
+        </div>
+        <div class="flex-1 overflow-y-auto p-4" id="chat-messages">
+            <div class="chat-message assistant">
+                <div class="chat-bubble">
+                    Ask me anything about your medical records, medications, lab results, or findings.
                 </div>
-                <div class="chat-input-row">
-                    <input class="chat-input" id="chat-input" type="text"
-                           placeholder="Ask about your records..."
-                           onkeydown="if(event.key==='Enter')App.sendChat();">
-                    <button class="btn btn-primary" onclick="App.sendChat();">Send</button>
-                </div>
+            </div>
+        </div>
+        <div class="p-4 border-t border-border-faint">
+            <div style="display:flex; gap:8px;">
+                <input id="chat-input" type="text" class="flex-1 bg-surface-raised border border-border-muted rounded-gnome-sm px-3 py-2 text-white text-sm" placeholder="Ask about your records..." onkeydown="if(event.key==='Enter')App.sendChat();">
+                <button class="bg-heat text-white px-4 py-2 rounded-gnome-sm text-sm font-medium" style="border:none; cursor:pointer;" onclick="App.sendChat();">Send</button>
             </div>
         </div>
     </div>
