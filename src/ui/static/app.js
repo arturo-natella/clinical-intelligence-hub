@@ -697,10 +697,71 @@ var App = {
         } catch (e) { /* no data */ }
     },
 
-    // ── Environmental (stub — implemented in Phase D) ───
+    // ── Environmental ──────────────────────────────────
 
     loadEnvironmental: async function() {
-        // Will be implemented in Phase D
+        try {
+            var data = await api("/api/environmental");
+            var locBadge = $("env-location-badge");
+            var personalizedList = $("env-personalized-list");
+            var regionalList = $("env-regional-list");
+            var emptyState = $("env-empty");
+            var personalizedSection = $("env-personalized");
+            var regionalSection = $("env-regional");
+
+            while (personalizedList.firstChild) personalizedList.removeChild(personalizedList.firstChild);
+            while (regionalList.firstChild) regionalList.removeChild(regionalList.firstChild);
+
+            if (!data || !data.risks || !data.risks.length) {
+                emptyState.style.display = "block";
+                personalizedSection.style.display = "none";
+                regionalSection.style.display = "none";
+                return;
+            }
+            emptyState.style.display = "none";
+            personalizedSection.style.display = "block";
+            regionalSection.style.display = "block";
+
+            if (data.location) locBadge.textContent = data.location;
+
+            var hasPersonalized = false, hasRegional = false;
+            for (var i = 0; i < data.risks.length; i++) {
+                var risk = data.risks[i];
+                var card = document.createElement("div");
+                card.style.cssText = "background:var(--bg-raised); border-radius:12px; padding:16px; margin-bottom:12px; border-left:3px solid " + (risk.personalized ? "var(--heat)" : "var(--border-muted)") + ";";
+
+                var title = document.createElement("div");
+                title.style.cssText = "font-weight:500; color:var(--text-primary); margin-bottom:4px;";
+                title.textContent = risk.name || risk.title || "Risk";
+                card.appendChild(title);
+
+                var desc = document.createElement("div");
+                desc.style.cssText = "font-size:14px; color:var(--text-secondary); margin-bottom:8px;";
+                desc.textContent = risk.description || "";
+                card.appendChild(desc);
+
+                if (risk.action) {
+                    var action = document.createElement("div");
+                    action.style.cssText = "font-size:14px; color:var(--accent-teal);";
+                    action.textContent = risk.action;
+                    card.appendChild(action);
+                }
+
+                if (risk.personalized) {
+                    personalizedList.appendChild(card);
+                    hasPersonalized = true;
+                } else {
+                    regionalList.appendChild(card);
+                    hasRegional = true;
+                }
+            }
+            if (!hasPersonalized) personalizedSection.style.display = "none";
+            if (!hasRegional) regionalSection.style.display = "none";
+        } catch (e) {
+            $("env-empty").style.display = "block";
+            $("env-personalized").style.display = "none";
+            $("env-regional").style.display = "none";
+        }
     },
 
     // ── Health Tracker (stub — implemented in Phase I) ──
