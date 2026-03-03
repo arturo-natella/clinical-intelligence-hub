@@ -149,6 +149,23 @@ var App = {
         }
     },
 
+    resetVault: async function() {
+        if (!confirm("This will delete all encrypted patient data and let you start fresh with a new passphrase. Continue?")) {
+            return;
+        }
+        try {
+            await api("/api/vault/reset", { method: "POST" });
+            $("passphrase-error").textContent = "";
+            $("passphrase-error").style.display = "none";
+            $("passphrase-input").value = "";
+            $("passphrase-input").placeholder = "Choose a new passphrase";
+            alert("Vault reset. Enter a new passphrase to create a fresh vault.");
+        } catch (e) {
+            $("passphrase-error").textContent = e.message || "Failed to reset vault";
+            $("passphrase-error").style.display = "block";
+        }
+    },
+
     // ── View Navigation ───────────────────────────────
 
     navigateTo: function(view) {

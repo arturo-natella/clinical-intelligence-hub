@@ -58,7 +58,7 @@ def assets(filename):
     return send_from_directory(str(STATIC_DIR / "assets"), filename)
 
 
-@app.route("/models/<path:filename>")
+@app.route("/models/<path:filename>", methods=["GET", "HEAD"])
 def models(filename):
     """Serve 3D model files (GLB, etc.)."""
     return send_from_directory(str(STATIC_DIR / "models"), filename)
@@ -112,6 +112,25 @@ def unlock_vault():
     except Exception as e:
         logger.error(f"Vault unlock failed: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/vault/reset", methods=["POST"])
+def reset_vault():
+    """Delete encrypted vault files so the user can start fresh."""
+    global _passphrase, _profile_data
+
+    _passphrase = None
+    _profile_data = None
+
+    removed = []
+    for fname in ["patient_profile.enc", "api_vault.enc"]:
+        fpath = DATA_DIR / fname
+        if fpath.exists():
+            fpath.unlink()
+            removed.append(fname)
+
+    logger.info(f"Vault reset — removed: {removed}")
+    return jsonify({"status": "reset", "removed": removed})
 
 
 @app.route("/api/session/clear", methods=["POST"])
@@ -2634,9 +2653,28 @@ def api_key_status():
 
 def run(host: str = "127.0.0.1", port: int = 5000, debug: bool = False):
     """Start the Flask server."""
+    global _passphrase, _profile_data
+
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Auto-unlock from VAULT_PASSPHRASE env var (set by start.command)
+    env_passphrase = os.environ.get("VAULT_PASSPHRASE")
+    if env_passphrase and _passphrase is None:
+        try:
+            from src.encryption import EncryptedVault
+            vault = EncryptedVault(DATA_DIR, env_passphrase)
+            if vault.verify_passphrase():
+                _passphrase = env_passphrase
+                profile = vault.load_profile()
+                if profile:
+                    _profile_data = profile
+                logger.info("Vault auto-unlocked from VAULT_PASSPHRASE")
+            else:
+                logger.warning("VAULT_PASSPHRASE did not match existing vault")
+        except Exception as e:
+            logger.warning(f"Auto-unlock failed: {e}")
 
     logger.info(f"Starting Clinical Intelligence Hub on http://{host}:{port}")
     app.run(host=host, port=port, debug=debug, threaded=True)
