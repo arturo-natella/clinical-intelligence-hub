@@ -200,6 +200,15 @@ var App = {
         }
     },
 
+    // ── Dashboard Chat Toggle ─────────────────────────
+
+    toggleDashboardChat: function() {
+        var panel = $("dashboard-chat");
+        if (!panel) return;
+        var isOpen = panel.style.transform === "translateX(0px)" || panel.style.transform === "translateX(0%)";
+        panel.style.transform = isOpen ? "translateX(100%)" : "translateX(0px)";
+    },
+
     // ── 3D Body Map Initialization ───────────────────
 
     initBodyMap3D: function() {
