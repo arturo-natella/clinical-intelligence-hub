@@ -143,98 +143,136 @@
     <!-- ── Dashboard — Diagnostic Command Center ─────── -->
     <div id="view-dashboard" class="view active">
 
-        <!-- Top Bar: AI narrative + risk score + visit prep -->
-        <div class="bg-surface-card rounded-gnome p-5 border border-border-faint mb-6">
-            <div style="display:flex; gap:24px; align-items:flex-start;">
+        <!-- ╔═══════════════════════════════════════════════════╗
+             ║  KPI Cards Row — Tableau-style metric strip        ║
+             ╚═══════════════════════════════════════════════════╝ -->
+        <div style="display:grid; grid-template-columns:repeat(6, 1fr); gap:10px; margin-bottom:16px;">
+
+            <div style="background:var(--surface-card); border-radius:8px; padding:12px 14px; border:1px solid var(--border-faint); border-top:3px solid #5080B0;">
+                <div style="font-size:10px; font-weight:600; letter-spacing:0.08em; color:#607080; margin-bottom:6px;">RISK SCORE</div>
+                <div id="dash-risk-gauge" style="min-height:36px;">
+                    <div style="display:flex; align-items:baseline; gap:4px;">
+                        <div style="font-size:22px; font-weight:700; color:#fff;" id="dash-risk-score">—</div>
+                        <div style="font-size:10px; color:#556;">/100</div>
+                    </div>
+                </div>
+            </div>
+
+            <div style="background:var(--surface-card); border-radius:8px; padding:12px 14px; border:1px solid var(--border-faint); border-top:3px solid #5080B0;">
+                <div style="font-size:10px; font-weight:600; letter-spacing:0.08em; color:#607080; margin-bottom:6px;">MEDICATIONS</div>
+                <div style="display:flex; align-items:baseline; gap:4px;">
+                    <div style="font-size:22px; font-weight:700; color:#fff;" id="kpi-med-count">—</div>
+                    <div style="font-size:10px; color:#556;">active</div>
+                </div>
+                <div id="kpi-pgx-badge" style="display:none; margin-top:4px; font-size:10px; padding:2px 6px; border-radius:4px; background:rgba(80,128,176,0.15); color:#7AA8D0;"></div>
+            </div>
+
+            <div style="background:var(--surface-card); border-radius:8px; padding:12px 14px; border:1px solid var(--border-faint); border-top:3px solid #5080B0;">
+                <div style="font-size:10px; font-weight:600; letter-spacing:0.08em; color:#607080; margin-bottom:6px;">CONDITIONS</div>
+                <div style="display:flex; align-items:baseline; gap:4px;">
+                    <div style="font-size:22px; font-weight:700; color:#fff;" id="kpi-dx-count">—</div>
+                    <div style="font-size:10px; color:#556;">diagnoses</div>
+                </div>
+            </div>
+
+            <div style="background:var(--surface-card); border-radius:8px; padding:12px 14px; border:1px solid var(--border-faint); border-top:3px solid #5080B0;">
+                <div style="font-size:10px; font-weight:600; letter-spacing:0.08em; color:#607080; margin-bottom:6px;">FLAGS</div>
+                <div style="display:flex; align-items:baseline; gap:4px;">
+                    <div style="font-size:22px; font-weight:700; color:#fff;" id="kpi-flags-count">—</div>
+                    <div style="font-size:10px; color:#556;">findings</div>
+                </div>
+            </div>
+
+            <div style="background:var(--surface-card); border-radius:8px; padding:12px 14px; border:1px solid var(--border-faint); border-top:3px solid #5080B0;">
+                <div style="font-size:10px; font-weight:600; letter-spacing:0.08em; color:#607080; margin-bottom:6px;">SYMPTOMS</div>
+                <div style="display:flex; align-items:baseline; gap:4px;">
+                    <div style="font-size:22px; font-weight:700; color:#fff;" id="kpi-symptom-count">—</div>
+                    <div style="font-size:10px; color:#556;">tracked</div>
+                </div>
+            </div>
+
+            <div style="background:var(--surface-card); border-radius:8px; padding:12px 14px; border:1px solid var(--border-faint); border-top:3px solid #5080B0;">
+                <div style="font-size:10px; font-weight:600; letter-spacing:0.08em; color:#607080; margin-bottom:6px;">LAB RESULTS</div>
+                <div style="display:flex; align-items:baseline; gap:4px;">
+                    <div style="font-size:22px; font-weight:700; color:#fff;" id="kpi-lab-count">—</div>
+                    <div style="font-size:10px; color:#556;">tests</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Top Bar: AI narrative + actions -->
+        <div style="background:var(--surface-card); border-radius:8px; padding:14px 18px; border:1px solid var(--border-faint); margin-bottom:12px;">
+            <div style="display:flex; gap:16px; align-items:flex-start;">
                 <div style="flex:1;">
-                    <div class="text-sm font-medium mb-2" style="color:var(--text-muted);">AI SUMMARY</div>
-                    <div id="dash-ai-narrative" style="color:var(--text-secondary); font-size:15px; line-height:1.7;">
+                    <div style="font-size:10px; font-weight:600; letter-spacing:0.08em; color:#777; margin-bottom:4px;">AI CLINICAL SUMMARY</div>
+                    <div id="dash-ai-narrative" style="color:var(--text-secondary); font-size:13px; line-height:1.6;">
                         Upload and analyze your records to see a personalized health summary here.
                     </div>
                 </div>
-                <div style="display:flex; gap:16px; flex-shrink:0; align-items:center;">
-                    <div id="dash-risk-badge" class="text-center" style="min-width:80px;">
-                        <div class="text-2xl font-bold" id="dash-risk-score" style="color:var(--text-muted);">—</div>
-                        <div class="text-xs" style="color:var(--text-muted);">Risk Score</div>
-                    </div>
-                    <button class="btn btn-secondary btn-sm" onclick="App.prepareForVisit();" id="dash-visit-prep-btn">
+                <div style="display:flex; gap:8px; flex-shrink:0; align-items:center;">
+                    <button class="btn btn-secondary btn-sm" onclick="App.prepareForVisit();" id="dash-visit-prep-btn" style="font-size:12px; padding:5px 12px;">
                         Visit Prep
                     </button>
-                    <button class="btn btn-outline btn-sm" onclick="App.toggleDashboardChat();" id="dash-chat-toggle-btn" style="color:var(--accent-bluetron); border-color:var(--accent-bluetron);">
+                    <button class="btn btn-outline btn-sm" onclick="App.toggleDashboardChat();" id="dash-chat-toggle-btn" style="color:var(--accent-bluetron); border-color:var(--accent-bluetron); font-size:12px; padding:5px 12px;">
                         Chat
                     </button>
                 </div>
             </div>
         </div>
 
-        <!-- Analytics Grid -->
-        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:16px; margin-bottom:24px;">
+        <!-- ╔═══════════════════════════════════════════════════╗
+             ║  Charts Grid — Tableau-style analytics            ║
+             ╚═══════════════════════════════════════════════════╝ -->
+        <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; margin-bottom:20px;">
 
-            <!-- Blood Panel Overview -->
-            <div class="bg-surface-card rounded-gnome p-5 border border-border-faint">
-                <div class="text-sm font-medium mb-3" style="color:var(--text-muted);">BLOOD PANEL</div>
-                <div id="dash-blood-panel" style="color:var(--text-secondary); font-size:14px;">No lab data yet</div>
+            <!-- Blood Panel — range bar chart -->
+            <div style="background:var(--surface-card); border-radius:8px; padding:14px 16px; border:1px solid var(--border-faint);">
+                <div style="font-size:10px; font-weight:600; letter-spacing:0.08em; color:#777; margin-bottom:8px;">BLOOD PANEL</div>
+                <div id="dash-blood-panel" style="min-height:120px; color:var(--text-secondary); font-size:13px;">No lab data yet</div>
             </div>
 
-            <!-- Active Medications -->
-            <div class="bg-surface-card rounded-gnome p-5 border border-border-faint">
-                <div class="text-sm font-medium mb-3" style="color:var(--text-muted);">MEDICATIONS</div>
-                <div style="display:flex; align-items:baseline; gap:8px;">
-                    <div class="text-3xl font-bold" id="dash-med-count" style="color:var(--accent-bluetron);">—</div>
-                    <div class="text-sm" style="color:var(--text-secondary);">active medications</div>
-                </div>
-                <div id="dash-pgx-alert" style="display:none; margin-top:8px; font-size:13px; color:var(--accent-amethyst);"></div>
+            <!-- Medications — donut chart with legend -->
+            <div style="background:var(--surface-card); border-radius:8px; padding:14px 16px; border:1px solid var(--border-faint);">
+                <div style="font-size:10px; font-weight:600; letter-spacing:0.08em; color:#777; margin-bottom:8px;">MEDICATION BREAKDOWN</div>
+                <div id="dash-med-chart" style="min-height:120px;"></div>
+                <div id="dash-pgx-alert" style="display:none; margin-top:6px; font-size:11px; padding:4px 8px; border-radius:4px; background:rgba(160,122,255,0.1); color:var(--accent-amethyst);"></div>
             </div>
 
-            <!-- Lab Trend Sparklines -->
-            <div class="bg-surface-card rounded-gnome p-5 border border-border-faint">
-                <div class="text-sm font-medium mb-3" style="color:var(--text-muted);">LAB TRENDS</div>
-                <div id="dash-lab-trends" style="color:var(--text-secondary); font-size:14px;">No trend data</div>
+            <!-- Flags — donut + severity bar -->
+            <div style="background:var(--surface-card); border-radius:8px; padding:14px 16px; border:1px solid var(--border-faint);">
+                <div style="font-size:10px; font-weight:600; letter-spacing:0.08em; color:#777; margin-bottom:8px;">CLINICAL FLAGS</div>
+                <div id="dash-flags-chart" style="min-height:90px;"></div>
+                <div id="dash-flags-severity-bar" style="margin-top:8px;"></div>
             </div>
 
-            <!-- Active Conditions -->
-            <div class="bg-surface-card rounded-gnome p-5 border border-border-faint">
-                <div class="text-sm font-medium mb-3" style="color:var(--text-muted);">CONDITIONS</div>
-                <div style="display:flex; align-items:baseline; gap:8px;">
-                    <div class="text-3xl font-bold" id="dash-dx-count" style="color:var(--accent-amethyst);">—</div>
-                    <div class="text-sm" style="color:var(--text-secondary);">active diagnoses</div>
-                </div>
+            <!-- Lab Trend Lines (full width) -->
+            <div style="background:var(--surface-card); border-radius:8px; padding:14px 16px; border:1px solid var(--border-faint); grid-column:span 3;">
+                <div style="font-size:10px; font-weight:600; letter-spacing:0.08em; color:#777; margin-bottom:8px;">LAB TRENDS OVER TIME</div>
+                <div id="dash-lab-trends" style="min-height:180px; color:var(--text-secondary); font-size:13px;">No trend data</div>
             </div>
 
-            <!-- Overdue / Missing Tests -->
-            <div class="bg-surface-card rounded-gnome p-5 border border-border-faint">
-                <div class="text-sm font-medium mb-3" style="color:var(--text-muted);">OVERDUE TESTS</div>
-                <div id="dash-overdue" style="color:var(--text-secondary); font-size:14px;">No overdue tests</div>
+            <!-- Conditions — horizontal bar chart -->
+            <div style="background:var(--surface-card); border-radius:8px; padding:14px 16px; border:1px solid var(--border-faint);">
+                <div style="font-size:10px; font-weight:600; letter-spacing:0.08em; color:#777; margin-bottom:8px;">CONDITIONS</div>
+                <div id="dash-dx-chart" style="min-height:120px;"></div>
             </div>
 
-            <!-- Flags Count -->
-            <div class="bg-surface-card rounded-gnome p-5 border border-border-faint">
-                <div class="text-sm font-medium mb-3" style="color:var(--text-muted);">FLAGS</div>
-                <div style="display:flex; align-items:baseline; gap:8px;">
-                    <div class="text-3xl font-bold" id="dash-flags-count" style="color:var(--heat);">—</div>
-                    <div class="text-sm" style="color:var(--text-secondary);">flagged findings</div>
-                </div>
+            <!-- Symptoms — bar chart -->
+            <div style="background:var(--surface-card); border-radius:8px; padding:14px 16px; border:1px solid var(--border-faint);">
+                <div style="font-size:10px; font-weight:600; letter-spacing:0.08em; color:#777; margin-bottom:8px;">SYMPTOM EPISODES</div>
+                <div id="dash-symptom-chart" style="min-height:120px;"></div>
             </div>
 
-            <!-- Cross-Specialty Alerts -->
-            <div class="bg-surface-card rounded-gnome p-5 border border-border-faint">
-                <div class="text-sm font-medium mb-3" style="color:var(--text-muted);">CROSS-SPECIALTY</div>
-                <div id="dash-cross-spec" style="color:var(--text-secondary); font-size:14px;">No cross-specialty patterns</div>
+            <!-- Cross-Specialty Patterns -->
+            <div style="background:var(--surface-card); border-radius:8px; padding:14px 16px; border:1px solid var(--border-faint);">
+                <div style="font-size:10px; font-weight:600; letter-spacing:0.08em; color:#777; margin-bottom:8px;">CROSS-SPECIALTY</div>
+                <div id="dash-cross-spec" style="min-height:100px; color:var(--text-secondary); font-size:12px;">No cross-specialty patterns</div>
             </div>
 
-            <!-- Symptoms -->
-            <div class="bg-surface-card rounded-gnome p-5 border border-border-faint">
-                <div class="text-sm font-medium mb-3" style="color:var(--text-muted);">SYMPTOMS</div>
-                <div style="display:flex; align-items:baseline; gap:8px;">
-                    <div class="text-3xl font-bold" id="dash-symptom-count" style="color:var(--rose);">—</div>
-                    <div class="text-sm" style="color:var(--text-secondary);">tracked symptoms</div>
-                </div>
-            </div>
-
-            <!-- Vitals -->
-            <div class="bg-surface-card rounded-gnome p-5 border border-border-faint">
-                <div class="text-sm font-medium mb-3" style="color:var(--text-muted);">VITALS</div>
-                <div id="dash-vitals" style="color:var(--text-secondary); font-size:14px;">No vitals data</div>
+            <!-- Overdue / Missing Tests (full width) -->
+            <div style="background:var(--surface-card); border-radius:8px; padding:14px 16px; border:1px solid var(--border-faint); grid-column:span 3;">
+                <div style="font-size:10px; font-weight:600; letter-spacing:0.08em; color:#777; margin-bottom:8px;">OVERDUE &amp; RECOMMENDED TESTS</div>
+                <div id="dash-overdue" style="min-height:40px; color:var(--text-secondary); font-size:12px;">No overdue tests</div>
             </div>
         </div>
 
@@ -251,9 +289,12 @@
             <input type="file" id="file-input" multiple style="display:none;"
                    accept=".pdf,.dcm,.json,.png,.jpg,.jpeg,.tif,.tiff,.txt,.csv,.vcf"
                    onchange="App.handleFiles(this.files);">
-            <div style="text-align:center; margin-top:8px;">
+            <div style="text-align:center; margin-top:8px; display:flex; gap:10px; justify-content:center;">
                 <button class="btn btn-outline btn-sm" onclick="document.getElementById('file-input').click();">
                     Or click to browse files
+                </button>
+                <button class="btn btn-outline btn-sm" onclick="App.loadDemoData();" style="color:var(--accent-amethyst); border-color:var(--accent-amethyst);">
+                    Load Demo Patient
                 </button>
             </div>
         </div>
@@ -361,7 +402,13 @@
     <!-- ── Timeline ───────────────────────────────────── -->
     <div id="view-timeline" class="view">
         <div class="card">
-            <div class="card-title">Health Timeline</div>
+            <div class="card-title" style="display:flex; align-items:center; justify-content:space-between;">
+                <span>Health Timeline</span>
+                <div class="tl-view-toggle">
+                    <button class="tl-view-btn active" data-tl-view="flow" onclick="Timeline.setView('flow')">Flow</button>
+                    <button class="tl-view-btn" data-tl-view="list" onclick="Timeline.setView('list')">List</button>
+                </div>
+            </div>
             <div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
                 <button class="btn btn-sm btn-outline timeline-filter active" data-type="all" onclick="Timeline.filter('all')">All</button>
                 <button class="btn btn-sm btn-outline timeline-filter" data-type="medication" onclick="Timeline.filter('medication')">Medications</button>
@@ -371,7 +418,14 @@
                 <button class="btn btn-sm btn-outline timeline-filter" data-type="imaging" onclick="Timeline.filter('imaging')">Imaging</button>
                 <button class="btn btn-sm btn-outline timeline-filter" data-type="symptom" onclick="Timeline.filter('symptom')">Symptoms</button>
             </div>
-            <div id="timeline-list">
+            <!-- Flowing D3 timeline (default) -->
+            <div id="timeline-flow-container">
+                <div style="color:var(--text-muted); text-align:center; padding:40px;">
+                    Upload and analyze records to see your health timeline.
+                </div>
+            </div>
+            <!-- Legacy list view (hidden by default) -->
+            <div id="timeline-list" style="display:none;">
                 <div style="color:var(--text-muted); text-align:center; padding:40px;">
                     Upload and analyze records to see your health timeline.
                 </div>
@@ -626,10 +680,60 @@
 
     <!-- ── Health Tracker ──────────────────────────────── -->
     <div id="view-tracker" class="view">
+        <!-- Vitals Entry Form -->
+        <div class="card" style="margin-bottom:16px;">
+            <div class="card-title" style="display:flex; align-items:center; justify-content:space-between;">
+                <span>Log Vital Signs</span>
+                <button class="btn btn-primary btn-sm" onclick="Tracker.toggleForm();" id="tracker-form-toggle">+ New Entry</button>
+            </div>
+            <div id="tracker-form" style="display:none;">
+                <div style="display:grid; grid-template-columns:1fr 1fr 1fr auto; gap:12px; align-items:end;">
+                    <div>
+                        <label style="font-size:11px; color:var(--text-muted); display:block; margin-bottom:4px;">Vital Type</label>
+                        <select id="tracker-type" class="bg-surface-raised border border-border-muted rounded-gnome-sm px-3 py-2 text-white text-sm w-full" style="background:var(--bg-raised); color:var(--text-primary); border:1px solid var(--border-muted); border-radius:8px; padding:8px 12px; font-size:13px;">
+                            <option value="blood_pressure_sys">BP Systolic (mmHg)</option>
+                            <option value="blood_pressure_dia">BP Diastolic (mmHg)</option>
+                            <option value="heart_rate">Heart Rate (bpm)</option>
+                            <option value="blood_glucose">Blood Glucose (mg/dL)</option>
+                            <option value="weight">Weight (lbs)</option>
+                            <option value="temperature">Temperature (&deg;F)</option>
+                            <option value="oxygen_sat">O&#8322; Saturation (%)</option>
+                            <option value="a1c">HbA1c (%)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="font-size:11px; color:var(--text-muted); display:block; margin-bottom:4px;">Value</label>
+                        <input id="tracker-value" type="number" step="0.1" placeholder="120" class="bg-surface-raised border border-border-muted rounded-gnome-sm px-3 py-2 text-white text-sm w-full" style="background:var(--bg-raised); color:var(--text-primary); border:1px solid var(--border-muted); border-radius:8px; padding:8px 12px; font-size:13px;">
+                    </div>
+                    <div>
+                        <label style="font-size:11px; color:var(--text-muted); display:block; margin-bottom:4px;">Notes (optional)</label>
+                        <input id="tracker-notes" type="text" placeholder="Before breakfast" class="bg-surface-raised border border-border-muted rounded-gnome-sm px-3 py-2 text-white text-sm w-full" style="background:var(--bg-raised); color:var(--text-primary); border:1px solid var(--border-muted); border-radius:8px; padding:8px 12px; font-size:13px;">
+                    </div>
+                    <button class="btn btn-primary" onclick="Tracker.logEntry();" style="height:38px;">Log</button>
+                </div>
+                <div id="tracker-form-error" style="color:var(--accent-crimson); font-size:12px; margin-top:8px; display:none;"></div>
+            </div>
+        </div>
+
+        <!-- Vital Trend Cards -->
+        <div id="tracker-trends" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:12px; margin-bottom:16px;">
+        </div>
+
+        <!-- Risk Score Breakdown -->
+        <div class="card" style="margin-bottom:16px;">
+            <div class="card-title">Risk Score Breakdown</div>
+            <div id="risk-breakdown-content" style="min-height:60px;">
+                <div style="color:var(--text-muted); text-align:center; padding:20px;">Loading risk analysis...</div>
+            </div>
+        </div>
+
+        <!-- Recent Entries Log -->
         <div class="card">
-            <div class="card-title">Health Tracker</div>
-            <div id="tracker-content" style="color:var(--text-muted); text-align:center; padding:40px;">
-                Connect your Fitbit, Apple Watch, or other health tracker to see trends here.
+            <div class="card-title">Recent Entries</div>
+            <div id="tracker-entries" style="max-height:400px; overflow-y:auto;">
+                <div style="color:var(--text-muted); text-align:center; padding:40px;">
+                    No entries yet. Log your first vital sign above.
+                </div>
             </div>
         </div>
     </div>
@@ -768,6 +872,9 @@
 <script src="/js/symptoms.js"></script>
 <script src="/js/symptom_analytics.js"></script>
 <script src="/js/sparklines.js"></script>
+<script src="/js/dashboard_charts.js"></script>
+<script src="/js/crossdisc_graph.js"></script>
+<script src="/js/timeline_flow.js"></script>
 <script src="/app.js"></script>
 
 </body>

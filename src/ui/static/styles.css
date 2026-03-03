@@ -595,6 +595,80 @@ a, button, input, textarea, select {
     border-color: var(--heat);
 }
 
+/* ── Flowing Timeline (D3 swim-lane) ───────────────────── */
+
+#timeline-flow-container {
+    position: relative;
+    width: 100%;
+    min-height: 200px;
+    overflow: hidden;
+}
+
+#timeline-flow-container svg {
+    display: block;
+}
+
+.tl-tooltip {
+    position: absolute;
+    background: var(--bg-raised);
+    border: 1px solid var(--border-muted);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+    pointer-events: none;
+    z-index: 100;
+    max-width: 280px;
+    box-shadow: var(--shadow);
+    transition: opacity 0.15s ease;
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    color: var(--text-primary);
+}
+
+.tl-brush .selection {
+    fill: var(--heat);
+    fill-opacity: 0.15;
+    stroke: var(--heat);
+    stroke-opacity: 0.4;
+    rx: 3;
+}
+
+.tl-brush .handle {
+    fill: var(--heat);
+    fill-opacity: 0.5;
+}
+
+.tl-node-label {
+    font-family: 'Inter', sans-serif;
+}
+
+.tl-view-toggle {
+    display: flex;
+    gap: 4px;
+    margin-left: auto;
+}
+
+.tl-view-btn {
+    background: transparent;
+    border: 1px solid var(--border-faint);
+    border-radius: 6px;
+    padding: 4px 10px;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.15s;
+}
+
+.tl-view-btn:hover {
+    border-color: var(--border-muted);
+    color: var(--text-secondary);
+}
+
+.tl-view-btn.active {
+    background: var(--heat-12);
+    border-color: var(--heat);
+    color: var(--heat);
+}
+
 /* ── Body Map (Legacy 2D — kept as fallback) ────────────── */
 
 .bodymap-zone {

@@ -10,7 +10,7 @@ Drop your medical records (PDFs, DICOM images, FHIR data, genetic tests) and the
 2. **Detects** findings in medical images (MONAI pre-trained models)
 3. **Redacts** personal information before any cloud processing
 4. **Analyzes** patterns across 29 medical specialties + 7 adjacent domains
-5. **Validates** against FDA, DrugBank, PubMed, and clinical databases
+5. **Validates** against 26 clinical databases (FDA, DrugBank, PubMed, ClinVar, OMIM, PharmGKB, and 20 more)
 6. **Generates** a 10-section report with provenance-traced citations
 7. **Monitors** for new research, drug alerts, and guideline changes
 
@@ -18,10 +18,12 @@ Drop your medical records (PDFs, DICOM images, FHIR data, genetic tests) and the
 
 - **Clinical Intelligence Dashboard** — Patient overview, monitoring alerts, quick actions
 - **3D Anatomy Viewer** — Interactive body map with findings mapped to regions
-- **Timeline Explorer** — Chronological view of all medical events
-- **Cross-Disciplinary Connections** — What individual specialists miss
+- **Flowing Timeline** — D3.js swim-lane visualization with zoom, pan, and brush navigation
+- **Cross-Disciplinary Connections** — Force-directed graph showing what individual specialists miss
+- **Health Tracker** — Log vitals, track trends, risk score breakdown with 6-factor analysis
 - **Lab Trends** — Values charted over time with threshold indicators
 - **Medication Tracker** — Active meds, interactions, pharmacogenomic flags
+- **26-Source Validation** — Every finding cross-checked against FDA, DrugBank, PubMed, ClinVar, OMIM, PharmGKB, and 20 more
 - **Community Insights** — Reddit pattern detection (clearly labeled as anecdotal)
 - **Clinical AI Chat** — Ask questions about your records
 - **Continuous Monitoring** — Daily/weekly checks for relevant new findings
