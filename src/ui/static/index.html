@@ -5,6 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Clinical Intelligence Hub</title>
     <link rel="stylesheet" href="/styles.css">
+
+    <!-- Tailwind CSS (CDN) + MedPrep theme -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/tailwind-config.js"></script>
+
+    <!-- Three.js for 3D Anatomy Viewer -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <!-- D3.js for Snowball Differential Diagnostician graph -->
+    <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
 </head>
 <body>
 
@@ -37,6 +54,7 @@
         <button class="nav-tab active" data-view="dashboard">Dashboard</button>
         <button class="nav-tab" data-view="bodymap">Body Map</button>
         <button class="nav-tab" data-view="timeline">Timeline</button>
+        <button class="nav-tab" data-view="symptoms">Symptoms</button>
         <button class="nav-tab" data-view="medications">Medications</button>
         <button class="nav-tab" data-view="labs">Labs</button>
         <button class="nav-tab" data-view="imaging">Imaging</button>
@@ -77,6 +95,20 @@
             <div class="card stat-card">
                 <div class="stat-value" id="stat-flags">—</div>
                 <div class="stat-label">Flagged Findings</div>
+            </div>
+            <div class="card stat-card">
+                <div class="stat-value" id="stat-symptoms">—</div>
+                <div class="stat-label">Tracked Symptoms</div>
+            </div>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="card" id="quick-actions-card">
+            <div class="card-title">Quick Actions</div>
+            <div class="quick-actions-row">
+                <button class="btn btn-secondary" onclick="App.prepareForVisit();">
+                    📋 Prepare for Visit
+                </button>
             </div>
         </div>
 
@@ -135,65 +167,66 @@
         </div>
     </div>
 
-    <!-- ── Body Map ───────────────────────────────────── -->
+    <!-- ── Body Map (3D Anatomy Viewer) ────────────────── -->
     <div id="view-bodymap" class="view">
         <div class="card">
             <div class="card-title">3D Interactive Anatomy Viewer</div>
-            <div style="display:flex; gap:16px; margin-bottom:16px;">
-                <button class="btn btn-sm btn-outline bodymap-layer active" data-layer="skin" onclick="BodyMap.setLayer('skin')">Skin</button>
-                <button class="btn btn-sm btn-outline bodymap-layer" data-layer="muscle" onclick="BodyMap.setLayer('muscle')">Muscle</button>
-                <button class="btn btn-sm btn-outline bodymap-layer" data-layer="skeleton" onclick="BodyMap.setLayer('skeleton')">Skeleton</button>
-                <button class="btn btn-sm btn-outline bodymap-layer" data-layer="organs" onclick="BodyMap.setLayer('organs')">Organs</button>
+
+            <!-- Toolbar: layers + controls -->
+            <div class="bodymap-toolbar">
+                <button class="btn btn-sm btn-outline bodymap-layer active" data-layer="skin">Skin</button>
+                <button class="btn btn-sm btn-outline bodymap-layer" data-layer="muscle">Muscle</button>
+                <button class="btn btn-sm btn-outline bodymap-layer" data-layer="skeleton">Skeleton</button>
+                <button class="btn btn-sm btn-outline bodymap-layer" data-layer="organs">Organs</button>
                 <div style="flex:1;"></div>
-                <button class="btn btn-sm btn-outline" id="bodymap-side-btn" onclick="BodyMap.toggleSide()">Show Back</button>
+                <button class="btn btn-sm btn-outline bodymap-healthy-toggle" id="bodymap-healthy-toggle" title="Toggle between healthy baseline and your current state" onclick="BodyMap3D.toggleHealthyView();">Show Healthy</button>
+                <button class="btn btn-sm btn-outline" id="snowball-dx-btn" title="Graph-theory differential diagnosis from your findings" onclick="SnowballDx.toggle();" style="color:var(--accent-amethyst); border-color:var(--accent-amethyst);">Differential Dx</button>
+                <button class="btn btn-sm gender-toggle" id="gender-toggle" title="Switch anatomy model">&#9794;</button>
+                <button class="btn btn-sm btn-outline" id="bodymap-reset-btn">Reset View</button>
             </div>
+
             <div style="display:flex; gap:24px;">
-                <div id="bodymap-container" style="position:relative; width:400px; min-height:600px; flex-shrink:0;">
-                    <img id="bodymap-img" src="/assets/anatomy.png" alt="Body Map"
-                         style="width:100%; height:auto; display:block;">
-                    <!-- SVG overlay for clickable zones -->
-                    <svg id="bodymap-overlay" style="position:absolute; top:0; left:0; width:100%; height:100%;"
-                         viewBox="0 0 400 600" preserveAspectRatio="xMidYMid meet">
-                        <!-- Head -->
-                        <ellipse cx="200" cy="55" rx="50" ry="50" fill="transparent"
-                                 class="bodymap-zone" data-region="head"
-                                 onclick="BodyMap.selectRegion('head')"/>
-                        <!-- Chest -->
-                        <rect x="135" y="120" width="130" height="100" rx="10" fill="transparent"
-                              class="bodymap-zone" data-region="chest"
-                              onclick="BodyMap.selectRegion('chest')"/>
-                        <!-- Abdomen -->
-                        <rect x="140" y="225" width="120" height="80" rx="10" fill="transparent"
-                              class="bodymap-zone" data-region="abdomen"
-                              onclick="BodyMap.selectRegion('abdomen')"/>
-                        <!-- Left Arm -->
-                        <rect x="75" y="130" width="55" height="170" rx="15" fill="transparent"
-                              class="bodymap-zone" data-region="left-arm"
-                              onclick="BodyMap.selectRegion('left-arm')"/>
-                        <!-- Right Arm -->
-                        <rect x="270" y="130" width="55" height="170" rx="15" fill="transparent"
-                              class="bodymap-zone" data-region="right-arm"
-                              onclick="BodyMap.selectRegion('right-arm')"/>
-                        <!-- Pelvis -->
-                        <rect x="145" y="308" width="110" height="60" rx="10" fill="transparent"
-                              class="bodymap-zone" data-region="pelvis"
-                              onclick="BodyMap.selectRegion('pelvis')"/>
-                        <!-- Left Leg -->
-                        <rect x="130" y="375" width="65" height="210" rx="15" fill="transparent"
-                              class="bodymap-zone" data-region="left-leg"
-                              onclick="BodyMap.selectRegion('left-leg')"/>
-                        <!-- Right Leg -->
-                        <rect x="205" y="375" width="65" height="210" rx="15" fill="transparent"
-                              class="bodymap-zone" data-region="right-leg"
-                              onclick="BodyMap.selectRegion('right-leg')"/>
-                    </svg>
+                <!-- 3D Canvas Container -->
+                <div id="bodymap-canvas-container" style="position:relative; width:500px; height:700px; flex-shrink:0;">
+                    <canvas id="bodymap-canvas"></canvas>
+                    <!-- Tooltip overlay (positioned via JS) -->
+                    <div id="bodymap-tooltip" class="bodymap-tooltip" style="display:none;"></div>
+                    <!-- Loading spinner -->
+                    <div id="bodymap-loading" class="bodymap-loading">Loading anatomy model...</div>
                 </div>
-                <div style="flex:1;">
-                    <div class="card" id="bodymap-detail" style="margin-bottom:0;">
-                        <div class="card-title" id="bodymap-region-title">Select a body region</div>
-                        <div id="bodymap-findings" style="color:var(--text-secondary); font-size:14px;">
-                            Click on any body region to see related findings from your medical records.
-                        </div>
+
+                <!-- 2D Fallback (hidden when WebGL works) -->
+                <div id="bodymap-2d-fallback" style="display:none;">
+                    <div style="position:relative; width:400px;">
+                        <img id="bodymap-img" src="/assets/anatomy.png" alt="Body Map"
+                             style="width:100%; height:auto; display:block;">
+                        <svg id="bodymap-overlay" style="position:absolute; top:0; left:0; width:100%; height:100%;"
+                             viewBox="0 0 400 600" preserveAspectRatio="xMidYMid meet">
+                            <ellipse cx="200" cy="55" rx="50" ry="50" fill="transparent"
+                                     class="bodymap-zone" data-region="head"/>
+                            <rect x="135" y="120" width="130" height="100" rx="10" fill="transparent"
+                                  class="bodymap-zone" data-region="chest"/>
+                            <rect x="140" y="225" width="120" height="80" rx="10" fill="transparent"
+                                  class="bodymap-zone" data-region="abdomen"/>
+                            <rect x="75" y="130" width="55" height="170" rx="15" fill="transparent"
+                                  class="bodymap-zone" data-region="left-arm"/>
+                            <rect x="270" y="130" width="55" height="170" rx="15" fill="transparent"
+                                  class="bodymap-zone" data-region="right-arm"/>
+                            <rect x="145" y="308" width="110" height="60" rx="10" fill="transparent"
+                                  class="bodymap-zone" data-region="pelvis"/>
+                            <rect x="130" y="375" width="65" height="210" rx="15" fill="transparent"
+                                  class="bodymap-zone" data-region="left-leg"/>
+                            <rect x="205" y="375" width="65" height="210" rx="15" fill="transparent"
+                                  class="bodymap-zone" data-region="right-leg"/>
+                        </svg>
+                    </div>
+                </div>
+
+                <!-- Findings Panel -->
+                <div class="bodymap-findings-panel">
+                    <div class="findings-title" id="bodymap-region-title">Select a body region</div>
+                    <div id="bodymap-findings-list" style="color:var(--text-secondary); font-size:14px;">
+                        Click or orbit around the 3D model, then click a body region to see related findings from your medical records.
                     </div>
                 </div>
             </div>
@@ -211,6 +244,7 @@
                 <button class="btn btn-sm btn-outline timeline-filter" data-type="diagnosis" onclick="Timeline.filter('diagnosis')">Diagnoses</button>
                 <button class="btn btn-sm btn-outline timeline-filter" data-type="procedure" onclick="Timeline.filter('procedure')">Procedures</button>
                 <button class="btn btn-sm btn-outline timeline-filter" data-type="imaging" onclick="Timeline.filter('imaging')">Imaging</button>
+                <button class="btn btn-sm btn-outline timeline-filter" data-type="symptom" onclick="Timeline.filter('symptom')">Symptoms</button>
             </div>
             <div id="timeline-list">
                 <div style="color:var(--text-muted); text-align:center; padding:40px;">
@@ -220,10 +254,102 @@
         </div>
     </div>
 
+    <!-- ── Symptoms ──────────────────────────────────── -->
+    <div id="view-symptoms" class="view">
+        <!-- Sub-tab switcher -->
+        <div class="symptom-subtabs">
+            <button class="symptom-subtab active" data-subtab="tracker" onclick="Symptoms.switchTab('tracker')">Tracker</button>
+            <button class="symptom-subtab" data-subtab="patterns" onclick="Symptoms.switchTab('patterns')">Patterns</button>
+            <button class="symptom-subtab" data-subtab="analytics" onclick="Symptoms.switchTab('analytics')">Analytics</button>
+            <div style="flex:1;"></div>
+            <button class="btn btn-secondary btn-sm" onclick="App.prepareForVisit();">📋 Visit Prep</button>
+            <button class="btn btn-primary btn-sm" onclick="Symptoms.openAddSymptom();">+ Track New Symptom</button>
+        </div>
+
+        <!-- Tracker sub-tab -->
+        <div class="card symptom-subtab-content" id="symptom-tab-tracker">
+            <div class="card-title" style="display:flex; align-items:center; justify-content:space-between;">
+                <span>Symptom Tracker</span>
+                <div class="symptom-filters" id="symptom-filters">
+                    <button class="btn btn-sm btn-outline symptom-filter active" data-severity="all" onclick="Symptoms.filter('all')">All</button>
+                    <button class="btn btn-sm btn-outline symptom-filter" data-severity="high" onclick="Symptoms.filter('high')">High</button>
+                    <button class="btn btn-sm btn-outline symptom-filter" data-severity="mid" onclick="Symptoms.filter('mid')">Mid</button>
+                    <button class="btn btn-sm btn-outline symptom-filter" data-severity="low" onclick="Symptoms.filter('low')">Low</button>
+                </div>
+            </div>
+            <div id="symptoms-list">
+                <div style="color:var(--text-muted); text-align:center; padding:40px;">
+                    No symptoms tracked yet. Click <strong>+ Track New Symptom</strong> to start building your evidence.
+                </div>
+            </div>
+        </div>
+
+        <!-- Patterns sub-tab -->
+        <div class="card symptom-subtab-content" id="symptom-tab-patterns" style="display:none;">
+            <div class="card-title">Symptom Patterns</div>
+            <div id="patterns-content">
+                <div style="color:var(--text-muted); text-align:center; padding:40px;">
+                    Analyzing patterns...
+                </div>
+            </div>
+        </div>
+
+        <!-- Analytics sub-tab -->
+        <div class="symptom-subtab-content" id="symptom-tab-analytics" style="display:none;">
+            <div id="analytics-content">
+                <div style="color:var(--text-muted); text-align:center; padding:40px;">
+                    Loading analytics...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Symptom Setup Wizard Overlay ──────────────── -->
+    <div id="symptom-wizard-overlay" class="modal-overlay" style="display:none;">
+        <div class="modal" style="max-width:480px;" id="symptom-wizard-modal">
+            <!-- Wizard cards injected by Symptoms.openAddSymptom() -->
+        </div>
+    </div>
+
+    <!-- ── Episode Logging Modal ─────────────────────── -->
+    <div id="episode-modal-overlay" class="modal-overlay" style="display:none;">
+        <div class="modal" style="max-width:520px;" id="episode-modal">
+            <!-- Episode form injected by Symptoms.openAddEpisode() -->
+        </div>
+    </div>
+
+    <!-- ── Counter Add Wizard Overlay ────────────────── -->
+    <div id="counter-wizard-overlay" class="modal-overlay" style="display:none;">
+        <div class="modal" style="max-width:480px;" id="counter-wizard-modal">
+            <!-- Counter wizard cards injected by Symptoms.openAddCounter() -->
+        </div>
+    </div>
+
+    <!-- Visit Prep Overlay -->
+    <div id="visit-prep-overlay" class="modal-overlay" style="display:none;">
+        <div class="modal visit-prep-modal" id="visit-prep-modal">
+            <div class="visit-prep-header">
+                <h2>📋 Doctor Visit Preparation</h2>
+                <div style="display:flex; gap:8px;">
+                    <button class="btn btn-secondary btn-sm" onclick="App.downloadVisitPrep();">⬇ Download Word Doc</button>
+                    <button class="btn btn-outline btn-sm" onclick="App.closeVisitPrep();">Close</button>
+                </div>
+            </div>
+            <div id="visit-prep-content">
+                <div style="text-align:center; padding:40px; color:var(--text-muted);">
+                    Loading visit preparation...
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- ── Medications ────────────────────────────────── -->
     <div id="view-medications" class="view">
         <div class="card">
-            <div class="card-title">Active Medications</div>
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+                <div class="card-title" style="margin-bottom:0;">Active Medications</div>
+                <button class="btn btn-sm btn-outline" id="pgx-btn" title="See how your genes interact with your medications" onclick="PgxMap.open();" style="color:var(--accent-amethyst); border-color:var(--accent-amethyst);">PGx Collision Map</button>
+            </div>
             <table class="data-table" id="meds-active-table">
                 <thead>
                     <tr>
@@ -249,7 +375,13 @@
     <!-- ── Labs ───────────────────────────────────────── -->
     <div id="view-labs" class="view">
         <div class="card">
-            <div class="card-title">Lab Results</div>
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+                <div class="card-title" style="margin-bottom:0;">Lab Results</div>
+                <div style="display:flex; gap:8px;">
+                    <button class="btn btn-sm btn-outline" id="trajectory-btn" title="See how your lab values are trending over time" onclick="Trajectories.open();" style="color:var(--accent-bluetron); border-color:var(--accent-bluetron);">Trajectories</button>
+                    <button class="btn btn-sm btn-outline" id="cascade-btn" title="See how your abnormal lab values cascade into downstream effects" onclick="BiomarkerCascades.open();" style="color:var(--accent-crimson); border-color:var(--accent-crimson);">Biomarker Cascades</button>
+                </div>
+            </div>
             <table class="data-table">
                 <thead>
                     <tr>
@@ -372,11 +504,20 @@
     <!-- ── Alerts ─────────────────────────────────────── -->
     <div id="view-alerts" class="view">
         <div class="card">
-            <div class="card-title">Monitoring Alerts</div>
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+                <div class="card-title" style="margin-bottom:0;">Monitoring Alerts</div>
+                <button class="btn btn-sm btn-outline" id="sweep-now-btn"
+                        title="Search PubMed for recent research relevant to your conditions, medications, symptoms, and genetics"
+                        onclick="App.sweepNow();"
+                        style="color:var(--accent-teal); border-color:var(--accent-teal);">
+                    Sweep Now
+                </button>
+            </div>
             <p style="color:var(--text-secondary); font-size:14px; margin-bottom:16px;">
                 Alerts from continuous monitoring of FDA safety databases, PubMed research,
                 clinical guidelines, and drug safety updates.
             </p>
+            <div id="sweep-status" style="display:none;"></div>
             <div id="alerts-list">
                 <div style="color:var(--text-muted); text-align:center; padding:40px;">
                     No alerts. Monitoring will check for new findings relevant to your profile.
@@ -421,7 +562,7 @@
                     Google Gemini API Key
                 </label>
                 <input type="password" id="setting-gemini-key" placeholder="AIza..."
-                       style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--border-glass); background:var(--bg-glass); color:var(--text-primary); font-size:14px;">
+                       style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--border-muted); background:var(--bg-raised); color:var(--text-primary); font-size:14px;">
                 <div id="gemini-key-status" style="font-size:12px; margin-top:4px;"></div>
             </div>
 
@@ -430,7 +571,7 @@
                     NCBI API Key (optional, increases PubMed rate limit)
                 </label>
                 <input type="password" id="setting-ncbi-key" placeholder="Your NCBI API key..."
-                       style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--border-glass); background:var(--bg-glass); color:var(--text-primary); font-size:14px;">
+                       style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--border-muted); background:var(--bg-raised); color:var(--text-primary); font-size:14px;">
             </div>
 
             <div style="margin-bottom:20px;">
@@ -438,7 +579,18 @@
                     OpenFDA API Key (optional, increases rate limit)
                 </label>
                 <input type="password" id="setting-openfda-key" placeholder="Your OpenFDA API key..."
-                       style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--border-glass); background:var(--bg-glass); color:var(--text-primary); font-size:14px;">
+                       style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--border-muted); background:var(--bg-raised); color:var(--text-primary); font-size:14px;">
+            </div>
+
+            <div style="border-top:1px solid var(--border-faint); padding-top:16px; margin-bottom:20px;">
+                <label style="font-size:14px; color:var(--text-secondary); display:block; margin-bottom:8px;">
+                    Your Location (county + state for environmental risk analysis)
+                </label>
+                <input type="text" id="setting-location" placeholder="e.g., Maricopa County, AZ"
+                       style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--border-muted); background:var(--bg-raised); color:var(--text-primary); font-size:14px;">
+                <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">
+                    Used to identify regional health risks like Valley Fever, Lyme disease, lead exposure, etc.
+                </div>
             </div>
 
             <div style="display:flex; gap:12px; justify-content:flex-end;">
@@ -453,6 +605,13 @@
 <!-- ═══════════════════════════════════════════════════════
      JavaScript
      ═══════════════════════════════════════════════════════ -->
+<script src="/js/bodymap3d.js"></script>
+<script src="/js/snowball.js"></script>
+<script src="/js/cascades.js"></script>
+<script src="/js/pgx_map.js"></script>
+<script src="/js/trajectories.js"></script>
+<script src="/js/symptoms.js"></script>
+<script src="/js/symptom_analytics.js"></script>
 <script src="/app.js"></script>
 
 </body>
