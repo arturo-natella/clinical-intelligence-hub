@@ -88,14 +88,14 @@ var App = {
     // ── Initialization ────────────────────────────────
 
     init: async function() {
-        // Setup nav tab click handlers
-        var tabs = document.querySelectorAll(".nav-tab");
-        for (var i = 0; i < tabs.length; i++) {
-            (function(tab) {
-                tab.addEventListener("click", function() {
-                    App.navigateTo(tab.dataset.view);
+        // Setup sidebar nav click handlers
+        var sidebarItems = document.querySelectorAll(".sidebar-item[data-view]");
+        for (var i = 0; i < sidebarItems.length; i++) {
+            (function(item) {
+                item.addEventListener("click", function() {
+                    App.navigateTo(item.dataset.view);
                 });
-            })(tabs[i]);
+            })(sidebarItems[i]);
         }
 
         // Enter key on passphrase input
@@ -108,8 +108,8 @@ var App = {
             var status = await api("/api/session/status");
             if (status.unlocked) {
                 $("passphrase-modal").style.display = "none";
-                $("main-nav").style.display = "flex";
-                $("main-container").style.display = "block";
+                $("sidebar").style.display = "flex";
+                $("main-content").style.display = "block";
                 if (status.has_profile) {
                     App.loadAllData();
                 }
@@ -137,8 +137,8 @@ var App = {
             });
 
             $("passphrase-modal").style.display = "none";
-            $("main-nav").style.display = "flex";
-            $("main-container").style.display = "block";
+            $("sidebar").style.display = "flex";
+            $("main-content").style.display = "block";
 
             if (result.has_profile) {
                 App.loadAllData();
@@ -160,19 +160,16 @@ var App = {
         var target = $("view-" + view);
         if (target) target.classList.add("active");
 
-        // Update nav tabs
-        var tabs = document.querySelectorAll(".nav-tab");
-        for (var j = 0; j < tabs.length; j++) {
-            if (tabs[j].dataset.view === view) {
-                tabs[j].classList.add("active");
-            } else {
-                tabs[j].classList.remove("active");
-            }
+        // Update active sidebar item
+        var items = document.querySelectorAll(".sidebar-item[data-view]");
+        for (var j = 0; j < items.length; j++) {
+            items[j].classList.toggle("active", items[j].dataset.view === view);
         }
 
         // Load data for the view if needed
         var loaders = {
             dashboard: function() { App.loadDashboard(); },
+            bodymap: function() { App.initBodyMap3D(); },
             medications: function() { App.loadMedications(); },
             labs: function() { App.loadLabs(); },
             imaging: function() { App.loadImaging(); },
@@ -181,10 +178,37 @@ var App = {
             crossdisc: function() { App.loadCrossDisciplinary(); },
             community: function() { App.loadCommunity(); },
             timeline: function() { Timeline.load(); },
+            symptoms: function() { Symptoms.load(); },
             alerts: function() { App.loadAlerts(); },
             report: function() { App.loadQuestions(); },
+            environmental: function() { App.loadEnvironmental(); },
+            tracker: function() { App.loadTracker(); },
         };
         if (loaders[view]) loaders[view]();
+    },
+
+    // ── Sidebar Toggle ───────────────────────────────
+
+    toggleSidebar: function() {
+        var sidebar = $("sidebar");
+        var icon = $("sidebar-collapse-icon");
+        sidebar.classList.toggle("collapsed");
+        if (sidebar.classList.contains("collapsed")) {
+            icon.style.transform = "rotate(180deg)";
+        } else {
+            icon.style.transform = "";
+        }
+    },
+
+    // ── 3D Body Map Initialization ───────────────────
+
+    initBodyMap3D: function() {
+        if (typeof BodyMap3D !== "undefined" && !BodyMap3D.initialized) {
+            BodyMap3D.init("bodymap-canvas-container");
+        } else if (typeof BodyMap3D !== "undefined" && BodyMap3D.initialized) {
+            // Already initialized — just refresh findings if profile loaded
+            BodyMap3D.loadFindings();
+        }
     },
 
     // ── File Upload ───────────────────────────────────
@@ -223,7 +247,7 @@ var App = {
         for (var i = 0; i < App.uploadedFiles.length; i++) {
             var f = App.uploadedFiles[i];
             var size = (f.size / 1024).toFixed(1);
-            html += '<div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--border-glass); font-size:14px;">'
+            html += '<div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--border-faint); font-size:14px;">'
                 + "<span>" + escapeHtml(f.name) + "</span>"
                 + '<span style="color:var(--text-muted);">' + escapeHtml(size) + " KB</span>"
                 + "</div>";
@@ -299,11 +323,13 @@ var App = {
                 api("/api/labs"),
                 api("/api/diagnoses"),
                 api("/api/flags"),
+                api("/api/symptoms"),
             ]);
             var meds = results[0];
             var labs = results[1];
             var diags = results[2];
             var flags = results[3];
+            var symptoms = results[4];
 
             var activeMeds = meds.filter(function(m) {
                 return ["active", "prn"].indexOf((m.status || "").toLowerCase()) >= 0;
@@ -316,6 +342,7 @@ var App = {
             $("stat-meds").textContent = activeMeds.length || "0";
             $("stat-labs").textContent = labs.length || "0";
             $("stat-flags").textContent = flags.length || "0";
+            $("stat-symptoms").textContent = (symptoms || []).length || "0";
 
             // Show actions if we have data
             if (meds.length > 0 || labs.length > 0) {
@@ -372,7 +399,7 @@ var App = {
                     if (ix.drug_b) drugPair += " + " + escapeHtml(ix.drug_b);
                     if (ix.gene) drugPair += " / " + escapeHtml(ix.gene);
 
-                    iHtml += '<div style="padding:12px 0; border-bottom:1px solid var(--border-glass);">'
+                    iHtml += '<div style="padding:12px 0; border-bottom:1px solid var(--border-faint);">'
                         + '<div style="display:flex; align-items:center; gap:12px; margin-bottom:4px;">'
                         + severityBadge(ix.severity)
                         + "<strong>" + drugPair + "</strong>"
@@ -454,14 +481,14 @@ var App = {
                 var findings = s.findings || [];
                 for (var j = 0; j < findings.length; j++) {
                     var f = findings[j];
-                    findingsHtml += '<div style="padding:8px 12px; background:var(--bg-glass); border-radius:8px; margin-top:8px;">'
+                    findingsHtml += '<div style="padding:8px 12px; background:var(--bg-raised); border-radius:8px; margin-top:8px;">'
                         + '<div style="font-size:14px;">' + escapeHtml(f.description || "") + "</div>"
                         + (f.body_region ? '<div style="font-size:12px; color:var(--text-muted); margin-top:4px;">Region: ' + escapeHtml(f.body_region) + "</div>" : "")
                         + (f.confidence ? '<div style="font-size:12px; color:var(--text-muted);">Confidence: ' + Math.round(f.confidence * 100) + "%</div>" : "")
                         + "</div>";
                 }
 
-                html += '<div style="padding:16px 0; border-bottom:1px solid var(--border-glass);">'
+                html += '<div style="padding:16px 0; border-bottom:1px solid var(--border-faint);">'
                     + '<div style="display:flex; justify-content:space-between; align-items:center;">'
                     + "<div>"
                     + "<strong>" + escapeHtml(s.modality || "Study") + " \u2014 " + escapeHtml(s.body_region || "") + "</strong>"
@@ -539,7 +566,7 @@ var App = {
                     evidenceHtml = '<div style="margin-top:8px;">' + evidenceHtml + "</div>";
                 }
 
-                html += '<div style="padding:16px 0; border-bottom:1px solid var(--border-glass);">'
+                html += '<div style="padding:16px 0; border-bottom:1px solid var(--border-faint);">'
                     + '<div style="display:flex; align-items:center; gap:12px; margin-bottom:8px;">'
                     + severityBadge(f.severity)
                     + '<span class="badge badge-info">' + escapeHtml(f.category || "") + "</span>"
@@ -590,7 +617,7 @@ var App = {
 
                 var questionHtml = "";
                 if (c.question_for_doctor) {
-                    questionHtml = '<div style="background:var(--bg-glass); padding:12px; border-radius:8px; margin-top:8px;">'
+                    questionHtml = '<div style="background:var(--bg-raised); padding:12px; border-radius:8px; margin-top:8px;">'
                         + '<div style="font-size:12px; color:var(--accent-amber); margin-bottom:4px;">Ask your doctor:</div>'
                         + '<div style="font-size:14px;">' + escapeHtml(c.question_for_doctor) + "</div>"
                         + "</div>";
@@ -627,7 +654,7 @@ var App = {
             var html = "";
             for (var i = 0; i < insights.length; i++) {
                 var ci = insights[i];
-                html += '<div style="padding:16px 0; border-bottom:1px solid var(--border-glass);">'
+                html += '<div style="padding:16px 0; border-bottom:1px solid var(--border-faint);">'
                     + '<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px;">'
                     + "<strong>" + escapeHtml(ci.title || "Community Report") + "</strong>"
                     + '<span class="badge badge-warning">Unverified</span>'
@@ -656,7 +683,7 @@ var App = {
             var html = "";
             for (var i = 0; i < alerts.length; i++) {
                 var a = alerts[i];
-                html += '<div style="padding:16px 0; border-bottom:1px solid var(--border-glass);">'
+                html += '<div style="padding:16px 0; border-bottom:1px solid var(--border-faint);">'
                     + '<div style="display:flex; align-items:center; gap:12px; margin-bottom:8px;">'
                     + severityBadge(a.severity)
                     + "<strong>" + escapeHtml(a.title || "Alert") + "</strong>"
@@ -670,6 +697,118 @@ var App = {
         } catch (e) { /* no data */ }
     },
 
+    // ── Environmental (stub — implemented in Phase D) ───
+
+    loadEnvironmental: async function() {
+        // Will be implemented in Phase D
+    },
+
+    // ── Health Tracker (stub — implemented in Phase I) ──
+
+    loadTracker: async function() {
+        // Will be implemented in Phase I
+    },
+
+    // ── PubMed Sweep ────────────────────────────────────
+
+    sweepNow: async function() {
+        var btn = document.getElementById("sweep-now-btn");
+        var statusDiv = document.getElementById("sweep-status");
+        if (!btn || !statusDiv) return;
+
+        // Show loading state
+        btn.disabled = true;
+        btn.textContent = "Sweeping\u2026";
+        statusDiv.style.display = "block";
+        safeSetHtml(statusDiv,
+            '<div style="padding:16px; text-align:center; color:var(--accent-teal);">'
+            + '<div style="font-size:14px; margin-bottom:4px;">'
+            + 'Searching PubMed for research relevant to your profile\u2026</div>'
+            + '<div style="font-size:12px; color:var(--text-muted);">'
+            + 'This may take a moment \u2014 checking symptoms, medications, genetics, and more.</div>'
+            + '</div>'
+        );
+
+        try {
+            var result = await api("/api/sweep-now", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: "{}",
+            });
+
+            var alerts = result.alerts || [];
+            var summary = result.query_summary || {};
+
+            // Show query summary
+            var catParts = [];
+            var cats = summary.categories || {};
+            if (cats.symptom_research) catParts.push(cats.symptom_research + " symptom");
+            if (cats.medication_safety) catParts.push(cats.medication_safety + " medication safety");
+            if (cats.medication_combination) catParts.push(cats.medication_combination + " drug combo");
+            if (cats.diagnosis_treatment) catParts.push(cats.diagnosis_treatment + " diagnosis");
+            if (cats.genetic_variant) catParts.push(cats.genetic_variant + " genetics");
+
+            var summaryText = "Searched " + (summary.total_queries || 0)
+                + " queries (" + (catParts.join(", ") || "none") + "). "
+                + "Found " + alerts.length + " result" + (alerts.length !== 1 ? "s" : "") + ".";
+
+            safeSetHtml(statusDiv,
+                '<div style="padding:12px 16px; background:var(--bg-secondary); '
+                + 'border-radius:8px; margin-bottom:16px; border-left:3px solid var(--accent-teal);">'
+                + '<div style="font-size:13px; color:var(--text-secondary);">'
+                + escapeHtml(summaryText) + '</div></div>'
+            );
+
+            // Render results into alerts-list
+            if (alerts.length) {
+                var container = $("alerts-list");
+                var html = "";
+                for (var i = 0; i < alerts.length; i++) {
+                    var a = alerts[i];
+                    html += '<div style="padding:16px 0; border-bottom:1px solid var(--border-faint);">'
+                        + '<div style="display:flex; align-items:center; gap:12px; margin-bottom:8px;">'
+                        + severityBadge(a.severity)
+                        + "<strong>" + escapeHtml(a.title || "Alert") + "</strong>"
+                        + '<span style="font-size:12px; color:var(--text-muted); margin-left:auto;">'
+                        + escapeHtml(a.source || "") + "</span>"
+                        + "</div>"
+                        + '<div style="color:var(--text-secondary); font-size:14px; margin-bottom:4px;">'
+                        + escapeHtml(a.description || "") + "</div>"
+                        + (a.relevance
+                            ? '<div style="font-size:13px; color:var(--accent-amber); margin-top:8px;">'
+                              + 'Why this matters: ' + escapeHtml(a.relevance) + "</div>"
+                            : "")
+                        + (a.url
+                            ? '<div style="margin-top:8px;">'
+                              + '<a href="' + escapeHtml(a.url) + '" target="_blank" rel="noopener" '
+                              + 'style="font-size:13px; color:var(--accent-teal); text-decoration:none;">'
+                              + 'View on PubMed \u2192</a></div>'
+                            : "")
+                        + "</div>";
+                }
+                safeSetHtml(container, html);
+            } else {
+                safeSetHtml($("alerts-list"),
+                    '<div style="color:var(--text-muted); text-align:center; padding:40px;">'
+                    + 'No new publications found in the past 30 days. '
+                    + 'This is good \u2014 no urgent updates for your profile.</div>'
+                );
+            }
+
+        } catch (e) {
+            safeSetHtml(statusDiv,
+                '<div style="padding:12px 16px; background:var(--bg-secondary); '
+                + 'border-radius:8px; margin-bottom:16px; border-left:3px solid var(--accent-crimson);">'
+                + '<div style="font-size:13px; color:var(--accent-crimson);">'
+                + 'Sweep failed: ' + escapeHtml(e.message || "Unknown error")
+                + '. This may be due to network issues or PubMed rate limits.</div></div>'
+            );
+        } finally {
+            btn.disabled = false;
+            btn.textContent = "Sweep Now";
+        }
+    },
+
     // ── Questions for Doctor ──────────────────────────
 
     loadQuestions: async function() {
@@ -681,7 +820,7 @@ var App = {
                 $("questions-card").style.display = "block";
                 var html = "";
                 for (var i = 0; i < questions.length; i++) {
-                    html += '<div style="padding:12px 0; border-bottom:1px solid var(--border-glass); display:flex; gap:12px; align-items:flex-start;">'
+                    html += '<div style="padding:12px 0; border-bottom:1px solid var(--border-faint); display:flex; gap:12px; align-items:flex-start;">'
                         + '<span style="color:var(--accent-teal); font-weight:600; font-size:16px;">' + (i + 1) + ".</span>"
                         + '<span style="font-size:14px; line-height:1.6;">' + escapeHtml(questions[i]) + "</span>"
                         + "</div>";
@@ -810,6 +949,15 @@ var App = {
             geminiStatus.textContent = status.gemini ? "Configured" : "Not set";
             geminiStatus.style.color = status.gemini ? "var(--accent-green)" : "var(--accent-amber)";
         } catch (e) { /* ignore */ }
+
+        // Load current location
+        try {
+            var locData = await api("/api/location");
+            var locInput = $("setting-location");
+            if (locInput && locData.location) {
+                locInput.value = locData.location;
+            }
+        } catch (e) { /* ignore */ }
     },
 
     hideSettings: function() {
@@ -839,16 +987,280 @@ var App = {
             }
         }
 
+        // Save location separately (not an API key)
+        var locationVal = $("setting-location").value.trim();
+        try {
+            await api("/api/location", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ location: locationVal }),
+            });
+        } catch (e) {
+            alert("Failed to save location: " + e.message);
+            return;
+        }
+
         App.hideSettings();
+    },
+
+    // ── Visit Prep ──────────────────────────────────────
+
+    prepareForVisit: async function() {
+        var overlay = $("visit-prep-overlay");
+        var content = $("visit-prep-content");
+        if (!overlay || !content) return;
+
+        overlay.style.display = "flex";
+        while (content.firstChild) content.removeChild(content.firstChild);
+        var loading = document.createElement("div");
+        loading.style.cssText = "text-align:center; padding:40px; color:var(--text-muted);";
+        loading.textContent = "Generating your visit prep...";
+        content.appendChild(loading);
+
+        try {
+            var data = await api("/api/visit-prep", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: "{}",
+            });
+            while (content.firstChild) content.removeChild(content.firstChild);
+            App._renderVisitPrep(content, data);
+        } catch (e) {
+            while (content.firstChild) content.removeChild(content.firstChild);
+            var err = document.createElement("div");
+            err.style.cssText = "text-align:center; padding:40px; color:var(--accent-crimson);";
+            err.textContent = "Failed to generate visit prep: " + e.message;
+            content.appendChild(err);
+        }
+    },
+
+    closeVisitPrep: function() {
+        var overlay = $("visit-prep-overlay");
+        if (overlay) overlay.style.display = "none";
+    },
+
+    downloadVisitPrep: function() {
+        window.open("/api/visit-prep/download", "_blank");
+    },
+
+    _renderVisitPrep: function(container, data) {
+        var self = this;
+
+        // Narrative summary (if Gemini generated one)
+        if (data.narrative) {
+            var narCard = document.createElement("div");
+            narCard.className = "visit-prep-section";
+            var narTitle = document.createElement("h3");
+            narTitle.textContent = "Summary";
+            narCard.appendChild(narTitle);
+            var narText = document.createElement("p");
+            narText.textContent = data.narrative;
+            narCard.appendChild(narText);
+            container.appendChild(narCard);
+        }
+
+        // Section: Counter-Evidence Summary (THE STAR)
+        var evidence = data.counter_evidence || [];
+        if (evidence.length > 0) {
+            var evCard = document.createElement("div");
+            evCard.className = "visit-prep-section visit-prep-evidence";
+            var evTitle = document.createElement("h3");
+            evTitle.textContent = "Counter-Evidence Summary";
+            evCard.appendChild(evTitle);
+            var evDesc = document.createElement("p");
+            evDesc.className = "visit-prep-section-desc";
+            evDesc.textContent = "Data that challenges your doctor\u2019s claims about symptom causes.";
+            evCard.appendChild(evDesc);
+
+            for (var ei = 0; ei < evidence.length; ei++) {
+                evCard.appendChild(self._vpEvidenceRow(evidence[ei]));
+            }
+            container.appendChild(evCard);
+        }
+
+        // Section: Active Conditions
+        var conditions = data.conditions || [];
+        if (conditions.length > 0) {
+            container.appendChild(
+                self._vpTable("Active Conditions", ["Condition", "Status", "Since"],
+                    conditions.map(function(c) { return [c.name, c.status, c.date_diagnosed || "\u2014"]; }))
+            );
+        }
+
+        // Section: Recent Symptoms
+        var symptoms = data.recent_symptoms || [];
+        if (symptoms.length > 0) {
+            container.appendChild(self._vpSymptoms(symptoms));
+        }
+
+        // Section: Flagged Labs
+        var labs = data.flagged_labs || [];
+        if (labs.length > 0) {
+            container.appendChild(
+                self._vpTable("Flagged Lab Results", ["Test", "Value", "Flag", "Trend", "Date"],
+                    labs.map(function(l) { return [l.name, (l.value || "") + " " + (l.unit || ""), l.flag, l.trend, l.test_date || "\u2014"]; }))
+            );
+        }
+
+        // Section: Medications
+        var meds = data.medications || [];
+        if (meds.length > 0) {
+            container.appendChild(self._vpMeds(meds));
+        }
+
+        // Section: Questions
+        var questions = data.questions || [];
+        if (questions.length > 0) {
+            container.appendChild(self._vpQuestions(questions));
+        }
+
+        // Section: Patterns
+        var patterns = data.patterns || [];
+        if (patterns.length > 0) {
+            var tl = {"worsening": "\u2191 Worsening", "improving": "\u2193 Improving", "stable": "\u2192 Stable", "insufficient_data": "\u2014 Too few"};
+            container.appendChild(
+                self._vpTable("Symptom Patterns", ["Symptom", "Frequency", "Trend", "Peak Time"],
+                    patterns.map(function(p) { return [p.name, p.freq_per_week + "/week", tl[p.severity_trend] || "\u2014", (p.peak_time_of_day || "\u2014")]; }))
+            );
+        }
+
+        // Empty state
+        if (!conditions.length && !symptoms.length && !labs.length && !meds.length && !evidence.length) {
+            var empty = document.createElement("div");
+            empty.style.cssText = "text-align:center; padding:40px; color:var(--text-muted);";
+            empty.textContent = "No data available yet. Upload medical records or start tracking symptoms to generate a visit prep.";
+            container.appendChild(empty);
+        }
+    },
+
+    _vpEvidenceRow: function(ev) {
+        var row = document.createElement("div");
+        row.className = "visit-prep-evidence-row" + (ev.archived ? " archived" : "");
+        var claim = document.createElement("div");
+        claim.className = "visit-prep-claim";
+        claim.textContent = ev.symptom + " \u2014 Doctor says: " + ev.doctor_claim;
+        row.appendChild(claim);
+        var d = document.createElement("div");
+        d.className = "visit-prep-data";
+        d.textContent = "Your data: " + (ev.summary || "No data yet");
+        row.appendChild(d);
+        if (ev.verdict) {
+            var badge = document.createElement("span");
+            badge.className = "verdict-badge verdict-" + ev.verdict.toLowerCase().replace(/\s+/g, "-");
+            badge.textContent = ev.verdict;
+            row.appendChild(badge);
+        }
+        return row;
+    },
+
+    _vpSymptoms: function(symptoms) {
+        var card = document.createElement("div");
+        card.className = "visit-prep-section";
+        var t = document.createElement("h3");
+        t.textContent = "Recent Symptoms (Last 30 Days)";
+        card.appendChild(t);
+        for (var i = 0; i < symptoms.length; i++) {
+            var s = symptoms[i];
+            var row = document.createElement("div");
+            row.className = "visit-prep-symptom-row";
+            var n = document.createElement("strong");
+            n.textContent = s.name;
+            row.appendChild(n);
+            var info = document.createElement("span");
+            info.textContent = " \u2014 " + s.episode_count + " episodes, " + s.dominant_severity.toUpperCase();
+            row.appendChild(info);
+            card.appendChild(row);
+            var cs = s.counter_stats || [];
+            for (var j = 0; j < cs.length; j++) {
+                var c = document.createElement("div");
+                c.className = "visit-prep-counter-inline";
+                c.textContent = "Doctor says: " + cs[j].doctor_claim + " \u2192 " + (cs[j].summary || "");
+                card.appendChild(c);
+            }
+        }
+        return card;
+    },
+
+    _vpMeds: function(meds) {
+        var card = this._vpTable("Current Medications", ["Medication", "Dosage", "Frequency", "For"],
+            meds.map(function(m) { return [m.name, m.dosage, m.frequency, m.reason]; }));
+        for (var i = 0; i < meds.length; i++) {
+            var ix = meds[i].interactions || [];
+            for (var j = 0; j < ix.length; j++) {
+                var w = document.createElement("div");
+                w.className = "visit-prep-warning";
+                w.textContent = "\u26a0 " + meds[i].name + ": " + ix[j].description;
+                card.appendChild(w);
+            }
+        }
+        return card;
+    },
+
+    _vpQuestions: function(questions) {
+        var card = document.createElement("div");
+        card.className = "visit-prep-section";
+        var t = document.createElement("h3");
+        t.textContent = "Questions to Ask Your Doctor";
+        card.appendChild(t);
+        var ol = document.createElement("ol");
+        ol.className = "visit-prep-questions";
+        var srcLabels = {counter_evidence: "Based on your tracked data", interaction: "Drug interaction", flag: "Flagged finding", analysis: "From analysis"};
+        for (var i = 0; i < questions.length; i++) {
+            var li = document.createElement("li");
+            li.textContent = questions[i].question;
+            var label = srcLabels[questions[i].source] || "";
+            if (label) {
+                var sp = document.createElement("span");
+                sp.className = "visit-prep-q-source";
+                sp.textContent = " (" + label + ")";
+                li.appendChild(sp);
+            }
+            ol.appendChild(li);
+        }
+        card.appendChild(ol);
+        return card;
+    },
+
+    _vpTable: function(title, headers, rows) {
+        var section = document.createElement("div");
+        section.className = "visit-prep-section";
+        var h3 = document.createElement("h3");
+        h3.textContent = title;
+        section.appendChild(h3);
+        var table = document.createElement("table");
+        table.className = "visit-prep-table";
+        var thead = document.createElement("thead");
+        var tr = document.createElement("tr");
+        for (var h = 0; h < headers.length; h++) {
+            var th = document.createElement("th");
+            th.textContent = headers[h];
+            tr.appendChild(th);
+        }
+        thead.appendChild(tr);
+        table.appendChild(thead);
+        var tbody = document.createElement("tbody");
+        for (var r = 0; r < rows.length; r++) {
+            var row = document.createElement("tr");
+            for (var c = 0; c < rows[r].length; c++) {
+                var td = document.createElement("td");
+                td.textContent = rows[r][c] || "\u2014";
+                row.appendChild(td);
+            }
+            tbody.appendChild(row);
+        }
+        table.appendChild(tbody);
+        section.appendChild(table);
+        return section;
     },
 };
 
 
 // ══════════════════════════════════════════════════════════
-//  BodyMap — 3D Anatomy Viewer Controller
+//  BodyMap2DFallback — 2D Fallback (used when WebGL unavailable)
+//  Primary 3D viewer is in bodymap3d.js (BodyMap3D)
 // ══════════════════════════════════════════════════════════
 
-var BodyMap = {
+var BodyMap2DFallback = {
     currentLayer: "skin",
     currentSide: "front",
 
@@ -863,7 +1275,6 @@ var BodyMap = {
         "organs-back": "/assets/anatomy_organs.png",
     },
 
-    // Body region to clinical keyword mapping
     regionMapping: {
         head: ["neurology", "brain", "head", "neurological", "mental", "cognitive", "headache", "migraine", "seizure", "eye", "ear", "sinus", "thyroid"],
         chest: ["cardiac", "heart", "lung", "pulmonary", "respiratory", "chest", "cardio", "coronary", "thorax", "rib", "breast"],
@@ -876,57 +1287,37 @@ var BodyMap = {
     },
 
     setLayer: function(layer) {
-        BodyMap.currentLayer = layer;
-        var key = layer + "-" + BodyMap.currentSide;
-        $("bodymap-img").src = BodyMap.layerImages[key] || BodyMap.layerImages["skin-front"];
-
-        // Update active button
-        var btns = document.querySelectorAll(".bodymap-layer");
-        for (var i = 0; i < btns.length; i++) {
-            if (btns[i].dataset.layer === layer) {
-                btns[i].classList.add("active");
-            } else {
-                btns[i].classList.remove("active");
-            }
-        }
-    },
-
-    toggleSide: function() {
-        BodyMap.currentSide = BodyMap.currentSide === "front" ? "back" : "front";
-        $("bodymap-side-btn").textContent = BodyMap.currentSide === "front" ? "Show Back" : "Show Front";
-        BodyMap.setLayer(BodyMap.currentLayer);
+        BodyMap2DFallback.currentLayer = layer;
+        var key = layer + "-" + BodyMap2DFallback.currentSide;
+        var img = $("bodymap-img");
+        if (img) img.src = BodyMap2DFallback.layerImages[key] || BodyMap2DFallback.layerImages["skin-front"];
     },
 
     selectRegion: async function(region) {
-        // Highlight selected zone
         var zones = document.querySelectorAll(".bodymap-zone");
         for (var i = 0; i < zones.length; i++) {
             var isSelected = zones[i].dataset.region === region;
-            zones[i].style.fill = isSelected ? "rgba(59, 130, 246, 0.2)" : "transparent";
-            zones[i].style.stroke = isSelected ? "#3b82f6" : "none";
+            zones[i].style.fill = isSelected ? "rgba(220, 38, 38, 0.15)" : "transparent";
+            zones[i].style.stroke = isSelected ? "var(--heat)" : "none";
             zones[i].style.strokeWidth = isSelected ? "2" : "0";
         }
 
         var regionName = region.replace(/-/g, " ").replace(/\b\w/g, function(c) { return c.toUpperCase(); });
         $("bodymap-region-title").textContent = regionName;
 
-        // Search for relevant findings
-        var keywords = BodyMap.regionMapping[region] || [];
+        var keywords = BodyMap2DFallback.regionMapping[region] || [];
         var findings = [];
 
         try {
             var results = await Promise.all([
                 api("/api/diagnoses"),
                 api("/api/imaging"),
-                api("/api/labs"),
                 api("/api/flags"),
             ]);
             var diagnoses = results[0];
             var imaging = results[1];
-            var labs = results[2];
-            var flags = results[3];
+            var flags = results[2];
 
-            // Search diagnoses
             for (var a = 0; a < diagnoses.length; a++) {
                 var dx = diagnoses[a];
                 var dxText = (dx.name + " " + (dx.status || "")).toLowerCase();
@@ -938,7 +1329,6 @@ var BodyMap = {
                 }
             }
 
-            // Search imaging
             for (var c = 0; c < imaging.length; c++) {
                 var study = imaging[c];
                 var studyText = ((study.body_region || "") + " " + (study.description || "")).toLowerCase();
@@ -947,18 +1337,10 @@ var BodyMap = {
                     if (studyText.indexOf(keywords[d]) >= 0) { matched = true; break; }
                 }
                 if (matched) {
-                    var studyFindings = study.findings || [];
-                    if (studyFindings.length) {
-                        for (var e = 0; e < studyFindings.length; e++) {
-                            findings.push({ type: "Imaging", text: studyFindings[e].description, detail: study.modality + " " + formatDate(study.study_date) });
-                        }
-                    } else {
-                        findings.push({ type: "Imaging", text: study.description || study.modality, detail: formatDate(study.study_date) });
-                    }
+                    findings.push({ type: "Imaging", text: study.description || study.modality, detail: formatDate(study.study_date) });
                 }
             }
 
-            // Search flags
             for (var g = 0; g < flags.length; g++) {
                 var fl = flags[g];
                 var flText = ((fl.title || "") + " " + (fl.description || "")).toLowerCase();
@@ -971,8 +1353,8 @@ var BodyMap = {
             }
         } catch (ex) { /* no data */ }
 
-        // Render findings
-        var container = $("bodymap-findings");
+        var container = $("bodymap-findings-list");
+        if (!container) return;
         if (findings.length === 0) {
             container.textContent = "No findings related to this region in your records.";
             container.style.color = "var(--text-muted)";
@@ -980,7 +1362,7 @@ var BodyMap = {
             var html = "";
             for (var m = 0; m < findings.length; m++) {
                 var fn = findings[m];
-                html += '<div style="padding:8px 0; border-bottom:1px solid var(--border-glass);">'
+                html += '<div style="padding:8px 0; border-bottom:1px solid var(--border-faint);">'
                     + '<span class="badge badge-info" style="margin-right:8px;">' + escapeHtml(fn.type) + "</span>"
                     + "<strong>" + escapeHtml(fn.text) + "</strong>"
                     + '<div style="font-size:12px; color:var(--text-muted); margin-top:2px;">' + escapeHtml(fn.detail) + "</div>"

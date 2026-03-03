@@ -77,6 +77,47 @@
     --shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
 }
 
+/* ── Sidebar Navigation ───────────────────────────────── */
+.sidebar-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 12px;
+    color: rgba(255,255,255,0.56);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 400;
+    transition: all 0.15s ease;
+    text-align: left;
+}
+.sidebar-item:hover {
+    background: rgba(255,255,255,0.06);
+    color: rgba(255,255,255,0.9);
+}
+.sidebar-item.active {
+    background: rgba(220,38,38,0.12);
+    color: #dc2626;
+    font-weight: 500;
+}
+/* Collapsed sidebar */
+#sidebar.collapsed {
+    width: 60px;
+}
+#sidebar.collapsed .sidebar-label,
+#sidebar.collapsed .px-4.py-5 > div {
+    display: none;
+}
+#sidebar.collapsed .px-4.py-5 {
+    padding: 16px 8px;
+}
+#sidebar.collapsed + #main-content {
+    margin-left: 60px;
+}
+
 /* ── Base ───────────────────────────────────────────────── */
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
