@@ -231,7 +231,7 @@ var BodyMap3D = {
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
         this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        this.renderer.toneMappingExposure = 1.2;
+        this.renderer.toneMappingExposure = 1.0;
 
         // Controls
         this.controls = new THREE.OrbitControls(this.camera, canvas);
@@ -243,14 +243,31 @@ var BodyMap3D = {
         this.controls.panSpeed = 0.5;
         this.controls.rotateSpeed = 0.8;
 
-        // Lights
-        this.scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-        var key = new THREE.DirectionalLight(0xffffff, 0.8);
-        key.position.set(2, 3, 4);
+        // Lights — 3-point studio setup for realistic skin rendering
+        // Hemisphere light: warm from above (sky), cool from below (ground bounce)
+        var hemi = new THREE.HemisphereLight(0xffeedd, 0x445566, 0.6);
+        this.scene.add(hemi);
+
+        // Key light — warm, strong, front-right
+        var key = new THREE.DirectionalLight(0xfff5ee, 1.0);
+        key.position.set(3, 4, 5);
         this.scene.add(key);
-        var fill = new THREE.DirectionalLight(0xffffff, 0.3);
-        fill.position.set(-2, 1, -2);
+
+        // Fill light — cooler, softer, front-left
+        var fill = new THREE.DirectionalLight(0xe8eef5, 0.4);
+        fill.position.set(-3, 2, 3);
         this.scene.add(fill);
+
+        // Rim/back light — subtle edge definition
+        var rim = new THREE.DirectionalLight(0xffffff, 0.3);
+        rim.position.set(0, 2, -4);
+        this.scene.add(rim);
+
+        // Subtle ambient for shadow fill
+        this.scene.add(new THREE.AmbientLight(0xffffff, 0.15));
+
+        // Note: no environment map — 3-point studio lighting is sufficient
+        // and avoids washing out the skin material.
 
         // Raycaster
         this.raycaster = new THREE.Raycaster();
@@ -268,6 +285,35 @@ var BodyMap3D = {
         canvas.addEventListener("mousemove", function(e) { self.onMouseMove(e); });
         canvas.addEventListener("click", function(e) { self.onClick(e); });
         window.addEventListener("resize", function() { self.onWindowResize(containerId); });
+
+        // ResizeObserver catches SPA visibility changes (container goes from 0 → visible width)
+        // which window.resize misses
+        if (typeof ResizeObserver !== "undefined") {
+            new ResizeObserver(function() { self.onWindowResize(containerId); }).observe(container);
+        }
+
+        // ── Wire up toolbar buttons ──
+        var layerBtns = document.querySelectorAll(".bodymap-layer");
+        for (var lb = 0; lb < layerBtns.length; lb++) {
+            layerBtns[lb].addEventListener("click", function(e) {
+                var layer = e.currentTarget.dataset.layer;
+                if (layer) self.setLayer(layer);
+            });
+        }
+
+        var resetBtn = document.getElementById("bodymap-reset-btn");
+        if (resetBtn) resetBtn.addEventListener("click", function() { self.resetView(); });
+
+        var genderBtn = document.getElementById("gender-toggle");
+        if (genderBtn) genderBtn.addEventListener("click", function() {
+            self.loadModel(self.currentGender === "male" ? "female" : "male");
+        });
+
+        var zoomInBtn = document.getElementById("bodymap-zoom-in");
+        if (zoomInBtn) zoomInBtn.addEventListener("click", function() { self.zoom(0.8); });
+
+        var zoomOutBtn = document.getElementById("bodymap-zoom-out");
+        if (zoomOutBtn) zoomOutBtn.addEventListener("click", function() { self.zoom(1.25); });
 
         this.initialized = true;
         this.animate();
@@ -351,18 +397,33 @@ var BodyMap3D = {
         var loading = document.getElementById("bodymap-loading");
         if (loading) loading.style.display = "flex";
 
-        var modelPath = "/models/" + gender + "_anatomy.glb";
+        // Try full Z-Anatomy model first, then basic BodyParts3D, then placeholder
+        var fullPath = "/models/" + gender + "_anatomy_full.glb";
+        var basicPath = "/models/" + gender + "_anatomy.glb";
+        var maleFull = "/models/male_anatomy_full.glb";
+        var maleBasic = "/models/male_anatomy.glb";
         var self = this;
 
-        fetch(modelPath, { method: "HEAD" })
-            .then(function(r) {
-                if (!r.ok) {
-                    self.loadPlaceholderModel(gender);
-                    return;
-                }
-                self._loadGLB(modelPath, gender);
-            })
-            .catch(function() { self.loadPlaceholderModel(gender); });
+        // Cascade: full → basic → male_full → male_basic → placeholder
+        var candidates = [fullPath, basicPath];
+        if (gender === "female") candidates.push(maleFull, maleBasic);
+
+        function tryNext(idx) {
+            if (idx >= candidates.length) {
+                self.loadPlaceholderModel(gender);
+                return;
+            }
+            fetch(candidates[idx], { method: "HEAD" })
+                .then(function(r) {
+                    if (r.ok) {
+                        self._loadGLB(candidates[idx], gender);
+                    } else {
+                        tryNext(idx + 1);
+                    }
+                })
+                .catch(function() { tryNext(idx + 1); });
+        }
+        tryNext(0);
     },
 
     _loadGLB: function(path, gender) {
@@ -402,28 +463,107 @@ var BodyMap3D = {
             wrapper.rotation.x = -Math.PI / 2;
         }
 
-        // Force matrix update, then re-center
+        // Force matrix update, then center model at camera default target
         wrapper.updateMatrixWorld(true);
         box.setFromObject(wrapper);
         var center = box.getCenter(new THREE.Vector3());
         wrapper.position.sub(center);
-        // Lift so feet sit near y=0
-        var halfH = (box.max.y - box.min.y) / 2;
-        wrapper.position.y += halfH * 0.05;
+        // Position model center at camera's default look-at point (y=0.5)
+        wrapper.position.y += this.cameraPresets.default.target.y;
 
         this.currentModel = wrapper;
         this.scene.add(wrapper);
 
-        // Parse layers
-        this.layers = { skin: [], muscle: [], skeleton: [], organs: [] };
+        // Parse layers using name-prefix system from export pipeline.
+        // Each mesh name is prefixed: SKEL__, MUSC__, ORGN__, VASC__, NERV__, SKIN__
+        // Fallback: hierarchy-based parsing for older GLBs, then raw name matching.
+        this.layers = { skin: [], muscle: [], skeleton: [], organs: [], vasculature: [], nervous: [] };
         var self = this;
+
+        // Prefix→layer mapping (from Blender export pipeline)
+        var prefixMap = {
+            "skel__": "skeleton", "musc__": "muscle", "orgn__": "organs",
+            "vasc__": "vasculature", "nerv__": "nervous", "skin__": "skin"
+        };
+
+        // Also support hierarchy-based parsing (layer_* parent empties)
+        var layerParents = {};
+        var layerNameMap = {
+            "layer_skin": "skin", "layer_muscle": "muscle", "layer_skeleton": "skeleton",
+            "layer_organs": "organs", "layer_vasculature": "vasculature", "layer_nervous": "nervous"
+        };
+        modelScene.traverse(function(child) {
+            var n = (child.name || "").toLowerCase();
+            if (layerNameMap[n]) {
+                layerParents[child.uuid] = layerNameMap[n];
+            }
+        });
+
+        // Z-Anatomy 3D text glyph filter — collection/category header meshes
+        // that should never appear in anatomy layers (e.g., "SKELETAL SYSTEM" text)
+        var glyphRe = /(?:_g|systemg|organsg|glandsg|musclesg|girdleg|genitaliag|abdomeng|termsg|movementsg|linesg|planesg)$/;
 
         modelScene.traverse(function(child) {
             var n = (child.name || "").toLowerCase();
-            if (n.indexOf("layer_skin") >= 0 || n.indexOf("skin") === 0) self.layers.skin.push(child);
-            else if (n.indexOf("layer_muscle") >= 0 || n.indexOf("muscle") === 0) self.layers.muscle.push(child);
-            else if (n.indexOf("layer_skeleton") >= 0 || n.indexOf("skeleton") === 0 || n.indexOf("bone") === 0) self.layers.skeleton.push(child);
-            else if (n.indexOf("layer_organs") >= 0 || n.indexOf("organ") === 0) self.layers.organs.push(child);
+            var layerName = null;
+
+            // Skip Z-Anatomy text label glyphs (collection headers, reference labels)
+            var stripped = n.replace(/^(?:skel|musc|orgn|vasc|nerv|skin)__(?:(?:skel|musc|orgn|vasc|nerv|skin)_)*/g, "");
+            if (glyphRe.test(stripped)) return;
+
+            // Method 1: Name prefix (most reliable — set by export pipeline)
+            for (var pfx in prefixMap) {
+                if (n.indexOf(pfx) === 0) {
+                    layerName = prefixMap[pfx];
+                    break;
+                }
+            }
+
+            // Method 2: Ancestor hierarchy — walk up the parent chain looking for
+            // either a layer_* empty (legacy GLBs) or a prefix-tagged ancestor
+            // (current pipeline: tagged empties parent untagged geometry meshes).
+            if (!layerName) {
+                var p = child.parent;
+                while (p && !layerName) {
+                    if (layerParents[p.uuid]) {
+                        layerName = layerParents[p.uuid];
+                    } else {
+                        // Check if this ancestor has a prefix tag
+                        var pn = (p.name || "").toLowerCase();
+                        for (var apfx in prefixMap) {
+                            if (pn.indexOf(apfx) === 0) {
+                                layerName = prefixMap[apfx];
+                                break;
+                            }
+                        }
+                    }
+                    p = p.parent;
+                }
+            }
+
+            if (layerName && self.layers[layerName]) {
+                self.layers[layerName].push(child);
+            }
+
+            // Cross-list organs that live in system layers (heart, brain, etc.)
+            if (child.isMesh && layerName && layerName !== "organs") {
+                var organKeywords = [
+                    "heart", "ventricle", "atrium", "aorta", "pulmonary_trunk", "coronary",
+                    "pericardium", "papillary_muscle", "leaflet", "valve",
+                    "brain", "cerebr", "cerebel", "hippocampus", "thalamus", "hypothalamus",
+                    "amygdala", "pons", "medulla_oblongata", "midbrain", "corpus_callosum",
+                    "frontal_lobe", "parietal_lobe", "temporal_lobe", "occipital_lobe",
+                    "spinal_cord", "brainstem",
+                    "adrenal", "esophag", "pharynx", "larynx", "tongue", "uvula",
+                    "tonsil", "salivary", "pituitary", "pineal"
+                ];
+                for (var oi = 0; oi < organKeywords.length; oi++) {
+                    if (n.indexOf(organKeywords[oi]) >= 0) {
+                        self.layers.organs.push(child);
+                        break;
+                    }
+                }
+            }
 
             // Store original material colors + geometry for damage visualization & deformation
             if (child.isMesh && child.material) {
@@ -436,6 +576,154 @@ var BodyMap3D = {
 
             if (child.isMesh) child.userData.region = self._meshNameToRegion(n);
         });
+
+        // Force-hide Z-Anatomy 3D text label meshes — these were excluded from
+        // layers by glyphRe but still have visible geometry. Use material swap
+        // (not visible=false) to avoid hiding their anatomy mesh children.
+        modelScene.traverse(function(child) {
+            if (!child.isMesh || !child.material) return;
+            var cn = (child.name || "").toLowerCase();
+            var cstripped = cn.replace(/^(?:skel|musc|orgn|vasc|nerv|skin)__(?:(?:skel|musc|orgn|vasc|nerv|skin)_)*/g, "");
+            if (glyphRe.test(cstripped)) {
+                child.userData._isGlyph = true;
+                child.userData._origMat = child.material;
+                child.userData._hiddenMat = new THREE.MeshBasicMaterial({
+                    visible: false, transparent: true, opacity: 0
+                });
+                child.material = child.userData._hiddenMat;
+            }
+        });
+
+        // Filter out Z-Anatomy 3D text labels (FONT objects converted to mesh
+        // during GLB export). These are flat (2D bounding box) AND lack a layer
+        // prefix (export script only tags Blender MESH objects, not FONTs).
+        // Prefixed flat meshes (thin ligaments, fascia) are real anatomy — keep them.
+        for (var tlk in this.layers) {
+            var tlarr = this.layers[tlk];
+            for (var tli = tlarr.length - 1; tli >= 0; tli--) {
+                var tlm = tlarr[tli];
+                if (!tlm.isMesh || !tlm.geometry || tlm.userData._isGlyph) continue;
+                // Skip meshes that have a layer prefix — they're real anatomy
+                var tln = (tlm.name || "").toLowerCase();
+                var tlHasPrefix = false;
+                for (var tlp in prefixMap) {
+                    if (tln.indexOf(tlp) === 0) { tlHasPrefix = true; break; }
+                }
+                if (tlHasPrefix) continue;
+                // Unprefixed mesh in a layer (got here via ancestor inheritance).
+                // Check geometric flatness to confirm it's a text label.
+                if (!tlm.geometry.boundingBox) tlm.geometry.computeBoundingBox();
+                var tlbb = tlm.geometry.boundingBox;
+                var tld = [
+                    tlbb.max.x - tlbb.min.x,
+                    tlbb.max.y - tlbb.min.y,
+                    tlbb.max.z - tlbb.min.z
+                ];
+                var tlMax = Math.max(tld[0], tld[1], tld[2]);
+                var tlMin = Math.min(tld[0], tld[1], tld[2]);
+                if (tlMax > 0.001 && tlMin / tlMax < 0.05) {
+                    tlm.userData._isGlyph = true;
+                    if (!tlm.userData._hiddenMat) {
+                        tlm.userData._origMat = tlm.material;
+                        tlm.userData._hiddenMat = new THREE.MeshBasicMaterial({
+                            visible: false, transparent: true, opacity: 0
+                        });
+                    }
+                    tlm.material = tlm.userData._hiddenMat;
+                    tlarr.splice(tli, 1);
+                }
+            }
+        }
+
+        // Hide anomalously large meshes from curve conversion artifacts
+        // (e.g., brain sulcus curves that produce giant tubes, ciliary body rings)
+        // Uses world-space radius to account for model scaling
+        for (var lk in this.layers) {
+            var layerArr = this.layers[lk];
+            for (var li = layerArr.length - 1; li >= 0; li--) {
+                var m = layerArr[li];
+                if (m.isMesh && m.geometry) {
+                    m.geometry.computeBoundingSphere();
+                    var ws = m.getWorldScale(new THREE.Vector3());
+                    var worldRadius = m.geometry.boundingSphere.radius * Math.max(ws.x, ws.y, ws.z);
+                    // Body is normalized to ~2 units; anything > 0.6 world radius is suspect
+                    // (legitimate organs like lungs are ~0.3, limbs ~0.4)
+                    var isCurveArtifact = m.name.toLowerCase().indexOf("-curve") >= 0 && worldRadius > 0.6;
+                    var isGiantMesh = m.geometry.boundingSphere.radius > 20;
+                    if (isCurveArtifact || isGiantMesh) {
+                        m.visible = false;
+                        m.userData.oversized = true;
+                        layerArr.splice(li, 1);
+                    }
+                }
+            }
+        }
+
+        // Re-fit: the initial normalization used maxDim from ALL meshes (including
+        // text labels that inflate the bounding box). Compute the anatomy-only
+        // bounding box and apply a scale correction so the body fills the viewport.
+        //
+        // CRITICAL: reset wrapper position to origin BEFORE computing the anatomy
+        // box. The initial centering (line ~470) baked an offset into wrapper.position.
+        // If we compute the anatomy box with that offset in matrixWorld, then try to
+        // re-center by subtracting the world-space center, we double-count the offset.
+        wrapper.position.set(0, 0, 0);
+        wrapper.updateMatrixWorld(true);
+
+        var anatomyBox = new THREE.Box3();
+        for (var rk in this.layers) {
+            var rarr = this.layers[rk];
+            for (var ri = 0; ri < rarr.length; ri++) {
+                var rm = rarr[ri];
+                if (rm.isMesh && rm.geometry && rm.geometry.attributes.position
+                    && rm.geometry.attributes.position.count > 10) {
+                    if (!rm.geometry.boundingBox) rm.geometry.computeBoundingBox();
+                    var geoBB = rm.geometry.boundingBox.clone();
+                    geoBB.applyMatrix4(rm.matrixWorld);
+                    anatomyBox.expandByPoint(geoBB.min);
+                    anatomyBox.expandByPoint(geoBB.max);
+                }
+            }
+        }
+        if (!anatomyBox.isEmpty()) {
+            var aSize = anatomyBox.getSize(new THREE.Vector3());
+            var aMaxDim = Math.max(aSize.x, aSize.y, aSize.z);
+
+            // Scale correction: if anatomy is smaller than target, scale up
+            if (aMaxDim > 0.01 && aMaxDim < targetHeight * 0.95) {
+                var correction = targetHeight / aMaxDim;
+                wrapper.scale.multiplyScalar(correction);
+                wrapper.position.set(0, 0, 0);
+                wrapper.updateMatrixWorld(true);
+
+                // Recompute anatomy box at new scale (clean position)
+                anatomyBox = new THREE.Box3();
+                for (var rk2 in this.layers) {
+                    var rarr2 = this.layers[rk2];
+                    for (var ri2 = 0; ri2 < rarr2.length; ri2++) {
+                        var rm2 = rarr2[ri2];
+                        if (rm2.isMesh && rm2.geometry && rm2.geometry.attributes.position
+                            && rm2.geometry.attributes.position.count > 10) {
+                            if (!rm2.geometry.boundingBox) rm2.geometry.computeBoundingBox();
+                            var geoBB2 = rm2.geometry.boundingBox.clone();
+                            geoBB2.applyMatrix4(rm2.matrixWorld);
+                            anatomyBox.expandByPoint(geoBB2.min);
+                            anatomyBox.expandByPoint(geoBB2.max);
+                        }
+                    }
+                }
+            }
+
+            // Center anatomy at camera target — position is clean (no prior offset)
+            var aCenter = anatomyBox.getCenter(new THREE.Vector3());
+            wrapper.position.set(-aCenter.x, -aCenter.y + this.cameraPresets.default.target.y, -aCenter.z);
+        }
+
+        // Apply realistic skin material to skin layer meshes
+        this._applySkinMaterial(gender);
+
+        // Gender-specific organ filtering (male GLB used as base for both)
+        this._filterOrgansForGender(gender);
 
         this.setLayer(this.currentLayer);
 
@@ -455,6 +743,94 @@ var BodyMap3D = {
             }
         }
         return null;
+    },
+
+    // ═══════════════════════════════════════════════════════
+    //  ENVIRONMENT MAP — neutral studio for PBR reflections
+    // ═══════════════════════════════════════════════════════
+
+    _setupEnvironment: function() {
+        // Create a simple neutral environment using a gradient canvas texture
+        // This gives MeshPhysicalMaterial something to reflect
+        var size = 256;
+        var canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        var ctx = canvas.getContext("2d");
+
+        // Vertical gradient: warm top → cool bottom (studio-like)
+        var grad = ctx.createLinearGradient(0, 0, 0, size);
+        grad.addColorStop(0.0, "#d4c8bb");   // warm upper
+        grad.addColorStop(0.3, "#c0b8b0");   // mid warm
+        grad.addColorStop(0.5, "#a8a4a0");   // neutral mid
+        grad.addColorStop(0.7, "#8890a0");   // cool lower
+        grad.addColorStop(1.0, "#607088");   // cool floor
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, size, size);
+
+        var tex = new THREE.CanvasTexture(canvas);
+        tex.mapping = THREE.EquirectangularReflectionMapping;
+
+        var pmremGenerator = new THREE.PMREMGenerator(this.renderer);
+        pmremGenerator.compileEquirectangularShader();
+        this.scene.environment = pmremGenerator.fromEquirectangular(tex).texture;
+        tex.dispose();
+        pmremGenerator.dispose();
+    },
+
+    // ═══════════════════════════════════════════════════════
+    //  SKIN MATERIAL — PBR with subsurface scattering
+    // ═══════════════════════════════════════════════════════
+
+    _applySkinMaterial: function(gender) {
+        var skinMeshes = this.layers.skin || [];
+
+        // MeshPhysicalMaterial with transmission/thickness gives subsurface scattering
+        var skinMat = new THREE.MeshPhysicalMaterial({
+            color: new THREE.Color(0.72, 0.52, 0.40),        // warm skin tone
+            roughness: 0.8,
+            metalness: 0.0,
+            clearcoat: 0.02,
+            clearcoatRoughness: 0.5,
+            sheen: 0.3,
+            sheenRoughness: 0.6,
+            sheenColor: new THREE.Color(0.6, 0.35, 0.25),    // warm sheen for skin depth
+            envMapIntensity: 0.0,                              // prevent env map washout
+            side: THREE.DoubleSide,
+        });
+
+        for (var i = 0; i < skinMeshes.length; i++) {
+            var child = skinMeshes[i];
+            if (child.isMesh) {
+                child.material = skinMat.clone();
+                child.userData.originalColor = skinMat.color.getHex();
+                child.userData.originalEmissive = 0x000000;
+                // Ensure smooth shading
+                if (child.geometry && !child.geometry.attributes.normal) {
+                    child.geometry.computeVertexNormals();
+                }
+            }
+        }
+    },
+
+    _filterOrgansForGender: function(gender) {
+        // Male-specific organs to hide when viewing as female
+        var maleOnly = ["prostate", "seminal", "testis", "testes", "epididymis", "vas_deferens"];
+        // Female-specific organs to hide when viewing as male
+        var femaleOnly = ["uterus", "ovary", "ovaries", "fallopian"];
+
+        var hideList = gender === "female" ? maleOnly : femaleOnly;
+        var organMeshes = this.layers.organs || [];
+
+        for (var i = 0; i < organMeshes.length; i++) {
+            var mesh = organMeshes[i];
+            var n = (mesh.name || "").toLowerCase();
+            var shouldHide = false;
+            for (var j = 0; j < hideList.length; j++) {
+                if (n.indexOf(hideList[j]) >= 0) { shouldHide = true; break; }
+            }
+            if (shouldHide) mesh.visible = false;
+        }
     },
 
 
@@ -548,33 +924,94 @@ var BodyMap3D = {
     //  LAYER CONTROL
     // ═══════════════════════════════════════════════════════
 
+    // Map layer names to mesh prefixes (handles singular/plural mismatch)
+    _layerMeshPrefixes: {
+        skin: "skin_",
+        muscle: "muscle_",
+        skeleton: "skeleton_",
+        organs: "organ_",       // meshes use singular "organ_heart", not "organs_heart"
+        vasculature: "artery_", // also matches "vein_" — checked separately below
+        nervous: "nerve_",
+    },
+
     setLayer: function(layer) {
         this.currentLayer = layer;
-        var layerNames = ["skin", "muscle", "skeleton", "organs"];
+        var layerNames = ["skin", "muscle", "skeleton", "organs", "vasculature", "nervous"];
         if (!this.currentModel) return;
 
+        // Build a Set of UUIDs for each layer from the parsed this.layers dict
+        var layerSets = {};
+        for (var i = 0; i < layerNames.length; i++) {
+            var ln = layerNames[i];
+            layerSets[ln] = {};
+            var arr = this.layers[ln] || [];
+            for (var j = 0; j < arr.length; j++) {
+                layerSets[ln][arr[j].uuid] = true;
+            }
+        }
+
         this.currentModel.traverse(function(child) {
-            var n = (child.name || "").toLowerCase();
-            for (var i = 0; i < layerNames.length; i++) {
-                var ln = layerNames[i];
-                if (n.indexOf("layer_" + ln) >= 0 || n === ln) {
-                    if (ln === layer) {
-                        child.visible = true;
-                        if (child.isMesh && child.material) {
-                            child.material.opacity = 1.0;
-                            child.material.transparent = false;
-                        }
-                    } else if (ln === "skin" && layer !== "skin") {
-                        // Ghost the skin outline
-                        child.visible = true;
-                        if (child.isMesh && child.material) {
-                            child.material.transparent = true;
-                            child.material.opacity = 0.08;
-                        }
-                    } else {
-                        child.visible = false;
+            // Determine which layer this child belongs to
+            var childLayer = null;
+            for (var k = 0; k < layerNames.length; k++) {
+                if (layerSets[layerNames[k]][child.uuid]) {
+                    childLayer = layerNames[k];
+                    break;
+                }
+            }
+            // Always keep glyph text meshes hidden regardless of active layer
+            if (child.userData._isGlyph) {
+                if (child.userData._hiddenMat) child.material = child.userData._hiddenMat;
+                return;
+            }
+
+            if (!childLayer) {
+                // Hide untagged meshes' own rendering (text labels, reference lines)
+                // but do NOT set visible=false — that would hide children too
+                // (Z-Anatomy glyph nodes are parents of real anatomy meshes).
+                if (child.isMesh && child.material) {
+                    if (!child.userData._hiddenMat) {
+                        child.userData._origMat = child.material;
+                        child.userData._hiddenMat = new THREE.MeshBasicMaterial({
+                            visible: false, transparent: true, opacity: 0
+                        });
+                    }
+                    child.material = child.userData._hiddenMat;
+                }
+                return;
+            }
+
+            if (childLayer === layer) {
+                // Active layer: fully visible
+                child.visible = true;
+                if (child.isMesh) {
+                    // Restore original skin material if switching back to skin layer
+                    if (childLayer === "skin" && child.userData.skinMaterial) {
+                        child.material = child.userData.skinMaterial;
+                    }
+                    if (child.material) {
+                        child.material.opacity = 1.0;
+                        child.material.transparent = false;
                     }
                 }
+            } else if (childLayer === "skin" && layer !== "skin") {
+                // Ghost the skin as a faint wireframe-like outline
+                // Use MeshBasicMaterial (unlit) to avoid glossy overlay on deeper layers
+                child.visible = true;
+                if (child.isMesh && child.material) {
+                    if (!child.userData.skinMaterial) {
+                        child.userData.skinMaterial = child.material;
+                    }
+                    child.material = new THREE.MeshBasicMaterial({
+                        color: 0x8888aa,
+                        transparent: true,
+                        opacity: 0.06,
+                        depthWrite: false,
+                        side: THREE.FrontSide,
+                    });
+                }
+            } else {
+                child.visible = false;
             }
         });
 
@@ -598,6 +1035,17 @@ var BodyMap3D = {
 
     resetView: function() {
         this._animateCamera(this.cameraPresets.default.position, this.cameraPresets.default.target);
+    },
+
+    zoom: function(factor) {
+        if (!this.camera || !this.controls) return;
+        var dir = new THREE.Vector3().subVectors(this.camera.position, this.controls.target);
+        dir.multiplyScalar(factor);
+        var newPos = new THREE.Vector3().addVectors(this.controls.target, dir);
+        // Clamp to min/max distance
+        var dist = newPos.distanceTo(this.controls.target);
+        if (dist < this.controls.minDistance || dist > this.controls.maxDistance) return;
+        this._animateCamera(newPos, this.controls.target.clone());
     },
 
     _animateCamera: function(endPos, endTarget) {

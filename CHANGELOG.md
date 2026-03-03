@@ -2,6 +2,33 @@
 
 All notable changes to the Clinical Intelligence Hub will be documented in this file.
 
+## [2.1.0] — 2026-03-03
+
+### Added
+
+#### 3D Anatomy Viewer — Z-Anatomy Integration (Body Map)
+- Full Z-Anatomy model support (CC BY-SA 4.0): 11,356 meshes, Draco compressed, 28.5MB GLB
+- 6 dissection layers (was 4): Skin, Muscle, Skeleton, Organs, Vasculature, Nervous system
+- Blender export pipeline (`export_zanatomy.py`): Z-Anatomy `.blend` → name-prefixed, color-coded GLB
+- Name-prefix layer system (SKEL__, MUSC__, ORGN__, VASC__, NERV__, SKIN__) for reliable JS parsing
+- 3-point studio lighting (hemisphere + key + fill + rim) for realistic skin rendering
+- Gender toggle (♂/♀) with model fallback cascade: full → basic → male fallback → placeholder
+- Gender-aware organ filtering (hides opposite-sex organs client-side)
+- Zoom in/out toolbar buttons
+- ResizeObserver for SPA visibility changes (fixes canvas sizing when section first becomes visible)
+
+### Fixed
+
+#### Body Map Rendering
+- Z-Anatomy text labels (FONT objects converted to meshes by GLTF exporter) no longer render as floating 3D text. Two-layer defense: regex glyph filter + geometric flatness filter for unprefixed meshes.
+- Model centering: fixed double-counting bug where world-space bounding box included prior offset, causing body to shift right. Wrapper position now reset before computing center.
+- Toolbar wraps on smaller viewports (`flex-wrap`)
+
+### Known Issues
+- **Z-Anatomy text labels in 3D model**: The Z-Anatomy source data contains 3D font objects (region labels like "BRACHIAL REGION", "MUSCLES OF THORAX") that get converted to meshes by Blender's GLTF exporter. These are filtered out at runtime by a two-layer system (regex + flatness heuristic), but the filter is heuristic — some edge cases may slip through on future Z-Anatomy updates. If unexpected floating text appears, check the glyph detection logic in `bodymap3d.js`.
+- **Female model GLB not yet generated**: The gender toggle infrastructure is complete (UI, JS loader, organ filtering), but the female-specific GLB has not been exported yet. When female is selected, it falls back to the male model with female organ filtering applied client-side.
+- **WebGL screenshots**: `preview_screenshot` cannot capture the Three.js canvas (shows blank). Must test in actual browser.
+
 ## [2.0.0] — 2026-03-02
 
 ### Added
