@@ -318,38 +318,110 @@ var App = {
 
     loadDashboard: async function() {
         try {
-            var results = await Promise.all([
-                api("/api/medications"),
-                api("/api/labs"),
-                api("/api/diagnoses"),
-                api("/api/flags"),
-                api("/api/symptoms"),
-            ]);
-            var meds = results[0];
-            var labs = results[1];
-            var diags = results[2];
-            var flags = results[3];
-            var symptoms = results[4];
+            var data = await api("/api/dashboard");
 
-            var activeMeds = meds.filter(function(m) {
-                return ["active", "prn"].indexOf((m.status || "").toLowerCase()) >= 0;
-            });
-            var activeDx = diags.filter(function(d) {
-                return ["active", "chronic"].indexOf((d.status || "").toLowerCase()) >= 0;
-            });
+            if (!data.has_data) return;
 
-            $("stat-conditions").textContent = activeDx.length || "0";
-            $("stat-meds").textContent = activeMeds.length || "0";
-            $("stat-labs").textContent = labs.length || "0";
-            $("stat-flags").textContent = flags.length || "0";
-            $("stat-symptoms").textContent = (symptoms || []).length || "0";
+            // Medications count
+            $("dash-med-count").textContent = data.active_medications || 0;
 
-            // Show actions if we have data
-            if (meds.length > 0 || labs.length > 0) {
-                $("actions-card").style.display = "block";
-                $("upload-card").style.display = "none";
-                $("files-card").style.display = "none";
+            // PGx collision alert
+            if (data.pgx_collisions > 0) {
+                var pgxEl = $("dash-pgx-alert");
+                pgxEl.textContent = data.pgx_collisions + " drug-gene interaction" + (data.pgx_collisions > 1 ? "s" : "") + " detected";
+                pgxEl.style.display = "block";
             }
+
+            // Diagnoses count
+            $("dash-dx-count").textContent = data.diagnoses_count || 0;
+
+            // Flags count
+            var flagsCount = data.flags_count || 0;
+            $("dash-flags-count").textContent = flagsCount;
+            if (flagsCount > 0) {
+                $("dash-flags-count").style.color = "var(--heat)";
+            }
+
+            // Symptoms count
+            $("dash-symptom-count").textContent = data.symptoms_count || 0;
+
+            // Cross-specialty patterns
+            if (data.cross_specialty_count > 0) {
+                $("dash-cross-spec").textContent = data.cross_specialty_count + " cross-specialty pattern" + (data.cross_specialty_count > 1 ? "s" : "") + " found";
+                $("dash-cross-spec").style.color = "var(--honey)";
+            }
+
+            // Blood panel — show latest labs
+            if (data.latest_labs && data.latest_labs.length > 0) {
+                var panelEl = $("dash-blood-panel");
+                while (panelEl.firstChild) panelEl.removeChild(panelEl.firstChild);
+                var shown = Math.min(data.latest_labs.length, 5);
+                for (var i = 0; i < shown; i++) {
+                    var lab = data.latest_labs[i];
+                    var row = document.createElement("div");
+                    row.style.cssText = "display:flex; justify-content:space-between; padding:4px 0; font-size:13px;";
+                    var nameSpan = document.createElement("span");
+                    nameSpan.textContent = lab.test_name || lab.name || "—";
+                    nameSpan.style.color = "var(--text-secondary)";
+                    var valSpan = document.createElement("span");
+                    valSpan.textContent = (lab.value || "—") + " " + (lab.unit || "");
+                    valSpan.style.color = lab.flag ? "var(--heat)" : "var(--forest)";
+                    row.appendChild(nameSpan);
+                    row.appendChild(valSpan);
+                    panelEl.appendChild(row);
+                }
+                if (data.latest_labs.length > 5) {
+                    var more = document.createElement("div");
+                    more.textContent = "+" + (data.latest_labs.length - 5) + " more";
+                    more.style.cssText = "font-size:12px; color:var(--text-muted); margin-top:4px;";
+                    panelEl.appendChild(more);
+                }
+            }
+
+            // Lab trends sparklines (D3)
+            if (data.lab_trends && Object.keys(data.lab_trends).length > 0) {
+                var trendsEl = $("dash-lab-trends");
+                while (trendsEl.firstChild) trendsEl.removeChild(trendsEl.firstChild);
+                var trendNames = Object.keys(data.lab_trends);
+                var trendShown = Math.min(trendNames.length, 4);
+                for (var t = 0; t < trendShown; t++) {
+                    var trendName = trendNames[t];
+                    var points = data.lab_trends[trendName];
+                    var trendRow = document.createElement("div");
+                    trendRow.style.cssText = "display:flex; align-items:center; gap:8px; margin-bottom:8px;";
+                    var label = document.createElement("span");
+                    label.textContent = trendName;
+                    label.style.cssText = "font-size:12px; color:var(--text-muted); width:80px; flex-shrink:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;";
+                    trendRow.appendChild(label);
+                    var sparkContainer = document.createElement("div");
+                    sparkContainer.id = "spark-" + trendName.replace(/[^a-zA-Z0-9]/g, "-");
+                    sparkContainer.style.cssText = "flex:1; height:24px;";
+                    trendRow.appendChild(sparkContainer);
+                    trendsEl.appendChild(trendRow);
+                    // Render sparkline if Sparkline module is available
+                    if (typeof Sparkline !== "undefined") {
+                        Sparkline.render(sparkContainer.id, points);
+                    }
+                }
+            }
+
+            // Overdue tests
+            if (data.missing_tests && data.missing_tests.length > 0) {
+                var overdueEl = $("dash-overdue");
+                while (overdueEl.firstChild) overdueEl.removeChild(overdueEl.firstChild);
+                for (var m = 0; m < Math.min(data.missing_tests.length, 3); m++) {
+                    var test = data.missing_tests[m];
+                    var testDiv = document.createElement("div");
+                    testDiv.style.cssText = "padding:4px 0; font-size:13px; color:var(--honey);";
+                    testDiv.textContent = test.title || test.missing_test || "—";
+                    overdueEl.appendChild(testDiv);
+                }
+            }
+
+            // Show actions, hide upload
+            $("actions-card").style.display = "block";
+            $("upload-card").style.display = "none";
+            $("files-card").style.display = "none";
         } catch (e) {
             // No data yet, keep defaults
         }

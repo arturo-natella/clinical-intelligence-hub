@@ -140,38 +140,98 @@
      ═══════════════════════════════════════════════════════ -->
 <main id="main-content" class="ml-56 transition-all duration-200 min-h-screen p-6" style="display:none;">
 
-    <!-- ── Dashboard ──────────────────────────────────── -->
+    <!-- ── Dashboard — Diagnostic Command Center ─────── -->
     <div id="view-dashboard" class="view active">
-        <div class="card-grid" id="stat-cards">
-            <div class="card stat-card">
-                <div class="stat-value" id="stat-conditions">—</div>
-                <div class="stat-label">Active Conditions</div>
-            </div>
-            <div class="card stat-card">
-                <div class="stat-value" id="stat-meds">—</div>
-                <div class="stat-label">Active Medications</div>
-            </div>
-            <div class="card stat-card">
-                <div class="stat-value" id="stat-labs">—</div>
-                <div class="stat-label">Lab Results</div>
-            </div>
-            <div class="card stat-card">
-                <div class="stat-value" id="stat-flags">—</div>
-                <div class="stat-label">Flagged Findings</div>
-            </div>
-            <div class="card stat-card">
-                <div class="stat-value" id="stat-symptoms">—</div>
-                <div class="stat-label">Tracked Symptoms</div>
+
+        <!-- Top Bar: AI narrative + risk score + visit prep -->
+        <div class="bg-surface-card rounded-gnome p-5 border border-border-faint mb-6">
+            <div style="display:flex; gap:24px; align-items:flex-start;">
+                <div style="flex:1;">
+                    <div class="text-sm font-medium mb-2" style="color:var(--text-muted);">AI SUMMARY</div>
+                    <div id="dash-ai-narrative" style="color:var(--text-secondary); font-size:15px; line-height:1.7;">
+                        Upload and analyze your records to see a personalized health summary here.
+                    </div>
+                </div>
+                <div style="display:flex; gap:16px; flex-shrink:0; align-items:center;">
+                    <div id="dash-risk-badge" class="text-center" style="min-width:80px;">
+                        <div class="text-2xl font-bold" id="dash-risk-score" style="color:var(--text-muted);">—</div>
+                        <div class="text-xs" style="color:var(--text-muted);">Risk Score</div>
+                    </div>
+                    <button class="btn btn-secondary btn-sm" onclick="App.prepareForVisit();" id="dash-visit-prep-btn">
+                        Visit Prep
+                    </button>
+                </div>
             </div>
         </div>
 
-        <!-- Quick Actions -->
-        <div class="card" id="quick-actions-card">
-            <div class="card-title">Quick Actions</div>
-            <div class="quick-actions-row">
-                <button class="btn btn-secondary" onclick="App.prepareForVisit();">
-                    📋 Prepare for Visit
-                </button>
+        <!-- Analytics Grid -->
+        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:16px; margin-bottom:24px;">
+
+            <!-- Blood Panel Overview -->
+            <div class="bg-surface-card rounded-gnome p-5 border border-border-faint">
+                <div class="text-sm font-medium mb-3" style="color:var(--text-muted);">BLOOD PANEL</div>
+                <div id="dash-blood-panel" style="color:var(--text-secondary); font-size:14px;">No lab data yet</div>
+            </div>
+
+            <!-- Active Medications -->
+            <div class="bg-surface-card rounded-gnome p-5 border border-border-faint">
+                <div class="text-sm font-medium mb-3" style="color:var(--text-muted);">MEDICATIONS</div>
+                <div style="display:flex; align-items:baseline; gap:8px;">
+                    <div class="text-3xl font-bold" id="dash-med-count" style="color:var(--accent-bluetron);">—</div>
+                    <div class="text-sm" style="color:var(--text-secondary);">active medications</div>
+                </div>
+                <div id="dash-pgx-alert" style="display:none; margin-top:8px; font-size:13px; color:var(--accent-amethyst);"></div>
+            </div>
+
+            <!-- Lab Trend Sparklines -->
+            <div class="bg-surface-card rounded-gnome p-5 border border-border-faint">
+                <div class="text-sm font-medium mb-3" style="color:var(--text-muted);">LAB TRENDS</div>
+                <div id="dash-lab-trends" style="color:var(--text-secondary); font-size:14px;">No trend data</div>
+            </div>
+
+            <!-- Active Conditions -->
+            <div class="bg-surface-card rounded-gnome p-5 border border-border-faint">
+                <div class="text-sm font-medium mb-3" style="color:var(--text-muted);">CONDITIONS</div>
+                <div style="display:flex; align-items:baseline; gap:8px;">
+                    <div class="text-3xl font-bold" id="dash-dx-count" style="color:var(--accent-amethyst);">—</div>
+                    <div class="text-sm" style="color:var(--text-secondary);">active diagnoses</div>
+                </div>
+            </div>
+
+            <!-- Overdue / Missing Tests -->
+            <div class="bg-surface-card rounded-gnome p-5 border border-border-faint">
+                <div class="text-sm font-medium mb-3" style="color:var(--text-muted);">OVERDUE TESTS</div>
+                <div id="dash-overdue" style="color:var(--text-secondary); font-size:14px;">No overdue tests</div>
+            </div>
+
+            <!-- Flags Count -->
+            <div class="bg-surface-card rounded-gnome p-5 border border-border-faint">
+                <div class="text-sm font-medium mb-3" style="color:var(--text-muted);">FLAGS</div>
+                <div style="display:flex; align-items:baseline; gap:8px;">
+                    <div class="text-3xl font-bold" id="dash-flags-count" style="color:var(--heat);">—</div>
+                    <div class="text-sm" style="color:var(--text-secondary);">flagged findings</div>
+                </div>
+            </div>
+
+            <!-- Cross-Specialty Alerts -->
+            <div class="bg-surface-card rounded-gnome p-5 border border-border-faint">
+                <div class="text-sm font-medium mb-3" style="color:var(--text-muted);">CROSS-SPECIALTY</div>
+                <div id="dash-cross-spec" style="color:var(--text-secondary); font-size:14px;">No cross-specialty patterns</div>
+            </div>
+
+            <!-- Symptoms -->
+            <div class="bg-surface-card rounded-gnome p-5 border border-border-faint">
+                <div class="text-sm font-medium mb-3" style="color:var(--text-muted);">SYMPTOMS</div>
+                <div style="display:flex; align-items:baseline; gap:8px;">
+                    <div class="text-3xl font-bold" id="dash-symptom-count" style="color:var(--rose);">—</div>
+                    <div class="text-sm" style="color:var(--text-secondary);">tracked symptoms</div>
+                </div>
+            </div>
+
+            <!-- Vitals -->
+            <div class="bg-surface-card rounded-gnome p-5 border border-border-faint">
+                <div class="text-sm font-medium mb-3" style="color:var(--text-muted);">VITALS</div>
+                <div id="dash-vitals" style="color:var(--text-secondary); font-size:14px;">No vitals data</div>
             </div>
         </div>
 
@@ -223,9 +283,8 @@
             <div style="display:flex; gap:12px; flex-wrap:wrap;">
                 <button class="btn btn-primary" onclick="App.navigateTo('report');">View Report</button>
                 <button class="btn btn-success" onclick="App.generateReport();">Generate Report</button>
-                <button class="btn btn-outline" onclick="App.navigateTo('crossdisc');">Cross-Disciplinary Insights</button>
+                <button class="btn btn-outline" onclick="App.navigateTo('crossdisc');">Cross-Disciplinary</button>
                 <button class="btn btn-outline" onclick="App.navigateTo('flags');">View Flags</button>
-                <button class="btn btn-outline" onclick="App.navigateTo('chat');">Ask Questions</button>
             </div>
         </div>
     </div>
@@ -706,6 +765,7 @@
 <script src="/js/trajectories.js"></script>
 <script src="/js/symptoms.js"></script>
 <script src="/js/symptom_analytics.js"></script>
+<script src="/js/sparklines.js"></script>
 <script src="/app.js"></script>
 
 </body>
