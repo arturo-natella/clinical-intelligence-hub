@@ -19,9 +19,11 @@ env/
 data/uploads/
 data/processed/
 data/databases/
+data/reports/
 data/*.json
 data/*.db
 data/*.sqlite
+data/*.enc
 data/.encryption_key
 
 # Model weights — too large for git
@@ -34,6 +36,9 @@ data/rxnorm/
 
 # ChromaDB (legacy)
 data/chroma_db/
+
+# Claude Code workspace
+.claude/
 
 # macOS
 .DS_Store

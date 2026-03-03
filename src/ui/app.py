@@ -151,6 +151,464 @@ def session_status():
     })
 
 
+@app.route("/api/demo-data", methods=["POST"])
+def load_demo_data():
+    """Load comprehensive demo patient data for all tabs."""
+    global _profile_data
+
+    _profile_data = _build_demo_profile()
+    return jsonify({"status": "loaded", "has_data": True})
+
+
+def _build_demo_profile():
+    """Build a richly detailed demo patient profile."""
+    return {
+        "demographics": {
+            "biological_sex": "male",
+            "birth_year": 1985,
+            "age": 40,
+            "location": "Portland, OR",
+            "ethnicity": "Hispanic",
+            "blood_type": "O+",
+            "height_cm": 178,
+            "weight_kg": 102,
+            "bmi": 32.2,
+        },
+        "clinical_timeline": {
+            "medications": [
+                {"name": "Metformin", "dose": "1000mg", "route": "Oral", "frequency": "twice daily",
+                 "status": "active", "start_date": "2019-04-01", "prescriber": "Dr. Elena Vasquez",
+                 "reason": "Type 2 diabetes glycemic control"},
+                {"name": "Lisinopril", "dose": "20mg", "route": "Oral", "frequency": "once daily",
+                 "status": "active", "start_date": "2020-02-15", "prescriber": "Dr. James Chen",
+                 "reason": "Hypertension and renal protection"},
+                {"name": "Atorvastatin", "dose": "40mg", "route": "Oral", "frequency": "once daily at bedtime",
+                 "status": "active", "start_date": "2020-02-15", "prescriber": "Dr. James Chen",
+                 "reason": "Hyperlipidemia, CV risk reduction"},
+                {"name": "Metoprolol Succinate", "dose": "50mg", "route": "Oral", "frequency": "once daily",
+                 "status": "active", "start_date": "2021-03-20", "prescriber": "Dr. James Chen",
+                 "reason": "Heart rate control, hypertension"},
+                {"name": "Insulin Glargine", "dose": "24 units", "route": "Subcutaneous injection", "frequency": "once daily at bedtime",
+                 "status": "active", "start_date": "2023-06-01", "prescriber": "Dr. Elena Vasquez",
+                 "reason": "Basal insulin for uncontrolled T2DM"},
+                {"name": "Aspirin", "dose": "81mg", "route": "Oral", "frequency": "once daily",
+                 "status": "active", "start_date": "2020-02-15", "prescriber": "Dr. James Chen",
+                 "reason": "Cardiovascular prophylaxis"},
+                {"name": "Omeprazole", "dose": "20mg", "route": "Oral", "frequency": "once daily before breakfast",
+                 "status": "active", "start_date": "2021-08-20", "prescriber": "Dr. Sarah Kim",
+                 "reason": "GERD, aspirin gastroprotection"},
+                {"name": "Gabapentin", "dose": "300mg", "route": "Oral", "frequency": "three times daily",
+                 "status": "active", "start_date": "2024-01-15", "prescriber": "Dr. Michael Torres",
+                 "reason": "Diabetic peripheral neuropathy pain"},
+                {"name": "Vitamin D3", "dose": "2000 IU", "route": "Oral", "frequency": "once daily",
+                 "status": "active", "start_date": "2024-03-01", "prescriber": "Dr. Elena Vasquez",
+                 "reason": "Vitamin D deficiency"},
+                {"name": "Glipizide", "dose": "5mg", "route": "Oral", "frequency": "once daily",
+                 "status": "discontinued", "start_date": "2019-04-01", "end_date": "2023-05-15",
+                 "prescriber": "Dr. Elena Vasquez", "reason": "Replaced by insulin glargine"},
+            ],
+            "diagnoses": [
+                {"name": "Type 2 Diabetes Mellitus", "severity": "high", "date": "2019-03-15",
+                 "date_diagnosed": "2019-03-15", "status": "active",
+                 "icd10": "E11.65", "provider": "Dr. Elena Vasquez"},
+                {"name": "Essential Hypertension", "severity": "moderate", "date": "2020-01-10",
+                 "date_diagnosed": "2020-01-10", "status": "active",
+                 "icd10": "I10", "provider": "Dr. James Chen"},
+                {"name": "Mixed Hyperlipidemia", "severity": "moderate", "date": "2020-01-10",
+                 "date_diagnosed": "2020-01-10", "status": "active",
+                 "icd10": "E78.2", "provider": "Dr. James Chen"},
+                {"name": "Non-proliferative Diabetic Retinopathy", "severity": "high", "date": "2024-06-20",
+                 "date_diagnosed": "2024-06-20", "status": "active",
+                 "icd10": "E11.319", "provider": "Dr. Lisa Park"},
+                {"name": "Diabetic Peripheral Neuropathy", "severity": "moderate", "date": "2023-11-05",
+                 "date_diagnosed": "2023-11-05", "status": "active",
+                 "icd10": "E11.42", "provider": "Dr. Michael Torres"},
+                {"name": "GERD", "severity": "low", "date": "2021-08-12",
+                 "date_diagnosed": "2021-08-12", "status": "active",
+                 "icd10": "K21.0", "provider": "Dr. Sarah Kim"},
+                {"name": "Obesity, Class I", "severity": "moderate", "date": "2019-03-15",
+                 "date_diagnosed": "2019-03-15", "status": "active",
+                 "icd10": "E66.01", "provider": "Dr. Elena Vasquez"},
+                {"name": "Vitamin D Deficiency", "severity": "low", "date": "2024-03-01",
+                 "date_diagnosed": "2024-03-01", "status": "active",
+                 "icd10": "E55.9", "provider": "Dr. Elena Vasquez"},
+            ],
+            "symptoms": [
+                {"symptom_id": "sym-tingling-feet", "symptom_name": "Tingling in feet",
+                 "date_created": "2025-08-05",
+                 "episodes": [
+                     {"episode_id": "ep-tf-1", "episode_date": "2025-12-01", "time_of_day": "21:30", "severity": "high",
+                      "description": "Burning tingling both feet, worse at night", "triggers": "Standing all day"},
+                     {"episode_id": "ep-tf-2", "episode_date": "2025-11-15", "time_of_day": "22:00", "severity": "high",
+                      "description": "Pins and needles extending to ankles", "triggers": "Evening after walk"},
+                     {"episode_id": "ep-tf-3", "episode_date": "2025-10-20", "time_of_day": "20:45", "severity": "mid",
+                      "description": "Mild tingling in toes bilaterally", "triggers": "After sitting long period"},
+                     {"episode_id": "ep-tf-4", "episode_date": "2025-09-10", "time_of_day": "23:00", "severity": "mid",
+                      "description": "Numbness and tingling, had to walk it off", "triggers": "Bedtime"},
+                     {"episode_id": "ep-tf-5", "episode_date": "2025-08-05", "time_of_day": "19:30", "severity": "low",
+                      "description": "First noticed occasional tingling", "triggers": "None identified"},
+                 ],
+                 "counter_definitions": [
+                     {"counter_id": "cnt-tf-1", "doctor_claim": "Gabapentin should control neuropathy pain",
+                      "measure_type": "scale", "measure_label": "Pain level (1-10)",
+                      "date_added": "2024-01-15", "date_archived": None, "archived": False},
+                 ]},
+                {"symptom_id": "sym-fatigue", "symptom_name": "Fatigue",
+                 "date_created": "2025-09-20",
+                 "episodes": [
+                     {"episode_id": "ep-fat-1", "episode_date": "2025-12-10", "time_of_day": "14:00", "severity": "high",
+                      "description": "Extreme fatigue, could barely function after lunch", "triggers": "High-carb meal"},
+                     {"episode_id": "ep-fat-2", "episode_date": "2025-11-25", "time_of_day": "10:30", "severity": "mid",
+                      "description": "Dragging all morning, needed nap by 11am", "triggers": "Poor sleep night before"},
+                     {"episode_id": "ep-fat-3", "episode_date": "2025-10-30", "time_of_day": "15:00", "severity": "mid",
+                      "description": "Afternoon crash, hard to concentrate at work", "triggers": "Skipped lunch"},
+                     {"episode_id": "ep-fat-4", "episode_date": "2025-09-20", "time_of_day": "09:00", "severity": "low",
+                      "description": "Woke up tired despite 8 hours sleep", "triggers": "None identified"},
+                 ],
+                 "counter_definitions": [
+                     {"counter_id": "cnt-fat-1", "doctor_claim": "Blood sugar control will reduce fatigue",
+                      "measure_type": "scale", "measure_label": "Energy level (1-10)",
+                      "date_added": "2025-10-01", "date_archived": None, "archived": False},
+                 ]},
+                {"symptom_id": "sym-blurred-vision", "symptom_name": "Blurred vision",
+                 "date_created": "2025-10-08",
+                 "episodes": [
+                     {"episode_id": "ep-bv-1", "episode_date": "2025-12-05", "time_of_day": "08:00", "severity": "high",
+                      "description": "Blurry for 20 min after waking, slow to clear", "triggers": "Morning, high glucose reading"},
+                     {"episode_id": "ep-bv-2", "episode_date": "2025-11-20", "time_of_day": "16:30", "severity": "mid",
+                      "description": "Intermittent blur while reading", "triggers": "Screen time"},
+                     {"episode_id": "ep-bv-3", "episode_date": "2025-10-08", "time_of_day": "09:15", "severity": "mid",
+                      "description": "Difficulty focusing on distant objects", "triggers": "After insulin adjustment"},
+                 ],
+                 "counter_definitions": []},
+                {"symptom_id": "sym-frequent-urination", "symptom_name": "Frequent urination",
+                 "date_created": "2025-08-20",
+                 "episodes": [
+                     {"episode_id": "ep-fu-1", "episode_date": "2025-12-08", "time_of_day": "02:00", "severity": "high",
+                      "description": "Up 4 times overnight", "triggers": "High glucose day (220+)"},
+                     {"episode_id": "ep-fu-2", "episode_date": "2025-11-18", "time_of_day": "03:30", "severity": "mid",
+                      "description": "Up 3 times, disrupted sleep", "triggers": "Late dinner"},
+                     {"episode_id": "ep-fu-3", "episode_date": "2025-10-25", "time_of_day": "01:00", "severity": "mid",
+                      "description": "Nocturia x3", "triggers": "Elevated evening glucose"},
+                     {"episode_id": "ep-fu-4", "episode_date": "2025-09-15", "time_of_day": "04:00", "severity": "low",
+                      "description": "Woke twice overnight", "triggers": "Extra water intake"},
+                     {"episode_id": "ep-fu-5", "episode_date": "2025-08-20", "time_of_day": "02:30", "severity": "mid",
+                      "description": "Nocturia started becoming regular pattern", "triggers": "Glucose poorly controlled"},
+                 ],
+                 "counter_definitions": [
+                     {"counter_id": "cnt-fu-1", "doctor_claim": "SGLT2 inhibitor may increase urination initially",
+                      "measure_type": "scale", "measure_label": "Nighttime wakeups",
+                      "date_added": "2025-09-01", "date_archived": "2025-11-01", "archived": True},
+                 ]},
+                {"symptom_id": "sym-headache", "symptom_name": "Headache",
+                 "date_created": "2025-11-05",
+                 "episodes": [
+                     {"episode_id": "ep-ha-1", "episode_date": "2025-12-12", "time_of_day": "16:00", "severity": "mid",
+                      "description": "Dull pressure headache, frontal area", "triggers": "Blood pressure spike"},
+                     {"episode_id": "ep-ha-2", "episode_date": "2025-11-05", "time_of_day": "10:00", "severity": "low",
+                      "description": "Mild tension headache", "triggers": "Stress at work"},
+                 ],
+                 "counter_definitions": []},
+                {"symptom_id": "sym-heartburn", "symptom_name": "Heartburn",
+                 "date_created": "2025-11-10",
+                 "episodes": [
+                     {"episode_id": "ep-hb-1", "episode_date": "2025-12-01", "time_of_day": "22:00", "severity": "mid",
+                      "description": "Burning after dinner, despite omeprazole", "triggers": "Spicy food, late meal"},
+                     {"episode_id": "ep-hb-2", "episode_date": "2025-11-10", "time_of_day": "21:30", "severity": "low",
+                      "description": "Mild acid reflux", "triggers": "Large meal"},
+                 ],
+                 "counter_definitions": []},
+                {"symptom_id": "sym-numbness-hands", "symptom_name": "Numbness in hands",
+                 "date_created": "2025-11-12",
+                 "episodes": [
+                     {"episode_id": "ep-nh-1", "episode_date": "2025-12-03", "time_of_day": "07:00", "severity": "mid",
+                      "description": "Woke with numb fingers, took 10 min to resolve", "triggers": "Sleeping position"},
+                     {"episode_id": "ep-nh-2", "episode_date": "2025-11-12", "time_of_day": "06:45", "severity": "low",
+                      "description": "Tingling in ring/pinky fingers on waking", "triggers": "Unknown"},
+                 ],
+                 "counter_definitions": []},
+                {"symptom_id": "sym-excessive-thirst", "symptom_name": "Excessive thirst",
+                 "date_created": "2025-10-18",
+                 "episodes": [
+                     {"episode_id": "ep-et-1", "episode_date": "2025-12-09", "time_of_day": "14:30", "severity": "mid",
+                      "description": "Drank 4L water by afternoon, still thirsty", "triggers": "High glucose day"},
+                     {"episode_id": "ep-et-2", "episode_date": "2025-11-22", "time_of_day": "11:00", "severity": "mid",
+                      "description": "Constant dry mouth, excessive water intake", "triggers": "Missed metformin dose"},
+                     {"episode_id": "ep-et-3", "episode_date": "2025-10-18", "time_of_day": "15:00", "severity": "low",
+                      "description": "Noticeably thirstier than normal", "triggers": "Warm day, but felt excessive"},
+                 ],
+                 "counter_definitions": []},
+                {"symptom_id": "sym-dizziness", "symptom_name": "Dizziness on standing",
+                 "date_created": "2025-12-11", "archived": True,
+                 "episodes": [
+                     {"episode_id": "ep-dz-1", "episode_date": "2025-12-11", "time_of_day": "08:00", "severity": "mid",
+                      "description": "Lightheaded when standing from bed, had to grab wall", "triggers": "Morning, possible orthostatic from metoprolol"},
+                 ],
+                 "counter_definitions": []},
+                {"symptom_id": "sym-wound-healing", "symptom_name": "Slow wound healing",
+                 "date_created": "2025-11-28",
+                 "episodes": [
+                     {"episode_id": "ep-wh-1", "episode_date": "2025-11-28", "time_of_day": "12:00", "severity": "low",
+                      "description": "Small cut on finger took 2 weeks to fully heal", "triggers": "Paper cut from Nov 14"},
+                 ],
+                 "counter_definitions": []},
+            ],
+            "labs": [
+                # HbA1c — 5 data points showing improvement trend
+                {"test_name": "HbA1c", "value": "8.2", "unit": "%", "date": "2025-12-01", "reference_low": 4.0, "reference_high": 5.6, "flag": "H"},
+                {"test_name": "HbA1c", "value": "7.8", "unit": "%", "date": "2025-09-01", "reference_low": 4.0, "reference_high": 5.6, "flag": "H"},
+                {"test_name": "HbA1c", "value": "8.5", "unit": "%", "date": "2025-06-01", "reference_low": 4.0, "reference_high": 5.6, "flag": "H"},
+                {"test_name": "HbA1c", "value": "9.1", "unit": "%", "date": "2025-03-01", "reference_low": 4.0, "reference_high": 5.6, "flag": "H"},
+                {"test_name": "HbA1c", "value": "9.4", "unit": "%", "date": "2024-12-01", "reference_low": 4.0, "reference_high": 5.6, "flag": "H"},
+                # Fasting Glucose
+                {"test_name": "Fasting Glucose", "value": "156", "unit": "mg/dL", "date": "2025-12-01", "reference_low": 70, "reference_high": 100, "flag": "H"},
+                {"test_name": "Fasting Glucose", "value": "142", "unit": "mg/dL", "date": "2025-09-01", "reference_low": 70, "reference_high": 100, "flag": "H"},
+                {"test_name": "Fasting Glucose", "value": "168", "unit": "mg/dL", "date": "2025-06-01", "reference_low": 70, "reference_high": 100, "flag": "H"},
+                {"test_name": "Fasting Glucose", "value": "185", "unit": "mg/dL", "date": "2025-03-01", "reference_low": 70, "reference_high": 100, "flag": "H"},
+                # Lipid Panel
+                {"test_name": "LDL Cholesterol", "value": "118", "unit": "mg/dL", "date": "2025-12-01", "reference_low": 0, "reference_high": 100, "flag": "H"},
+                {"test_name": "LDL Cholesterol", "value": "132", "unit": "mg/dL", "date": "2025-06-01", "reference_low": 0, "reference_high": 100, "flag": "H"},
+                {"test_name": "LDL Cholesterol", "value": "145", "unit": "mg/dL", "date": "2025-01-01", "reference_low": 0, "reference_high": 100, "flag": "H"},
+                {"test_name": "LDL Cholesterol", "value": "158", "unit": "mg/dL", "date": "2024-06-01", "reference_low": 0, "reference_high": 100, "flag": "H"},
+                {"test_name": "HDL Cholesterol", "value": "42", "unit": "mg/dL", "date": "2025-12-01", "reference_low": 40, "reference_high": 60},
+                {"test_name": "HDL Cholesterol", "value": "38", "unit": "mg/dL", "date": "2025-06-01", "reference_low": 40, "reference_high": 60, "flag": "L"},
+                {"test_name": "HDL Cholesterol", "value": "36", "unit": "mg/dL", "date": "2025-01-01", "reference_low": 40, "reference_high": 60, "flag": "L"},
+                {"test_name": "Total Cholesterol", "value": "214", "unit": "mg/dL", "date": "2025-12-01", "reference_low": 0, "reference_high": 200, "flag": "H"},
+                {"test_name": "Triglycerides", "value": "195", "unit": "mg/dL", "date": "2025-12-01", "reference_low": 0, "reference_high": 150, "flag": "H"},
+                {"test_name": "Triglycerides", "value": "210", "unit": "mg/dL", "date": "2025-06-01", "reference_low": 0, "reference_high": 150, "flag": "H"},
+                {"test_name": "Triglycerides", "value": "228", "unit": "mg/dL", "date": "2025-01-01", "reference_low": 0, "reference_high": 150, "flag": "H"},
+                # Renal
+                {"test_name": "Creatinine", "value": "1.1", "unit": "mg/dL", "date": "2025-12-01", "reference_low": 0.7, "reference_high": 1.3},
+                {"test_name": "Creatinine", "value": "1.0", "unit": "mg/dL", "date": "2025-06-01", "reference_low": 0.7, "reference_high": 1.3},
+                {"test_name": "Creatinine", "value": "0.9", "unit": "mg/dL", "date": "2025-01-01", "reference_low": 0.7, "reference_high": 1.3},
+                {"test_name": "BUN", "value": "22", "unit": "mg/dL", "date": "2025-12-01", "reference_low": 7, "reference_high": 20, "flag": "H"},
+                {"test_name": "eGFR", "value": "78", "unit": "mL/min", "date": "2025-12-01", "reference_low": 90, "reference_high": 120, "flag": "L"},
+                {"test_name": "eGFR", "value": "82", "unit": "mL/min", "date": "2025-06-01", "reference_low": 90, "reference_high": 120, "flag": "L"},
+                {"test_name": "eGFR", "value": "88", "unit": "mL/min", "date": "2025-01-01", "reference_low": 90, "reference_high": 120, "flag": "L"},
+                {"test_name": "eGFR", "value": "92", "unit": "mL/min", "date": "2024-06-01", "reference_low": 90, "reference_high": 120},
+                # Thyroid
+                {"test_name": "TSH", "value": "2.8", "unit": "mIU/L", "date": "2025-12-01", "reference_low": 0.4, "reference_high": 4.0},
+                # Liver
+                {"test_name": "ALT", "value": "32", "unit": "U/L", "date": "2025-12-01", "reference_low": 7, "reference_high": 56},
+                {"test_name": "AST", "value": "28", "unit": "U/L", "date": "2025-12-01", "reference_low": 10, "reference_high": 40},
+                # Vitals
+                {"test_name": "Blood Pressure (Systolic)", "value": "138", "unit": "mmHg", "date": "2025-12-01", "reference_low": 90, "reference_high": 120, "flag": "H"},
+                {"test_name": "Blood Pressure (Systolic)", "value": "142", "unit": "mmHg", "date": "2025-09-01", "reference_low": 90, "reference_high": 120, "flag": "H"},
+                {"test_name": "Blood Pressure (Systolic)", "value": "148", "unit": "mmHg", "date": "2025-06-01", "reference_low": 90, "reference_high": 120, "flag": "H"},
+                {"test_name": "Blood Pressure (Systolic)", "value": "155", "unit": "mmHg", "date": "2025-03-01", "reference_low": 90, "reference_high": 120, "flag": "H"},
+                # CBC
+                {"test_name": "WBC", "value": "7.2", "unit": "K/uL", "date": "2025-12-01", "reference_low": 4.0, "reference_high": 11.0},
+                {"test_name": "Hemoglobin", "value": "13.8", "unit": "g/dL", "date": "2025-12-01", "reference_low": 13.5, "reference_high": 17.5},
+                {"test_name": "Platelets", "value": "245", "unit": "K/uL", "date": "2025-12-01", "reference_low": 150, "reference_high": 400},
+                # Other
+                {"test_name": "Vitamin D", "value": "28", "unit": "ng/mL", "date": "2025-12-01", "reference_low": 30, "reference_high": 100, "flag": "L"},
+                {"test_name": "Vitamin D", "value": "18", "unit": "ng/mL", "date": "2024-03-01", "reference_low": 30, "reference_high": 100, "flag": "L"},
+                {"test_name": "Vitamin D", "value": "24", "unit": "ng/mL", "date": "2025-06-01", "reference_low": 30, "reference_high": 100, "flag": "L"},
+                {"test_name": "CRP (hs)", "value": "3.8", "unit": "mg/L", "date": "2025-12-01", "reference_low": 0, "reference_high": 3.0, "flag": "H"},
+            ],
+            "imaging": [
+                {"modality": "Fundoscopy", "body_region": "Eyes", "study_date": "2024-06-20",
+                 "description": "Bilateral non-proliferative diabetic retinopathy with scattered microaneurysms",
+                 "findings": "Dot-blot hemorrhages and hard exudates in both eyes. No neovascularization.",
+                 "provider": "Dr. Lisa Park"},
+                {"modality": "Chest X-Ray", "body_region": "Chest", "study_date": "2025-01-15",
+                 "description": "PA and lateral chest radiograph",
+                 "findings": "No acute cardiopulmonary disease. Heart size normal. No pleural effusion.",
+                 "provider": "Portland Radiology Associates"},
+                {"modality": "Echocardiogram", "body_region": "Heart", "study_date": "2024-09-10",
+                 "description": "Transthoracic echocardiogram",
+                 "findings": "EF 55%. Mild concentric LVH. No valvular abnormalities. Grade I diastolic dysfunction.",
+                 "provider": "Dr. James Chen"},
+                {"modality": "Nerve Conduction Study", "body_region": "Lower Extremities", "study_date": "2023-11-05",
+                 "description": "Bilateral lower extremity nerve conduction study and EMG",
+                 "findings": "Reduced sensory nerve conduction velocities bilaterally consistent with distal symmetric polyneuropathy.",
+                 "provider": "Dr. Michael Torres"},
+                {"modality": "Carotid Ultrasound", "body_region": "Neck", "study_date": "2025-03-20",
+                 "description": "Bilateral carotid duplex ultrasound",
+                 "findings": "Mild bilateral intimal thickening. No hemodynamically significant stenosis. IMT 0.9mm.",
+                 "provider": "Portland Vascular Lab"},
+                {"modality": "Abdominal Ultrasound", "body_region": "Abdomen", "study_date": "2025-06-15",
+                 "description": "Right upper quadrant ultrasound",
+                 "findings": "Mild hepatic steatosis (fatty liver). No gallstones. Kidneys normal size bilateral.",
+                 "provider": "Portland Radiology Associates"},
+            ],
+            "genetics": [
+                {"gene": "SLC22A1", "variant": "rs622342 A/C", "significance": "Pharmacogenomic",
+                 "detail": "Reduced organic cation transporter 1 activity. May decrease metformin hepatic uptake and efficacy.",
+                 "category": "Drug metabolism"},
+                {"gene": "SLCO1B1", "variant": "rs4149056 T/C", "significance": "Pharmacogenomic",
+                 "detail": "Intermediate function OATP1B1 transporter. Increased statin myopathy risk — consider lower atorvastatin dose.",
+                 "category": "Drug metabolism"},
+                {"gene": "TCF7L2", "variant": "rs7903146 C/T", "significance": "Disease risk",
+                 "detail": "Heterozygous risk variant associated with impaired beta-cell function and 1.4x T2DM risk.",
+                 "category": "Diabetes susceptibility"},
+                {"gene": "APOE", "variant": "e3/e4", "significance": "Disease risk",
+                 "detail": "APOE e4 carrier. Elevated cardiovascular risk and altered lipid metabolism.",
+                 "category": "Cardiovascular"},
+                {"gene": "ACE", "variant": "rs4646994 I/D", "significance": "Pharmacogenomic",
+                 "detail": "DD genotype associated with higher ACE activity. May need higher dose of ACE inhibitor.",
+                 "category": "Drug response"},
+                {"gene": "MTHFR", "variant": "rs1801133 C/T", "significance": "Nutritional",
+                 "detail": "Heterozygous C677T. Mildly reduced folate metabolism. Consider methylfolate supplementation.",
+                 "category": "Nutrient metabolism"},
+            ],
+            "procedures": [
+                {"name": "Annual Physical Examination", "procedure_date": "2025-12-01",
+                 "provider": "Dr. Elena Vasquez", "notes": "Comprehensive metabolic review"},
+                {"name": "Dilated Eye Exam", "procedure_date": "2024-06-20",
+                 "provider": "Dr. Lisa Park", "notes": "NPDR identified bilaterally"},
+                {"name": "Nerve Conduction Study", "procedure_date": "2023-11-05",
+                 "provider": "Dr. Michael Torres", "notes": "Confirmed distal symmetric polyneuropathy"},
+                {"name": "Cardiac Stress Test", "procedure_date": "2024-09-08",
+                 "provider": "Dr. James Chen", "notes": "Exercise stress — no ischemic changes at 9.2 METs"},
+            ],
+        },
+        "analysis": {
+            "flags": [
+                {"title": "HbA1c significantly above target", "severity": "critical", "category": "Lab Finding",
+                 "detail": "HbA1c 8.2% is well above the 7.0% ADA target (5.6% normal). Despite trending down from 9.4%, glucose control remains inadequate. Risk: accelerated microvascular damage.",
+                 "evidence": [{"source": "Lab result", "date": "2025-12-01", "value": "HbA1c 8.2%"}]},
+                {"title": "Declining kidney function (eGFR trend)", "severity": "high", "category": "Trend Analysis",
+                 "detail": "eGFR dropped from 92 to 78 mL/min over 18 months (15% decline). Stage 2 CKD territory. Combination of diabetes and hypertension accelerates nephron loss.",
+                 "evidence": [{"source": "Lab trend", "date": "2025-12-01", "value": "eGFR 78 (was 92 in Jun 2024)"}]},
+                {"title": "LDL above diabetic target", "severity": "high", "category": "Lab Finding",
+                 "detail": "LDL 118 mg/dL exceeds the <70 mg/dL target for high-risk diabetic patients (AHA/ACC guidelines). Despite statin therapy, not at goal.",
+                 "evidence": [{"source": "Lab result", "date": "2025-12-01", "value": "LDL 118 mg/dL"}]},
+                {"title": "Elevated triglycerides", "severity": "moderate", "category": "Lab Finding",
+                 "detail": "Triglycerides 195 mg/dL above 150 mg/dL reference range. Improving from 228 but still elevated. Part of metabolic syndrome picture.",
+                 "evidence": [{"source": "Lab result", "date": "2025-12-01", "value": "TG 195 mg/dL"}]},
+                {"title": "Blood pressure above diabetic target", "severity": "moderate", "category": "Vital Sign",
+                 "detail": "Systolic BP 138 mmHg exceeds the 130/80 mmHg target for diabetic patients. Improving trend (was 155 in March) but not at goal.",
+                 "evidence": [{"source": "Vital signs", "date": "2025-12-01", "value": "SBP 138 mmHg"}]},
+                {"title": "Peripheral neuropathy progression", "severity": "moderate", "category": "Symptom Pattern",
+                 "detail": "Tingling in feet occurring monthly. New numbness in hands suggests proximal spread of diabetic neuropathy.",
+                 "evidence": [{"source": "Symptom log", "date": "2025-12-01", "value": "5 episodes in 4 months"}]},
+                {"title": "Elevated hs-CRP — inflammatory marker", "severity": "moderate", "category": "Lab Finding",
+                 "detail": "hs-CRP 3.8 mg/L (reference <3.0) indicates elevated systemic inflammation. Associated with increased cardiovascular event risk.",
+                 "evidence": [{"source": "Lab result", "date": "2025-12-01", "value": "hs-CRP 3.8 mg/L"}]},
+                {"title": "HDL borderline low", "severity": "low", "category": "Lab Finding",
+                 "detail": "HDL 42 mg/dL, just above 40 mg/dL minimum. Target >50 for cardiovascular protection. Improving from 36.",
+                 "evidence": [{"source": "Lab result", "date": "2025-12-01", "value": "HDL 42 mg/dL"}]},
+                {"title": "Mild hepatic steatosis on imaging", "severity": "low", "category": "Imaging Finding",
+                 "detail": "Fatty liver identified on abdominal ultrasound. Common in metabolic syndrome. Monitor ALT/AST trends.",
+                 "evidence": [{"source": "Imaging", "date": "2025-06-15", "value": "Abdominal US: mild steatosis"}]},
+                {"title": "Urine ACR not tested", "severity": "moderate", "category": "Monitoring Gap",
+                 "missing_test": "Urine Albumin-to-Creatinine Ratio",
+                 "detail": "Annual uACR recommended for all diabetic patients per ADA guidelines. Critical given declining eGFR."},
+                {"title": "Annual dilated eye exam overdue", "severity": "moderate", "category": "Monitoring Gap",
+                 "missing_test": "Annual Dilated Eye Exam",
+                 "detail": "Last eye exam was Jun 2024 (18 months ago). With known NPDR, annual screening is critical."},
+                {"title": "Comprehensive foot exam needed", "severity": "low", "category": "Monitoring Gap",
+                 "missing_test": "Comprehensive Foot Exam",
+                 "detail": "Annual monofilament and vibration testing recommended given peripheral neuropathy diagnosis."},
+            ],
+            "drug_gene_interactions": [
+                {"drug": "Metformin", "gene": "SLC22A1", "impact": "moderate", "severity": "moderate",
+                 "detail": "SLC22A1 rs622342 A/C variant reduces organic cation transporter 1 activity. Metformin hepatic uptake may be 20-30% lower. Consider monitoring response and dose optimization."},
+                {"drug": "Atorvastatin", "gene": "SLCO1B1", "impact": "high", "severity": "high",
+                 "detail": "SLCO1B1 rs4149056 T/C increases systemic statin exposure. 1.7x higher myopathy risk. CPIC recommends considering lower dose or alternative statin (e.g., rosuvastatin, pravastatin)."},
+            ],
+            "drug_interactions": [
+                {"drug_a": "Metformin", "drug_b": "Insulin Glargine", "severity": "low",
+                 "detail": "Additive hypoglycemic effect. Combined use is standard for T2DM but increases hypoglycemia risk. Ensure patient monitors blood glucose."},
+                {"drug_a": "Lisinopril", "drug_b": "Aspirin", "severity": "low",
+                 "detail": "NSAIDs/aspirin may reduce antihypertensive effect of ACE inhibitors. Low-dose aspirin 81mg has minimal impact."},
+                {"drug_a": "Metoprolol", "drug_b": "Insulin Glargine", "severity": "moderate",
+                 "detail": "Beta-blockers may mask hypoglycemia symptoms (tachycardia, tremor). Patient should rely on other cues like sweating, hunger."},
+                {"drug_a": "Gabapentin", "drug_b": "Metformin", "severity": "low",
+                 "detail": "Both renally cleared. With declining eGFR, monitor for gabapentin accumulation. Dose adjustment may be needed if eGFR drops below 60."},
+            ],
+            "cross_disciplinary": [
+                {"title": "Diabetes-Cardiovascular-Renal axis", "severity": "high",
+                 "specialties": ["Endocrinology", "Cardiology", "Nephrology"],
+                 "description": "Here\u2019s something we found. The good news is we spotted it early. What\u2019s happening: your diabetes, heart, and kidneys are all connected. When blood sugar stays high, it puts extra stress on your heart and kidneys. Your heart is already working harder (that\u2019s the LVH finding), and your kidney function has been slowly dropping. These three things feed into each other \u2014 but there are medications that can help all three at once.",
+                 "patient_data_points": [
+                     "HbA1c 8.2% \u2014 blood sugar above target",
+                     "Kidney function (eGFR) dropped from 92 to 78 over 18 months",
+                     "Heart thickening (LVH) found on echocardiogram",
+                     "Inflammation marker (hs-CRP) elevated at 3.8",
+                     "Blood pressure needs two medications to control",
+                 ],
+                 "question_for_doctor": "My records show my diabetes, kidneys, and heart are all being affected together. Could a medication like empagliflozin help protect all three? I\u2019ve read it can help with blood sugar, kidney function, and heart health at the same time.",
+                 "evidence_source": "ADA Standards of Care 2025, ACC/AHA Heart Failure Guidelines, KDIGO CKD Guidelines",
+                 "diagnostic_source": "ADA Standards of Medical Care in Diabetes (Diabetes Care 2025); ACC/AHA Guideline for Management of Heart Failure (Circulation 2022); KDIGO Clinical Practice Guideline for CKD (Kidney Int 2024)"},
+                {"title": "Metabolic syndrome cluster", "severity": "moderate",
+                 "specialties": ["Endocrinology", "Cardiology", "Hepatology"],
+                 "description": "Here\u2019s something we found. Your body is showing a cluster of related issues \u2014 weight, blood sugar, blood pressure, cholesterol, and liver changes. When these happen together, doctors call it metabolic syndrome. Each one alone is manageable, but together they multiply the risk. The good news: treating the root causes (like weight and insulin resistance) can improve several of these at once.",
+                 "patient_data_points": [
+                     "BMI 32.2 \u2014 in the obese range",
+                     "HbA1c 8.2% \u2014 blood sugar not well controlled",
+                     "High blood pressure needing two medications",
+                     "Triglycerides high, good cholesterol (HDL) low",
+                     "Fatty liver found on imaging",
+                 ],
+                 "question_for_doctor": "Several of my numbers point to metabolic syndrome. Could a GLP-1 medication like semaglutide help tackle the weight, blood sugar, and heart risk together instead of adding more separate medications?",
+                 "evidence_source": "NCEP ATP III Metabolic Syndrome Criteria, ADA/EASD Consensus Report, AASLD NAFLD Practice Guidelines",
+                 "diagnostic_source": "NCEP ATP III Metabolic Syndrome Definition (Circulation 2005;112:2735-2752); ADA/EASD Consensus Report on T2DM Management (Diabetes Care 2022); AASLD Practice Guidance on NAFLD (Hepatology 2023)"},
+                {"title": "Microvascular damage correlation", "severity": "moderate",
+                 "specialties": ["Neurology", "Ophthalmology", "Endocrinology"],
+                 "description": "Here\u2019s something we found, and it\u2019s good that we caught it. Two things showed up that are related: changes in your eyes (retinopathy) and numbness in your feet (neuropathy). Both are caused by high blood sugar damaging tiny blood vessels. When this kind of damage shows up in the eyes and nerves, it\u2019s a signal to watch the kidneys more closely too \u2014 since they have similar small blood vessels.",
+                 "patient_data_points": [
+                     "Early diabetic eye changes (retinopathy) found",
+                     "Numbness and tingling in the feet (neuropathy)",
+                     "Both point to small blood vessel damage from diabetes",
+                 ],
+                 "question_for_doctor": "I have both eye changes and nerve symptoms from diabetes. Since these both involve small blood vessel damage, should we be checking my kidneys more often? I want to catch any changes early.",
+                 "evidence_source": "ADA Microvascular Complications Standards, AAO Diabetic Retinopathy PPP, AAN Diabetic Neuropathy Guidelines",
+                 "diagnostic_source": "ADA Standards: Microvascular Complications (Diabetes Care 2025); AAO Preferred Practice Pattern: Diabetic Retinopathy (Ophthalmology 2020); AAN Practice Guideline: Diabetic Neuropathy (Neurology 2017)"},
+            ],
+            "community_insights": [
+                {"title": "SGLT2 inhibitors show renal and cardiac benefits in T2DM",
+                 "detail": "Recent RCTs show SGLT2 inhibitors reduce CKD progression by 30-40% and heart failure hospitalizations by 35% in T2DM patients with declining eGFR.",
+                 "source": "CREDENCE/DAPA-CKD trials"},
+                {"title": "Statin-gene interaction awareness growing",
+                 "detail": "SLCO1B1 pharmacogenomic testing is increasingly recommended before high-dose statin therapy. Rosuvastatin or pravastatin have lower SLCO1B1 dependence.",
+                 "source": "CPIC Guidelines 2024"},
+                {"title": "Continuous glucose monitoring improves HbA1c outcomes",
+                 "detail": "CGM use in insulin-treated T2DM patients shows average 0.5-1.0% HbA1c reduction. Insurance coverage expanding in 2025.",
+                 "source": "ADA Standards of Care 2025"},
+            ],
+            "literature": [
+                {"title": "Empagliflozin, Cardiovascular Outcomes, and Mortality in Type 2 Diabetes",
+                 "journal": "New England Journal of Medicine",
+                 "year": 2025, "relevance": "Directly relevant — SGLT2 inhibitor trial for cardiorenal protection in T2DM"},
+                {"title": "CPIC Guideline for Statins and SLCO1B1, ABCG2, and CYP2C9",
+                 "journal": "Clinical Pharmacology & Therapeutics",
+                 "year": 2024, "relevance": "Patient carries SLCO1B1 variant affecting atorvastatin metabolism"},
+                {"title": "ADA Standards of Medical Care in Diabetes — 2025",
+                 "journal": "Diabetes Care",
+                 "year": 2025, "relevance": "Current treatment guidelines for all aspects of this patient's diabetes management"},
+                {"title": "Diabetic Peripheral Neuropathy: Pathogenesis and Treatment",
+                 "journal": "The Lancet Neurology",
+                 "year": 2024, "relevance": "Patient has active diabetic neuropathy with progression of symptoms"},
+                {"title": "GLP-1 Receptor Agonists for Obesity and Type 2 Diabetes: A Review",
+                 "journal": "JAMA",
+                 "year": 2025, "relevance": "Patient has obesity + T2DM — GLP-1 RA may address both conditions"},
+            ],
+            "questions_for_doctor": [
+                {"question": "Should we add an SGLT2 inhibitor (empagliflozin/dapagliflozin) given my declining kidney function and cardiovascular risk?",
+                 "context": "eGFR dropped from 92 to 78 in 18 months. SGLT2i have strong evidence for slowing CKD progression in T2DM.",
+                 "priority": "high"},
+                {"question": "My SLCO1B1 genetic variant increases statin side effect risk. Should we switch from atorvastatin to a different statin?",
+                 "context": "SLCO1B1 rs4149056 T/C — CPIC recommends considering rosuvastatin or pravastatin as alternatives.",
+                 "priority": "high"},
+                {"question": "Would a GLP-1 receptor agonist (semaglutide) be appropriate for combined weight loss and glucose control?",
+                 "context": "BMI 32.2, HbA1c 8.2%. GLP-1 RA could address obesity, improve HbA1c, and reduce cardiovascular risk.",
+                 "priority": "moderate"},
+                {"question": "Should I be using a continuous glucose monitor (CGM) given my insulin therapy?",
+                 "context": "Currently on basal insulin with suboptimal control. CGM may help optimize dosing and catch hypoglycemia.",
+                 "priority": "moderate"},
+                {"question": "Is it time to schedule my overdue eye exam given the retinopathy diagnosis?",
+                 "context": "Last dilated eye exam was June 2024. NPDR was found. Annual follow-up is standard of care.",
+                 "priority": "high"},
+                {"question": "Should gabapentin dose be adjusted given my declining kidney function?",
+                 "context": "Gabapentin is renally cleared. eGFR 78 is still above the 60 threshold for dose adjustment, but trending down.",
+                 "priority": "low"},
+            ],
+        },
+    }
+
+
 # ── File Upload ───────────────────────────────────────────────
 
 @app.route("/api/upload", methods=["POST"])
@@ -564,40 +1022,92 @@ def get_dashboard():
     # Labs with 3+ data points for sparklines
     lab_trends = _get_lab_trends(labs)
 
-    # Active medications
+    # Active medications — list for donut breakdown
     meds = clinical.get("medications", [])
     active_meds = [m for m in meds if (m.get("status") or "").lower() != "discontinued"]
+    meds_by_route = {}
+    for m in active_meds:
+        route = m.get("route") or m.get("category") or "Other"
+        meds_by_route[route] = meds_by_route.get(route, 0) + 1
+    meds_breakdown = [{"label": k, "value": v} for k, v in meds_by_route.items()]
+    meds_list = [{"name": m.get("name") or "Unknown", "dose": m.get("dose", ""),
+                  "route": m.get("route", "")} for m in active_meds]
 
-    # Active diagnoses
+    # Active diagnoses — list for bar chart
     diagnoses = clinical.get("diagnoses", [])
+    diagnoses_list = []
+    for dx in diagnoses:
+        name = dx.get("name") or dx.get("condition") or "Unknown"
+        sev = (dx.get("severity") or "info").lower()
+        diagnoses_list.append({"name": name, "severity": sev})
 
-    # Symptoms count
+    # Symptoms — list with episode counts for bar chart
     symptoms = clinical.get("symptoms", [])
+    symptoms_list = []
+    for s in symptoms:
+        name = s.get("symptom_name") or s.get("name") or "Unknown"
+        ep_count = len(s.get("episodes", []))
+        if ep_count == 0:
+            ep_count = 1  # flat entries without episodes array count as 1
+        symptoms_list.append({"name": name, "episodes": ep_count})
+    symptoms_list.sort(key=lambda x: x["episodes"], reverse=True)
 
-    # Flags — use lightweight count rather than full computation
+    # Flags — with severity breakdown for stacked bar
     flags = list(analysis.get("flags", []))
+    severity_counts = {"critical": 0, "high": 0, "moderate": 0, "low": 0}
+    for f in flags:
+        sev = (f.get("severity") or "low").lower()
+        if sev in severity_counts:
+            severity_counts[sev] += 1
+        else:
+            severity_counts["low"] += 1
+    flags_list = [{"title": f.get("title") or f.get("flag") or "—",
+                   "severity": (f.get("severity") or "low").lower(),
+                   "detail": f.get("detail") or f.get("explanation") or ""}
+                  for f in flags[:20]]
 
     # Missing negatives / monitoring gaps
     missing = [f for f in flags if f.get("category") == "Monitoring Gap"]
 
-    # PGx collision count
+    # PGx collision count + details
     pgx_alerts = analysis.get("drug_gene_interactions", [])
+    pgx_list = [{"drug": p.get("drug", ""), "gene": p.get("gene", ""),
+                 "impact": p.get("impact") or p.get("severity", "")}
+                for p in pgx_alerts[:10]]
 
-    # Cross-specialty count
-    cross_spec_count = len(analysis.get("cross_disciplinary", []))
+    # Cross-specialty patterns
+    cross_spec = analysis.get("cross_disciplinary", [])
+    cross_spec_list = [{"title": c.get("title") or c.get("pattern") or "—",
+                        "specialties": c.get("specialties", []),
+                        "severity": (c.get("severity") or "info").lower()}
+                       for c in cross_spec[:10]]
+
+    # Risk score — computed from flag severities
+    risk_score = (severity_counts["critical"] * 25 + severity_counts["high"] * 15
+                  + severity_counts["moderate"] * 8 + severity_counts["low"] * 3)
+    risk_score = min(risk_score, 100)
 
     return jsonify({
         "has_data": True,
         "latest_labs": latest_labs,
         "lab_trends": lab_trends,
         "active_medications": len(active_meds),
+        "medications_list": meds_list,
+        "medications_breakdown": meds_breakdown,
         "diagnoses_count": len(diagnoses),
+        "diagnoses_list": diagnoses_list,
         "symptoms_count": len(symptoms),
+        "symptoms_list": symptoms_list,
         "flags_count": len(flags),
+        "flags_by_severity": severity_counts,
+        "flags_list": flags_list,
         "missing_tests": missing,
         "pgx_collisions": len(pgx_alerts),
-        "cross_specialty_count": cross_spec_count,
+        "pgx_list": pgx_list,
+        "cross_specialty_count": len(cross_spec),
+        "cross_specialty_list": cross_spec_list,
         "visit_prep_items": _count_visit_prep_items(),
+        "risk_score": risk_score,
     })
 
 
@@ -636,20 +1146,27 @@ def get_cross_disciplinary():
         correlations = engine.analyze(_profile_data)
 
         for c in correlations:
-            evidence = c.get("matched_symptoms", []) + c.get("matched_labs", [])
             hits = c.get("total_hits", 0)
             possible = c.get("total_possible", 0)
-            connections.append({
+            entry = {
                 "type": c.get("type", "systemic_correlation"),
                 "title": c["disease"],
                 "specialties": c["specialties"],
                 "severity": c.get("severity", "moderate"),
                 "description": c["description"],
-                "patient_data_points": evidence,
+                "patient_data_points": c.get("matched_symptoms", []),
+                "matched_labs": c.get("matched_labs", []),
                 "question_for_doctor": c.get("recommendation", ""),
                 "total_hits": hits,
                 "total_possible": possible,
-            })
+                "evidence_source": c.get("evidence_source", ""),
+                "diagnostic_source": c.get("diagnostic_source", ""),
+            }
+            # Pass through PubMed verification for AI discoveries
+            if c.get("type") == "ai_discovered_correlation":
+                entry["pubmed_verified"] = c.get("pubmed_verified", False)
+                entry["pubmed_citations"] = c.get("pubmed_citations", [])
+            connections.append(entry)
     except Exception as e:
         logger.debug("Cross-specialty correlation: %s", e)
 
@@ -674,13 +1191,43 @@ def get_literature():
     return jsonify(analysis.get("literature", []))
 
 
-@app.route("/api/questions")
-def get_questions():
-    """Get questions for doctor."""
+@app.route("/api/questions", methods=["GET", "POST"])
+def questions():
+    """Get or add questions for doctor."""
     if not _profile_data:
+        if request.method == "POST":
+            return jsonify({"error": "No profile data loaded"}), 400
         return jsonify([])
-    analysis = _profile_data.get("analysis", {})
-    return jsonify(analysis.get("questions_for_doctor", []))
+
+    analysis = _profile_data.setdefault("analysis", {})
+    questions_list = analysis.setdefault("questions_for_doctor", [])
+
+    if request.method == "GET":
+        return jsonify(questions_list)
+
+    # POST — add a new question to the visit prep list
+    data = request.get_json()
+    question_text = (data.get("question") or "").strip()
+    if not question_text:
+        return jsonify({"error": "Question text is required"}), 400
+
+    # Prevent exact duplicates
+    for q in questions_list:
+        if q.get("question", "").strip().lower() == question_text.lower():
+            return jsonify({"ok": True, "duplicate": True})
+
+    new_q = {
+        "question": question_text,
+        "context": data.get("context", ""),
+        "priority": data.get("priority", "moderate"),
+        "source": data.get("source", "user"),
+    }
+    questions_list.append(new_q)
+
+    # Persist to vault (reuses symptom saver — it saves the full profile)
+    _save_symptoms_to_vault()
+
+    return jsonify({"ok": True, "added": new_q})
 
 
 @app.route("/api/alerts")
@@ -844,6 +1391,262 @@ def get_timeline():
 
     events.sort(key=lambda e: e["date"], reverse=True)
     return jsonify(events)
+
+
+# ── Health Tracker API ─────────────────────────────────────────
+
+VITALS_TYPES = {
+    "blood_pressure_sys": {"label": "BP Systolic", "unit": "mmHg", "range": [70, 200]},
+    "blood_pressure_dia": {"label": "BP Diastolic", "unit": "mmHg", "range": [40, 130]},
+    "heart_rate":         {"label": "Heart Rate", "unit": "bpm", "range": [30, 200]},
+    "blood_glucose":      {"label": "Blood Glucose", "unit": "mg/dL", "range": [30, 500]},
+    "weight":             {"label": "Weight", "unit": "lbs", "range": [50, 600]},
+    "temperature":        {"label": "Temperature", "unit": "\u00b0F", "range": [90, 110]},
+    "oxygen_sat":         {"label": "O\u2082 Saturation", "unit": "%", "range": [70, 100]},
+    "a1c":                {"label": "HbA1c", "unit": "%", "range": [3, 15]},
+}
+
+
+@app.route("/api/tracker/vitals-types")
+def get_vitals_types():
+    """Return available vital sign types and their metadata."""
+    return jsonify(VITALS_TYPES)
+
+
+@app.route("/api/tracker/entries")
+def get_tracker_entries():
+    """Get all vitals log entries, optionally filtered by type."""
+    if not _profile_data:
+        return jsonify([])
+
+    entries = _profile_data.get("vitals_log", [])
+    vital_type = request.args.get("type")
+    if vital_type:
+        entries = [e for e in entries if e.get("vital_type") == vital_type]
+
+    # Sort newest first
+    entries = sorted(entries, key=lambda e: e.get("timestamp", ""), reverse=True)
+
+    limit = request.args.get("limit", type=int)
+    if limit:
+        entries = entries[:limit]
+
+    return jsonify(entries)
+
+
+@app.route("/api/tracker/log", methods=["POST"])
+def log_vital():
+    """Log a new vital sign entry."""
+    global _profile_data
+
+    if not _profile_data:
+        return jsonify({"error": "No profile loaded"}), 400
+
+    data = request.get_json()
+    vital_type = data.get("vital_type", "")
+    value = data.get("value")
+    timestamp = data.get("timestamp") or time.strftime("%Y-%m-%dT%H:%M:%S")
+    notes = data.get("notes", "")
+
+    if vital_type not in VITALS_TYPES:
+        return jsonify({"error": f"Unknown vital type: {vital_type}"}), 400
+
+    if value is None:
+        return jsonify({"error": "Value is required"}), 400
+
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return jsonify({"error": "Value must be a number"}), 400
+
+    vt = VITALS_TYPES[vital_type]
+    if value < vt["range"][0] or value > vt["range"][1]:
+        return jsonify({
+            "error": f"Value {value} out of range for {vt['label']} "
+                     f"({vt['range'][0]}-{vt['range'][1]} {vt['unit']})"
+        }), 400
+
+    entry = {
+        "id": str(uuid.uuid4())[:8],
+        "vital_type": vital_type,
+        "value": value,
+        "unit": vt["unit"],
+        "timestamp": timestamp,
+        "notes": notes,
+    }
+
+    if "vitals_log" not in _profile_data:
+        _profile_data["vitals_log"] = []
+    _profile_data["vitals_log"].append(entry)
+
+    # Persist to vault
+    _save_profile_to_vault()
+
+    return jsonify({"status": "logged", "entry": entry})
+
+
+@app.route("/api/tracker/delete", methods=["POST"])
+def delete_vital():
+    """Delete a vitals log entry by ID."""
+    global _profile_data
+
+    if not _profile_data:
+        return jsonify({"error": "No profile loaded"}), 400
+
+    data = request.get_json()
+    entry_id = data.get("id")
+    if not entry_id:
+        return jsonify({"error": "Entry ID required"}), 400
+
+    log = _profile_data.get("vitals_log", [])
+    before = len(log)
+    _profile_data["vitals_log"] = [e for e in log if e.get("id") != entry_id]
+    after = len(_profile_data["vitals_log"])
+
+    if before == after:
+        return jsonify({"error": "Entry not found"}), 404
+
+    _save_profile_to_vault()
+    return jsonify({"status": "deleted"})
+
+
+@app.route("/api/tracker/trends")
+def get_tracker_trends():
+    """Get trend data for sparklines — last N entries per vital type."""
+    if not _profile_data:
+        return jsonify({})
+
+    entries = _profile_data.get("vitals_log", [])
+    limit = request.args.get("limit", 30, type=int)
+
+    trends = {}
+    for vtype in VITALS_TYPES:
+        typed = sorted(
+            [e for e in entries if e.get("vital_type") == vtype],
+            key=lambda e: e.get("timestamp", ""),
+        )
+        if typed:
+            recent = typed[-limit:]
+            values = [e.get("value") for e in recent]
+            dates = [e.get("timestamp", "")[:10] for e in recent]
+            latest = values[-1] if values else None
+            avg = sum(values) / len(values) if values else None
+            trends[vtype] = {
+                "values": values,
+                "dates": dates,
+                "latest": latest,
+                "average": round(avg, 1) if avg is not None else None,
+                "count": len(typed),
+                "label": VITALS_TYPES[vtype]["label"],
+                "unit": VITALS_TYPES[vtype]["unit"],
+            }
+
+    return jsonify(trends)
+
+
+@app.route("/api/tracker/risk-breakdown")
+def get_risk_breakdown():
+    """Get detailed risk score breakdown by category."""
+    if not _profile_data:
+        return jsonify({"score": 0, "factors": []})
+
+    analysis = _profile_data.get("analysis", {})
+    flags = analysis.get("flags", [])
+
+    factors = []
+    total = 0
+
+    # Medication complexity
+    meds = _profile_data.get("clinical_timeline", {}).get("medications", [])
+    active_meds = [m for m in meds if m.get("status") in ("active", "prn", "unknown")]
+    med_count = len(active_meds)
+    if med_count >= 5:
+        pts = min(20, (med_count - 4) * 4)
+        total += pts
+        factors.append({
+            "category": "Polypharmacy",
+            "points": pts,
+            "detail": f"{med_count} active medications",
+            "color": "#5a8ffc",
+        })
+
+    # Drug interactions
+    ddi = analysis.get("drug_interactions", [])
+    if ddi:
+        pts = min(25, len(ddi) * 8)
+        total += pts
+        factors.append({
+            "category": "Drug Interactions",
+            "points": pts,
+            "detail": f"{len(ddi)} interactions found",
+            "color": "#f05545",
+        })
+
+    # Clinical flags by severity
+    sev_counts = {"critical": 0, "high": 0, "moderate": 0, "low": 0}
+    for f in flags:
+        sev = (f.get("severity") or "info").lower()
+        if sev in sev_counts:
+            sev_counts[sev] += 1
+
+    if sev_counts["critical"]:
+        pts = sev_counts["critical"] * 25
+        total += pts
+        factors.append({
+            "category": "Critical Flags",
+            "points": pts,
+            "detail": f"{sev_counts['critical']} critical findings",
+            "color": "#dc2626",
+        })
+
+    if sev_counts["high"]:
+        pts = sev_counts["high"] * 15
+        total += pts
+        factors.append({
+            "category": "High-Severity Flags",
+            "points": pts,
+            "detail": f"{sev_counts['high']} high findings",
+            "color": "#f97316",
+        })
+
+    if sev_counts["moderate"]:
+        pts = sev_counts["moderate"] * 8
+        total += pts
+        factors.append({
+            "category": "Moderate Flags",
+            "points": pts,
+            "detail": f"{sev_counts['moderate']} moderate findings",
+            "color": "#f0c550",
+        })
+
+    # Missing monitoring
+    missing = [f for f in flags if f.get("category") == "Monitoring Gap"]
+    if missing:
+        pts = min(15, len(missing) * 5)
+        total += pts
+        factors.append({
+            "category": "Missing Monitoring",
+            "points": pts,
+            "detail": f"{len(missing)} overdue tests",
+            "color": "#a07aff",
+        })
+
+    return jsonify({
+        "score": min(total, 100),
+        "factors": sorted(factors, key=lambda f: f["points"], reverse=True),
+    })
+
+
+def _save_profile_to_vault():
+    """Persist the current _profile_data back to the encrypted vault."""
+    if not _passphrase or not _profile_data:
+        return
+    try:
+        from src.encryption import EncryptedVault
+        vault = EncryptedVault(DATA_DIR, _passphrase)
+        vault.save_profile(_profile_data)
+    except Exception as e:
+        logger.error(f"Failed to save profile to vault: {e}")
 
 
 # ── Report Download ───────────────────────────────────────────
@@ -1175,6 +1978,59 @@ def snowball_diagnoses():
 
 # ── Symptom Tracking API ─────────────────────────────────────
 
+def _fuzzy_symptom_match(name: str, symptoms: list) -> dict | None:
+    """Find an archived symptom that fuzzy-matches `name`.
+
+    Uses normalized Levenshtein distance. Returns the best match above
+    80% similarity, or None. Handles typos, extra spaces, plural differences.
+    """
+    def _normalise(s):
+        import re
+        return re.sub(r'\s+', ' ', s.lower().strip())
+
+    def _levenshtein(a, b):
+        if len(a) < len(b):
+            return _levenshtein(b, a)
+        if not b:
+            return len(a)
+        prev = list(range(len(b) + 1))
+        for i, ca in enumerate(a):
+            curr = [i + 1]
+            for j, cb in enumerate(b):
+                cost = 0 if ca == cb else 1
+                curr.append(min(curr[j] + 1, prev[j + 1] + 1, prev[j] + cost))
+            prev = curr
+        return prev[-1]
+
+    query = _normalise(name)
+    if not query:
+        return None
+
+    best_match = None
+    best_score = 0.0
+
+    for s in symptoms:
+        if not s.get("archived"):
+            continue
+        candidate = _normalise(s.get("symptom_name", ""))
+        if not candidate:
+            continue
+
+        max_len = max(len(query), len(candidate))
+        if max_len == 0:
+            continue
+        dist = _levenshtein(query, candidate)
+        similarity = 1.0 - (dist / max_len)
+
+        if similarity > best_score:
+            best_score = similarity
+            best_match = s
+
+    if best_match and best_score >= 0.75:
+        return best_match
+    return None
+
+
 def _save_symptoms_to_vault():
     """Persist current symptoms back to the encrypted vault."""
     if not _passphrase or not _profile_data:
@@ -1265,6 +2121,22 @@ def create_symptom():
     timeline = _profile_data.setdefault("clinical_timeline", {})
     symptoms = timeline.setdefault("symptoms", [])
 
+    # ── Smart restore: check if name fuzzy-matches an archived symptom ──
+    archived_match = _fuzzy_symptom_match(name, symptoms)
+    if archived_match:
+        archived_match["archived"] = False
+        _save_symptoms_to_vault()
+        result = dict(archived_match)
+        result["restored"] = True
+        result["restored_name"] = archived_match["symptom_name"]
+        return jsonify(result), 200
+
+    # ── Exact-name duplicate guard (active symptoms) ──
+    name_lower = name.lower().strip()
+    for s in symptoms:
+        if not s.get("archived") and (s.get("symptom_name") or "").lower().strip() == name_lower:
+            return jsonify({"error": "A symptom with that name already exists", "existing_id": s["symptom_id"]}), 409
+
     import uuid as _uuid
     from datetime import datetime as _dt
 
@@ -1298,6 +2170,29 @@ def create_symptom():
     return jsonify(new_symptom), 201
 
 
+@app.route("/api/symptoms/check-archived", methods=["POST"])
+def check_archived_symptom():
+    """Check if a name fuzzy-matches any archived symptom. Used by wizard for live hints."""
+    if not _passphrase or not _profile_data:
+        return jsonify({"match": None})
+
+    data = request.get_json()
+    name = (data.get("name") or "").strip()
+    if not name or len(name) < 3:
+        return jsonify({"match": None})
+
+    timeline = _profile_data.get("clinical_timeline", {})
+    symptoms = timeline.get("symptoms", [])
+    match = _fuzzy_symptom_match(name, symptoms)
+    if match:
+        return jsonify({"match": {
+            "symptom_id": match["symptom_id"],
+            "symptom_name": match["symptom_name"],
+            "episode_count": len(match.get("episodes", [])),
+        }})
+    return jsonify({"match": None})
+
+
 @app.route("/api/symptoms/<symptom_id>", methods=["DELETE"])
 def delete_symptom(symptom_id):
     """Remove an entire symptom category."""
@@ -1316,6 +2211,24 @@ def delete_symptom(symptom_id):
 
     _save_symptoms_to_vault()
     return jsonify({"status": "deleted"})
+
+
+@app.route("/api/symptoms/<symptom_id>/archive", methods=["PATCH"])
+def toggle_archive_symptom(symptom_id):
+    """Toggle archived state on a symptom. Data is kept, just hidden from main view."""
+    global _profile_data
+
+    if not _passphrase or not _profile_data:
+        return jsonify({"error": "Vault not unlocked"}), 401
+
+    timeline = _profile_data.get("clinical_timeline", {})
+    for s in timeline.get("symptoms", []):
+        if s.get("symptom_id") == symptom_id:
+            s["archived"] = not s.get("archived", False)
+            _save_symptoms_to_vault()
+            return jsonify({"symptom_id": symptom_id, "archived": s["archived"]})
+
+    return jsonify({"error": "Symptom not found"}), 404
 
 
 @app.route("/api/symptoms/<symptom_id>/episodes", methods=["POST"])

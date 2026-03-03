@@ -220,6 +220,23 @@ var App = {
         }
     },
 
+    // ── Demo Data ──────────────────────────────────────
+
+    loadDemoData: async function() {
+        try {
+            await api("/api/demo-data", { method: "POST" });
+            App.loadDashboard();
+            // Reload whichever view is active
+            var active = document.querySelector(".nav-link.active");
+            if (active) {
+                var view = active.getAttribute("data-view");
+                if (view && App.viewLoaders[view]) App.viewLoaders[view]();
+            }
+        } catch (e) {
+            // Silent fail
+        }
+    },
+
     // ── File Upload ───────────────────────────────────
 
     handleDrop: function(event) {
@@ -328,102 +345,216 @@ var App = {
     loadDashboard: async function() {
         try {
             var data = await api("/api/dashboard");
-
             if (!data.has_data) return;
 
-            // Medications count
-            $("dash-med-count").textContent = data.active_medications || 0;
+            var hasDC = typeof DashboardCharts !== "undefined";
 
-            // PGx collision alert
+            // ── KPI Cards ─────────────────────────────────────
+            var kpiMed = $("kpi-med-count");
+            if (kpiMed) kpiMed.textContent = data.active_medications || 0;
+
+            var kpiDx = $("kpi-dx-count");
+            if (kpiDx) kpiDx.textContent = data.diagnoses_count || 0;
+
+            var kpiFlags = $("kpi-flags-count");
+            if (kpiFlags) kpiFlags.textContent = data.flags_count || 0;
+
+            var kpiSym = $("kpi-symptom-count");
+            if (kpiSym) kpiSym.textContent = data.symptoms_count || 0;
+
+            var kpiLab = $("kpi-lab-count");
+            if (kpiLab) kpiLab.textContent = (data.latest_labs || []).length;
+
+            // PGx badge on KPI card
+            if (data.pgx_collisions > 0) {
+                var pgxBadge = $("kpi-pgx-badge");
+                if (pgxBadge) {
+                    pgxBadge.textContent = data.pgx_collisions + " PGx alert" + (data.pgx_collisions > 1 ? "s" : "");
+                    pgxBadge.style.display = "inline-block";
+                }
+            }
+
+            // Risk score — gauge or number
+            var riskScore = data.risk_score || 0;
+            var riskEl = $("dash-risk-score");
+            if (riskEl) {
+                riskEl.textContent = riskScore;
+                if (riskScore <= 25) riskEl.style.color = "#5cd47f";
+                else if (riskScore <= 50) riskEl.style.color = "#f0c550";
+                else if (riskScore <= 75) riskEl.style.color = "#f05545";
+                else riskEl.style.color = "#dc2626";
+            }
+            if (hasDC && riskScore > 0) {
+                DashboardCharts.renderRiskGauge("dash-risk-gauge", riskScore, 100);
+            }
+
+            // ── Blood Panel — D3 range bars ───────────────────
+            if (data.latest_labs && data.latest_labs.length > 0 && hasDC) {
+                DashboardCharts.renderLabRangeBars("dash-blood-panel", data.latest_labs, { maxItems: 10 });
+            }
+
+            // ── Medications — donut by route/category ─────────
+            if (data.medications_breakdown && data.medications_breakdown.length > 0 && hasDC) {
+                DashboardCharts.renderDonut("dash-med-chart", data.medications_breakdown, {
+                    size: 130, thickness: 22,
+                    centerText: data.active_medications,
+                    centerLabel: "active",
+                });
+            }
+            // PGx alert below donut
             if (data.pgx_collisions > 0) {
                 var pgxEl = $("dash-pgx-alert");
-                pgxEl.textContent = data.pgx_collisions + " drug-gene interaction" + (data.pgx_collisions > 1 ? "s" : "") + " detected";
-                pgxEl.style.display = "block";
-            }
-
-            // Diagnoses count
-            $("dash-dx-count").textContent = data.diagnoses_count || 0;
-
-            // Flags count
-            var flagsCount = data.flags_count || 0;
-            $("dash-flags-count").textContent = flagsCount;
-            if (flagsCount > 0) {
-                $("dash-flags-count").style.color = "var(--heat)";
-            }
-
-            // Symptoms count
-            $("dash-symptom-count").textContent = data.symptoms_count || 0;
-
-            // Cross-specialty patterns
-            if (data.cross_specialty_count > 0) {
-                $("dash-cross-spec").textContent = data.cross_specialty_count + " cross-specialty pattern" + (data.cross_specialty_count > 1 ? "s" : "") + " found";
-                $("dash-cross-spec").style.color = "var(--honey)";
-            }
-
-            // Blood panel — show latest labs
-            if (data.latest_labs && data.latest_labs.length > 0) {
-                var panelEl = $("dash-blood-panel");
-                while (panelEl.firstChild) panelEl.removeChild(panelEl.firstChild);
-                var shown = Math.min(data.latest_labs.length, 5);
-                for (var i = 0; i < shown; i++) {
-                    var lab = data.latest_labs[i];
-                    var row = document.createElement("div");
-                    row.style.cssText = "display:flex; justify-content:space-between; padding:4px 0; font-size:13px;";
-                    var nameSpan = document.createElement("span");
-                    nameSpan.textContent = lab.test_name || lab.name || "—";
-                    nameSpan.style.color = "var(--text-secondary)";
-                    var valSpan = document.createElement("span");
-                    valSpan.textContent = (lab.value || "—") + " " + (lab.unit || "");
-                    valSpan.style.color = lab.flag ? "var(--heat)" : "var(--forest)";
-                    row.appendChild(nameSpan);
-                    row.appendChild(valSpan);
-                    panelEl.appendChild(row);
-                }
-                if (data.latest_labs.length > 5) {
-                    var more = document.createElement("div");
-                    more.textContent = "+" + (data.latest_labs.length - 5) + " more";
-                    more.style.cssText = "font-size:12px; color:var(--text-muted); margin-top:4px;";
-                    panelEl.appendChild(more);
+                if (pgxEl) {
+                    pgxEl.textContent = data.pgx_collisions + " drug-gene interaction" + (data.pgx_collisions > 1 ? "s" : "") + " detected";
+                    pgxEl.style.display = "block";
                 }
             }
 
-            // Lab trends sparklines (D3)
-            if (data.lab_trends && Object.keys(data.lab_trends).length > 0) {
-                var trendsEl = $("dash-lab-trends");
-                while (trendsEl.firstChild) trendsEl.removeChild(trendsEl.firstChild);
+            // ── Lab Trends — full line chart ──────────────────
+            if (data.lab_trends && Object.keys(data.lab_trends).length > 0 && hasDC) {
                 var trendNames = Object.keys(data.lab_trends);
-                var trendShown = Math.min(trendNames.length, 4);
-                for (var t = 0; t < trendShown; t++) {
-                    var trendName = trendNames[t];
-                    var points = data.lab_trends[trendName];
-                    var trendRow = document.createElement("div");
-                    trendRow.style.cssText = "display:flex; align-items:center; gap:8px; margin-bottom:8px;";
-                    var label = document.createElement("span");
-                    label.textContent = trendName;
-                    label.style.cssText = "font-size:12px; color:var(--text-muted); width:80px; flex-shrink:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;";
-                    trendRow.appendChild(label);
-                    var sparkContainer = document.createElement("div");
-                    sparkContainer.id = "spark-" + trendName.replace(/[^a-zA-Z0-9]/g, "-");
-                    sparkContainer.style.cssText = "flex:1; height:24px;";
-                    trendRow.appendChild(sparkContainer);
-                    trendsEl.appendChild(trendRow);
-                    // Render sparkline if Sparkline module is available
-                    if (typeof Sparkline !== "undefined") {
-                        Sparkline.render(sparkContainer.id, points);
+                var trendSeries = [];
+                var linePal = DashboardCharts.linePalette || DashboardCharts.palette;
+                for (var t = 0; t < Math.min(trendNames.length, 8); t++) {
+                    var tn = trendNames[t];
+                    trendSeries.push({
+                        name: tn,
+                        color: linePal[t % linePal.length],
+                        points: data.lab_trends[tn].map(function(p) {
+                            return { date: p.date, value: p.value };
+                        }),
+                    });
+                }
+                DashboardCharts.renderLineChart("dash-lab-trends", trendSeries, {
+                    height: 200,
+                    label: trendNames.length === 1 ? trendNames[0] : "",
+                });
+            } else if (data.lab_trends && Object.keys(data.lab_trends).length > 0) {
+                // Fallback to sparklines
+                var trendsEl = $("dash-lab-trends");
+                if (trendsEl) {
+                    while (trendsEl.firstChild) trendsEl.removeChild(trendsEl.firstChild);
+                    var sparkNames = Object.keys(data.lab_trends);
+                    for (var s = 0; s < Math.min(sparkNames.length, 4); s++) {
+                        var sn = sparkNames[s];
+                        var trendRow = document.createElement("div");
+                        trendRow.style.cssText = "display:flex; align-items:center; gap:8px; margin-bottom:8px;";
+                        var label = document.createElement("span");
+                        label.textContent = sn;
+                        label.style.cssText = "font-size:12px; color:var(--text-muted); width:80px; flex-shrink:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;";
+                        trendRow.appendChild(label);
+                        var sparkC = document.createElement("div");
+                        sparkC.id = "spark-" + sn.replace(/[^a-zA-Z0-9]/g, "-");
+                        sparkC.style.cssText = "flex:1; height:24px;";
+                        trendRow.appendChild(sparkC);
+                        trendsEl.appendChild(trendRow);
+                        if (typeof Sparkline !== "undefined") Sparkline.render(sparkC.id, data.lab_trends[sn]);
                     }
                 }
             }
 
-            // Overdue tests
+            // ── Conditions — horizontal bar chart ─────────────
+            if (data.diagnoses_list && data.diagnoses_list.length > 0 && hasDC) {
+                var sevScore = { critical: 4, high: 3, moderate: 2, low: 1, info: 0 };
+                var dxItems = data.diagnoses_list.map(function(dx, i) {
+                    return {
+                        label: dx.name,
+                        value: sevScore[dx.severity] || 1,
+                        color: { critical: "#dc2626", high: "#f05545", moderate: "#f0c550", low: "#5cd47f", info: "#5a8ffc" }[dx.severity] || "#5a8ffc",
+                    };
+                });
+                DashboardCharts.renderHBars("dash-dx-chart", dxItems, { maxItems: 8 });
+            }
+
+            // ── Flags — donut by severity + stacked bar ───────
+            if (data.flags_by_severity && hasDC) {
+                var sevSegs = [];
+                var sevColors = {
+                    critical: { color: "#C84040", colorDark: "#8B1A1A" },
+                    high:     { color: "#C87850", colorDark: "#984828" },
+                    moderate: { color: "#C8A848", colorDark: "#987820" },
+                    low:      { color: "#58B888", colorDark: "#308860" },
+                };
+                var sevOrder = ["critical", "high", "moderate", "low"];
+                for (var sv = 0; sv < sevOrder.length; sv++) {
+                    var key = sevOrder[sv];
+                    if (data.flags_by_severity[key] > 0) {
+                        sevSegs.push({
+                            label: key.charAt(0).toUpperCase() + key.slice(1),
+                            value: data.flags_by_severity[key],
+                            color: sevColors[key].color,
+                            colorDark: sevColors[key].colorDark,
+                        });
+                    }
+                }
+                if (sevSegs.length > 0) {
+                    DashboardCharts.renderDonut("dash-flags-chart", sevSegs, {
+                        size: 120, thickness: 18,
+                        centerText: data.flags_count,
+                        centerLabel: "flags",
+                        centerColor: "#C87850",
+                    });
+                    DashboardCharts.renderSeverityBar("dash-flags-severity-bar", data.flags_by_severity);
+                }
+            }
+
+            // ── Symptoms — vertical bar chart ─────────────────
+            if (data.symptoms_list && data.symptoms_list.length > 0 && hasDC) {
+                var symItems = data.symptoms_list.slice(0, 8).map(function(s) {
+                    return { label: s.name, value: s.episodes };
+                });
+                DashboardCharts.renderBarChart("dash-symptom-chart", symItems, { height: 160 });
+            }
+
+            // ── Cross-Specialty Patterns ──────────────────────
+            if (data.cross_specialty_list && data.cross_specialty_list.length > 0) {
+                var csEl = $("dash-cross-spec");
+                if (csEl) {
+                    while (csEl.firstChild) csEl.removeChild(csEl.firstChild);
+                    for (var c = 0; c < data.cross_specialty_list.length; c++) {
+                        var pat = data.cross_specialty_list[c];
+                        var patDiv = document.createElement("div");
+                        patDiv.style.cssText = "padding:8px 12px; margin-bottom:8px; border-radius:8px; background:rgba(240,197,80,0.08); border-left:3px solid var(--honey);";
+                        var patTitle = document.createElement("div");
+                        patTitle.textContent = pat.title;
+                        patTitle.style.cssText = "font-size:13px; font-weight:600; color:var(--text-primary); margin-bottom:4px;";
+                        patDiv.appendChild(patTitle);
+                        if (pat.specialties && pat.specialties.length > 0) {
+                            var specSpan = document.createElement("div");
+                            specSpan.textContent = pat.specialties.join(" · ");
+                            specSpan.style.cssText = "font-size:11px; color:var(--honey);";
+                            patDiv.appendChild(specSpan);
+                        }
+                        csEl.appendChild(patDiv);
+                    }
+                }
+            }
+
+            // ── Overdue / Missing Tests — table-style ─────────
             if (data.missing_tests && data.missing_tests.length > 0) {
                 var overdueEl = $("dash-overdue");
-                while (overdueEl.firstChild) overdueEl.removeChild(overdueEl.firstChild);
-                for (var m = 0; m < Math.min(data.missing_tests.length, 3); m++) {
-                    var test = data.missing_tests[m];
-                    var testDiv = document.createElement("div");
-                    testDiv.style.cssText = "padding:4px 0; font-size:13px; color:var(--honey);";
-                    testDiv.textContent = test.title || test.missing_test || "—";
-                    overdueEl.appendChild(testDiv);
+                if (overdueEl) {
+                    while (overdueEl.firstChild) overdueEl.removeChild(overdueEl.firstChild);
+                    // Table header
+                    var hdr = document.createElement("div");
+                    hdr.style.cssText = "display:grid; grid-template-columns:1fr auto; gap:16px; padding:6px 0; border-bottom:1px solid var(--border-faint); font-size:11px; font-weight:600; color:var(--text-muted);";
+                    var h1 = document.createElement("span"); h1.textContent = "TEST";
+                    var h2 = document.createElement("span"); h2.textContent = "STATUS";
+                    hdr.appendChild(h1); hdr.appendChild(h2);
+                    overdueEl.appendChild(hdr);
+                    for (var m = 0; m < data.missing_tests.length; m++) {
+                        var test = data.missing_tests[m];
+                        var testRow = document.createElement("div");
+                        testRow.style.cssText = "display:grid; grid-template-columns:1fr auto; gap:16px; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.03); font-size:13px;";
+                        var nameCell = document.createElement("span");
+                        nameCell.textContent = test.title || test.missing_test || "—";
+                        nameCell.style.color = "var(--text-primary)";
+                        var statusCell = document.createElement("span");
+                        statusCell.textContent = "OVERDUE";
+                        statusCell.style.cssText = "font-size:11px; font-weight:600; padding:2px 8px; border-radius:4px; background:rgba(240,197,80,0.15); color:#f0c550;";
+                        testRow.appendChild(nameCell); testRow.appendChild(statusCell);
+                        overdueEl.appendChild(testRow);
+                    }
                 }
             }
 
@@ -667,56 +798,13 @@ var App = {
     loadCrossDisciplinary: async function() {
         try {
             var connections = await api("/api/cross-disciplinary");
-            var container = $("crossdisc-list");
-
-            if (!connections.length) {
-                safeSetHtml(container, '<div style="color:var(--text-muted); text-align:center; padding:40px;">No cross-disciplinary connections found</div>');
-                return;
-            }
-
-            var html = "";
+            // Normalise: demo data uses "pattern" field, API adds "description"
             for (var i = 0; i < connections.length; i++) {
-                var c = connections[i];
-
-                var specHtml = "";
-                if (c.specialties && c.specialties.length) {
-                    specHtml = '<div style="margin-bottom:8px;"><span style="font-size:12px; color:var(--text-muted);">Specialties: </span>';
-                    for (var j = 0; j < c.specialties.length; j++) {
-                        specHtml += '<span class="badge badge-info" style="margin-right:4px;">' + escapeHtml(c.specialties[j]) + "</span>";
-                    }
-                    specHtml += "</div>";
+                if (!connections[i].description && connections[i].pattern) {
+                    connections[i].description = connections[i].pattern;
                 }
-
-                var dataHtml = "";
-                if (c.patient_data_points && c.patient_data_points.length) {
-                    dataHtml = '<div style="margin-bottom:8px;"><span style="font-size:12px; color:var(--text-muted);">Your data: </span>';
-                    for (var k = 0; k < c.patient_data_points.length; k++) {
-                        dataHtml += '<span style="font-size:13px; color:var(--accent-teal); margin-right:12px;">' + escapeHtml(c.patient_data_points[k]) + "</span>";
-                    }
-                    dataHtml += "</div>";
-                }
-
-                var questionHtml = "";
-                if (c.question_for_doctor) {
-                    questionHtml = '<div style="background:var(--bg-raised); padding:12px; border-radius:8px; margin-top:8px;">'
-                        + '<div style="font-size:12px; color:var(--accent-amber); margin-bottom:4px;">Ask your doctor:</div>'
-                        + '<div style="font-size:14px;">' + escapeHtml(c.question_for_doctor) + "</div>"
-                        + "</div>";
-                }
-
-                html += '<div class="card" style="border-left:3px solid var(--accent-purple); margin-bottom:12px;">'
-                    + '<div style="display:flex; align-items:center; gap:12px; margin-bottom:8px;">'
-                    + severityBadge(c.severity)
-                    + '<strong style="font-size:15px;">' + escapeHtml(c.title || "") + "</strong>"
-                    + "</div>"
-                    + '<div style="color:var(--text-secondary); font-size:14px; line-height:1.6; margin-bottom:12px;">'
-                    + escapeHtml(c.description || "") + "</div>"
-                    + specHtml
-                    + dataHtml
-                    + questionHtml
-                    + "</div>";
             }
-            safeSetHtml(container, html);
+            CrossDiscGraph.render("crossdisc-list", connections);
         } catch (e) { /* no data */ }
     },
 
@@ -848,7 +936,7 @@ var App = {
     // ── Health Tracker (stub — implemented in Phase I) ──
 
     loadTracker: async function() {
-        // Will be implemented in Phase I
+        Tracker.load();
     },
 
     // ── PubMed Sweep ────────────────────────────────────
@@ -1518,18 +1606,277 @@ var BodyMap2DFallback = {
 
 
 // ══════════════════════════════════════════════════════════
+//  Health Tracker — Vitals Logging + Trends + Risk Score
+// ══════════════════════════════════════════════════════════
+
+var Tracker = {
+    formVisible: false,
+
+    load: async function() {
+        try {
+            await Promise.all([
+                Tracker.loadTrends(),
+                Tracker.loadEntries(),
+                Tracker.loadRiskBreakdown(),
+            ]);
+        } catch (e) { /* partial load is fine */ }
+    },
+
+    toggleForm: function() {
+        Tracker.formVisible = !Tracker.formVisible;
+        var form = $("tracker-form");
+        var btn = $("tracker-form-toggle");
+        if (form) form.style.display = Tracker.formVisible ? "" : "none";
+        if (btn) btn.textContent = Tracker.formVisible ? "Cancel" : "+ New Entry";
+    },
+
+    logEntry: async function() {
+        var vtype = $("tracker-type").value;
+        var value = $("tracker-value").value;
+        var notes = $("tracker-notes").value;
+        var errEl = $("tracker-form-error");
+
+        if (!value) {
+            if (errEl) { errEl.textContent = "Value is required"; errEl.style.display = "block"; }
+            return;
+        }
+        if (errEl) errEl.style.display = "none";
+
+        try {
+            var result = await api("/api/tracker/log", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({
+                    vital_type: vtype,
+                    value: parseFloat(value),
+                    notes: notes,
+                }),
+            });
+
+            if (result.error) {
+                if (errEl) { errEl.textContent = result.error; errEl.style.display = "block"; }
+                return;
+            }
+
+            // Clear form
+            $("tracker-value").value = "";
+            $("tracker-notes").value = "";
+
+            // Refresh data
+            Tracker.load();
+        } catch (e) {
+            if (errEl) { errEl.textContent = "Failed to log entry"; errEl.style.display = "block"; }
+        }
+    },
+
+    deleteEntry: async function(id) {
+        try {
+            await api("/api/tracker/delete", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({ id: id }),
+            });
+            Tracker.load();
+        } catch (e) { /* silent */ }
+    },
+
+    loadTrends: async function() {
+        var container = $("tracker-trends");
+        if (!container) return;
+
+        try {
+            var trends = await api("/api/tracker/trends");
+            if (!trends || !Object.keys(trends).length) {
+                safeSetHtml(container, '<div style="grid-column:1/-1; color:var(--text-muted); text-align:center; padding:20px;">Log vitals above to see trends.</div>');
+                return;
+            }
+
+            var cards = [];
+            var order = ["blood_pressure_sys", "blood_pressure_dia", "heart_rate",
+                         "blood_glucose", "a1c", "weight", "temperature", "oxygen_sat"];
+
+            for (var i = 0; i < order.length; i++) {
+                var key = order[i];
+                var t = trends[key];
+                if (!t) continue;
+
+                var trendDir = "";
+                if (t.values.length >= 2) {
+                    var last = t.values[t.values.length - 1];
+                    var prev = t.values[t.values.length - 2];
+                    if (last > prev) trendDir = ' <span style="color:#f05545;">\u25b2</span>';
+                    else if (last < prev) trendDir = ' <span style="color:#5cd47f;">\u25bc</span>';
+                    else trendDir = ' <span style="color:var(--text-muted);">\u2192</span>';
+                }
+
+                var sparkId = "spark-" + key;
+                cards.push(
+                    '<div style="background:var(--bg-card); border-radius:var(--radius-sm); padding:14px; border:1px solid var(--border-faint);">'
+                    + '<div style="font-size:10px; font-weight:600; letter-spacing:0.08em; color:var(--text-muted); margin-bottom:6px;">'
+                    + escapeHtml(t.label.toUpperCase())
+                    + '</div>'
+                    + '<div style="display:flex; align-items:baseline; gap:4px; margin-bottom:8px;">'
+                    + '<div style="font-size:22px; font-weight:700; color:#fff;">' + escapeHtml(String(t.latest)) + '</div>'
+                    + '<div style="font-size:11px; color:var(--text-muted);">' + escapeHtml(t.unit) + '</div>'
+                    + trendDir
+                    + '</div>'
+                    + '<div id="' + escapeHtml(sparkId) + '" style="height:30px;"></div>'
+                    + '<div style="display:flex; justify-content:space-between; margin-top:4px;">'
+                    + '<span style="font-size:10px; color:var(--text-muted);">Avg: ' + escapeHtml(String(t.average)) + '</span>'
+                    + '<span style="font-size:10px; color:var(--text-muted);">' + escapeHtml(String(t.count)) + ' entries</span>'
+                    + '</div>'
+                    + '</div>'
+                );
+            }
+
+            safeSetHtml(container, cards.join(""));
+
+            // Render sparklines after DOM update
+            for (var j = 0; j < order.length; j++) {
+                var k = order[j];
+                var tr = trends[k];
+                if (tr && tr.values.length > 1 && typeof Sparklines !== "undefined") {
+                    var color = k === "blood_glucose" || k === "a1c" ? "#dc2626" :
+                                k === "heart_rate" ? "#f05545" :
+                                k.startsWith("blood_pressure") ? "#5a8ffc" :
+                                k === "oxygen_sat" ? "#5cd47f" : "#f0c550";
+                    Sparklines.render("spark-" + k, tr.values, { color: color, height: 30 });
+                }
+            }
+        } catch (e) {
+            safeSetHtml(container, '<div style="grid-column:1/-1; color:var(--text-muted); text-align:center; padding:20px;">Could not load trends.</div>');
+        }
+    },
+
+    loadEntries: async function() {
+        var container = $("tracker-entries");
+        if (!container) return;
+
+        try {
+            var entries = await api("/api/tracker/entries?limit=30");
+            if (!entries || !entries.length) {
+                safeSetHtml(container, '<div style="color:var(--text-muted); text-align:center; padding:40px;">No entries yet. Log your first vital sign above.</div>');
+                return;
+            }
+
+            var html = '<table style="width:100%; border-collapse:collapse;">'
+                + '<tr style="border-bottom:1px solid var(--border-faint);">'
+                + '<th style="text-align:left; padding:8px; font-size:11px; color:var(--text-muted); font-weight:600;">Date</th>'
+                + '<th style="text-align:left; padding:8px; font-size:11px; color:var(--text-muted); font-weight:600;">Type</th>'
+                + '<th style="text-align:right; padding:8px; font-size:11px; color:var(--text-muted); font-weight:600;">Value</th>'
+                + '<th style="text-align:left; padding:8px; font-size:11px; color:var(--text-muted); font-weight:600;">Notes</th>'
+                + '<th style="width:40px;"></th>'
+                + '</tr>';
+
+            for (var i = 0; i < entries.length; i++) {
+                var e = entries[i];
+                var dateStr = e.timestamp ? formatDate(e.timestamp.substring(0, 10)) : "";
+                var timeStr = e.timestamp ? e.timestamp.substring(11, 16) : "";
+
+                html += '<tr style="border-bottom:1px solid var(--border-faint);">'
+                    + '<td style="padding:8px; font-size:13px;">'
+                    + escapeHtml(dateStr) + ' <span style="color:var(--text-muted); font-size:11px;">' + escapeHtml(timeStr) + '</span></td>'
+                    + '<td style="padding:8px; font-size:13px;">' + escapeHtml(e.vital_type || "").replace(/_/g, " ") + '</td>'
+                    + '<td style="padding:8px; font-size:13px; text-align:right; font-weight:600;">'
+                    + escapeHtml(String(e.value)) + ' <span style="color:var(--text-muted); font-size:11px;">' + escapeHtml(e.unit || "") + '</span></td>'
+                    + '<td style="padding:8px; font-size:12px; color:var(--text-secondary);">' + escapeHtml(e.notes || "") + '</td>'
+                    + '<td style="padding:8px;">'
+                    + '<button onclick="Tracker.deleteEntry(\'' + escapeHtml(e.id) + '\');" '
+                    + 'style="background:none; border:none; cursor:pointer; color:var(--text-muted); font-size:14px;" title="Delete">\u00d7</button>'
+                    + '</td>'
+                    + '</tr>';
+            }
+            html += '</table>';
+            safeSetHtml(container, html);
+        } catch (e) {
+            safeSetHtml(container, '<div style="color:var(--text-muted); text-align:center; padding:40px;">Could not load entries.</div>');
+        }
+    },
+
+    loadRiskBreakdown: async function() {
+        var container = $("risk-breakdown-content");
+        if (!container) return;
+
+        try {
+            var data = await api("/api/tracker/risk-breakdown");
+            if (!data || !data.factors || !data.factors.length) {
+                safeSetHtml(container, '<div style="text-align:center; padding:20px;">'
+                    + '<div style="font-size:32px; font-weight:700; color:#5cd47f; margin-bottom:8px;">0</div>'
+                    + '<div style="color:var(--text-muted); font-size:12px;">No risk factors identified</div>'
+                    + '</div>');
+                return;
+            }
+
+            var scoreColor = data.score <= 25 ? "#5cd47f" :
+                             data.score <= 50 ? "#f0c550" :
+                             data.score <= 75 ? "#f05545" : "#dc2626";
+
+            var html = '<div style="display:flex; gap:24px; align-items:flex-start;">'
+                + '<div style="text-align:center; min-width:100px;">'
+                + '<div style="font-size:42px; font-weight:700; color:' + scoreColor + ';">' + escapeHtml(String(data.score)) + '</div>'
+                + '<div style="font-size:11px; color:var(--text-muted);">/100 Risk Score</div>'
+                + '</div>'
+                + '<div style="flex:1;">';
+
+            for (var i = 0; i < data.factors.length; i++) {
+                var f = data.factors[i];
+                var pct = Math.min(f.points / 100 * 100, 100);
+                html += '<div style="margin-bottom:10px;">'
+                    + '<div style="display:flex; justify-content:space-between; margin-bottom:3px;">'
+                    + '<span style="font-size:12px; font-weight:500;">' + escapeHtml(f.category) + '</span>'
+                    + '<span style="font-size:12px; color:var(--text-muted);">+' + escapeHtml(String(f.points)) + ' pts \u2014 ' + escapeHtml(f.detail) + '</span>'
+                    + '</div>'
+                    + '<div style="height:6px; background:var(--bg-raised); border-radius:3px; overflow:hidden;">'
+                    + '<div style="height:100%; width:' + pct + '%; background:' + escapeHtml(f.color) + '; border-radius:3px;"></div>'
+                    + '</div>'
+                    + '</div>';
+            }
+
+            html += '</div></div>';
+            safeSetHtml(container, html);
+        } catch (e) {
+            safeSetHtml(container, '<div style="color:var(--text-muted); text-align:center; padding:20px;">Could not load risk breakdown.</div>');
+        }
+    },
+};
+
+
+// ══════════════════════════════════════════════════════════
 //  Timeline — Health Timeline Controller
 // ══════════════════════════════════════════════════════════
 
 var Timeline = {
     events: [],
     currentFilter: "all",
+    currentView: "flow", // "flow" (D3 swim-lane) or "list" (legacy)
 
     load: async function() {
         try {
             Timeline.events = await api("/api/timeline");
             Timeline.render();
         } catch (e) { /* no data */ }
+    },
+
+    setView: function(view) {
+        Timeline.currentView = view;
+
+        // Update toggle buttons
+        var btns = document.querySelectorAll(".tl-view-btn");
+        for (var i = 0; i < btns.length; i++) {
+            if (btns[i].dataset.tlView === view) {
+                btns[i].classList.add("active");
+            } else {
+                btns[i].classList.remove("active");
+            }
+        }
+
+        // Toggle container visibility
+        var flowEl = $("timeline-flow-container");
+        var listEl = $("timeline-list");
+        if (flowEl) flowEl.style.display = view === "flow" ? "" : "none";
+        if (listEl) listEl.style.display = view === "list" ? "" : "none";
+
+        Timeline.render();
     },
 
     filter: function(type) {
@@ -1549,6 +1896,20 @@ var Timeline = {
     },
 
     render: function() {
+        if (Timeline.currentView === "flow") {
+            Timeline._renderFlow();
+        } else {
+            Timeline._renderList();
+        }
+    },
+
+    _renderFlow: function() {
+        if (typeof TimelineFlow !== "undefined" && Timeline.events.length) {
+            TimelineFlow.init(Timeline.events, Timeline.currentFilter);
+        }
+    },
+
+    _renderList: function() {
         var container = $("timeline-list");
         var events = Timeline.events;
 
@@ -1586,3 +1947,14 @@ var Timeline = {
 // ══════════════════════════════════════════════════════════
 
 document.addEventListener("DOMContentLoaded", function() { App.init(); });
+
+// Resize handler for responsive D3 visualizations
+window.addEventListener("resize", (function() {
+    var timer;
+    return function() {
+        clearTimeout(timer);
+        timer = setTimeout(function() {
+            if (typeof TimelineFlow !== "undefined") TimelineFlow.resize();
+        }, 250);
+    };
+})());

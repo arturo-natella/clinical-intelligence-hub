@@ -2,6 +2,98 @@
 
 All notable changes to the Clinical Intelligence Hub will be documented in this file.
 
+## [2.0.0] — 2026-03-02
+
+### Added
+
+#### 26-Source Clinical Validation Pipeline (was 4)
+- Expanded from 4 validation sources to 26 independent API clients, each in its own module under `src/validation/`
+- Shared HTTP utility (`_http.py`) with certifi SSL for macOS Python compatibility
+- **Drug & Pharmacology (7)**: OpenFDA, DrugBank, RxNorm, DailyMed, DDinter, PharmGKB, PubChem
+- **Literature & Evidence (2)**: PubMed (E-utilities), ClinicalTrials.gov
+- **Genetics & Genomics (5)**: ClinVar, dbSNP, gnomAD, OMIM, DisGeNET
+- **Ontology & Terminology (6)**: SNOMED CT, ICD-11, MeSH, HPO, LOINC, UMLS
+- **Rare Disease (2)**: Orphanet, GARD
+- **Molecular & Network (3)**: BioGRID, Open Targets, UniProt
+- **Side Effects (1)**: SIDER (dual mode: local TSV + API)
+- MIMIC-IV placeholder module (awaiting PhysioNet credentialing)
+
+#### Validator Orchestrator Expansion
+- `validator.py` now runs 14 validation steps (was 7) across all 26 sources
+- New result keys: `drug_labels`, `interaction_severity`, `pharmacogenomics`, `mechanisms`, `genetic_variants`, `disease_network`, `cross_vocabulary`
+- 7 new enrichment methods: drug label analysis, interaction severity scoring, pharmacogenomics profiling, mechanism-of-action mapping, genetic variant analysis, disease network construction, cross-vocabulary resolution
+- All clients use graceful degradation (return None/[] on failure, never crash the pipeline)
+
+#### Cross-Disciplinary Connections Graph
+- D3.js v7 force-directed network visualization showing how findings connect across medical specialties
+- Node coloring by discipline, edge thickness by connection strength
+- Zoom/pan/drag with collision detection
+
+#### Flowing Timeline Visualization
+- D3.js swim-lane timeline with 6 lanes: medication, diagnosis, lab, procedure, imaging, symptom
+- Time axis with zoom (0.5x–20x) via `d3.zoom()`, mini-map with brush navigation via `d3.brushX()`
+- Flow/List toggle preserving both visualization modes
+- Safe DOM rendering (no innerHTML) — all user content via `textContent`
+
+#### Health Tracker with Vitals Logging
+- 8 vital types: blood pressure (sys/dia), heart rate, blood glucose, weight, temperature, oxygen saturation, A1C
+- Full CRUD API: log entries with validation (type + range checks), delete, list with filters
+- Trend sparklines per vital type (latest value, average, count)
+- Risk Score Breakdown: factor-by-factor analysis (polypharmacy, drug interactions, critical/high/moderate flags, missing monitoring) with 0–100 composite score
+- Encrypted vault persistence for all vitals data
+
+#### PubMed Citation Verification
+- Every validation finding now carries PubMed citation links
+- UI badges showing verification source count per finding
+- Citation tooltips with PMID, title, and journal
+
+#### UI Enhancements
+- GNOME/Adwaita dark theme design system with CSS custom properties
+- Collapsible sidebar navigation replacing top tabs
+- Dashboard diagnostic command center with analytics grid
+- Environmental health risks as dedicated nav tab
+- Embedded chat panel in dashboard
+
+### Changed
+- Validation pipeline completely rewritten from monolithic to modular architecture
+- Each data source is an independent client class with consistent interface
+- Timeline view upgraded from flat list to interactive D3 swim-lane chart
+
+## [1.2.0] — 2026-02-28
+
+### Added
+
+#### Snowball Differential Diagnostician
+- `src/analysis/snowball_engine.py`: Graph-theory differential diagnosis engine with 20-condition knowledge base (cardiac, pulmonary, hepatic, endocrine, renal, hematologic, vascular, neurologic, autoimmune, infectious, GI, musculoskeletal)
+- `src/ui/static/js/snowball.js`: D3.js v7 force-directed network visualization with zoom/pan/drag, ranked differentials sidebar, and per-condition detail panel
+- `/api/snowball-diagnoses` POST endpoint in app.py
+- Algorithm: seed patient findings → match against condition patterns → expand related conditions → rank by confidence → build D3-compatible graph
+- Each condition scores by match ratio weighted by severity; contradicting evidence triggers rule-out (80% penalty)
+- Click any condition node to see matched/missing findings, confidence bar, and "consider ordering" suggestions
+- "Differential Dx" button in Body Map toolbar (amethyst accent)
+- Full CSS for snowball overlay, graph, detail panel, ranked list, legend, and disclaimer
+
+## [1.1.0] — 2026-02-28
+
+### Added
+
+#### Body Map Enhancements
+- Before/After toggle: "Show Healthy" / "Show My State" button instantly switches between healthy baseline and patient's deformed organ state. Uses cached findings to avoid re-fetching.
+- AI Body Translation panel: "What does this mean?" button on findings panel generates plain-English explanations of organ damage. Cascading provider: Gemini -> Ollama (MedGemma) -> static fallback. Includes suggested doctor questions.
+- "Why Does This Hurt?" symptom mapping: 40+ condition-to-symptom lookup table correlates clinical findings (e.g. cirrhosis, heart failure) with patient-experienced symptoms (e.g. fatigue, shortness of breath). Shows in findings panel with source attribution.
+
+#### Volumetric Renderer Pipeline
+- `VolumetricRenderer` class in `src/imaging/volumetric_renderer.py`: DICOM -> MONAI segmentation -> marching cubes -> GLB export
+- MPS (Apple Silicon) accelerated inference with aggressive memory management
+- DICOM series validation (dimension consistency, slice sorting)
+- Per-organ marching cubes with configurable step size (1=full, 2=fast)
+- Trimesh-based GLB export with organ-layer naming for Three.js integration
+- JSON metadata sidecar for scan provenance
+- CLI entry point for standalone pipeline execution
+
+#### Backend
+- `/api/body-translation` endpoint: Generates patient-friendly organ explanations via Gemini, Ollama, or static fallback
+
 ## [1.0.0] — 2026-02-27
 
 ### Added

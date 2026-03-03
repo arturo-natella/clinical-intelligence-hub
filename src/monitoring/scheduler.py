@@ -121,6 +121,54 @@ class MonitoringScheduler:
         pw_alerts = self.run_playwright_monitors()
         return api_alerts + pw_alerts
 
+    def sweep_pubmed(self, profile_data: dict,
+                     days_back: int = 30,
+                     gemini_api_key: str = None) -> list[dict]:
+        """
+        On-demand PubMed sweep using v2.0 dict-based interface.
+
+        Called by the "Sweep Now" button in the Alerts view.
+        Uses expanded queries (symptoms, med combos, genetics)
+        and optional Gemini relevance scoring.
+
+        Args:
+            profile_data: Raw vault profile dict (includes symptoms)
+            days_back: How far back to search (default 30 days)
+            gemini_api_key: Optional Gemini key for relevance scoring
+
+        Returns:
+            List of alert dicts ready for JSON serialization.
+        """
+        api_keys = self._load_api_keys()
+
+        from src.monitoring.api_monitors.pubmed_monitor import PubMedMonitor
+        monitor = PubMedMonitor(
+            api_key=api_keys.get("ncbi"),
+            gemini_api_key=gemini_api_key,
+        )
+
+        alerts = monitor.check_from_dict(profile_data, days_back=days_back)
+
+        # Convert MonitoringAlert objects to dicts for JSON
+        results = []
+        for alert in alerts:
+            severity_str = (
+                alert.severity.value
+                if hasattr(alert.severity, "value")
+                else str(alert.severity)
+            )
+            results.append({
+                "source": alert.source,
+                "title": alert.title,
+                "description": alert.description,
+                "relevance": alert.relevance_explanation or "",
+                "severity": severity_str,
+                "url": alert.url,
+            })
+
+        logger.info("PubMed sweep complete: %d results", len(results))
+        return results
+
     # ── Individual Monitor Runners ─────────────────────
 
     def _run_pubmed(self, api_keys: dict) -> list[MonitoringAlert]:

@@ -185,6 +185,10 @@ class MONAIDetector:
                 findings = self._run_bundle(
                     task_name, bundle_dir, image_path, source_file
                 )
+
+                # Enrich findings with radiomic threshold analysis
+                findings = self._enrich_with_radiomics(findings, task_name)
+
                 all_findings.extend(findings)
                 logger.info(
                     f"  → {len(findings)} findings from {bundle_info['display_name']}"
@@ -791,6 +795,52 @@ class MONAIDetector:
 
         except Exception as e:
             logger.error(f"Pathology nuclei detection error: {e}")
+
+        return findings
+
+    # ── Radiomics Enrichment ─────────────────────────────────
+
+    @staticmethod
+    def _enrich_with_radiomics(
+        findings: list[ImagingFinding], task_name: str
+    ) -> list[ImagingFinding]:
+        """
+        Enrich MONAI findings with radiomic threshold analysis.
+
+        Uses the measurements already computed by MONAI (volume, diameter,
+        etc.) and checks them against clinical thresholds. Does NOT require
+        the raw image — works purely from the measurement dict.
+        """
+        try:
+            from src.imaging.radiomics import RadiomicsEngine
+
+            engine = RadiomicsEngine()
+            context_map = {
+                "lung_nodule": "lung_nodule",
+                "brain_tumor": "brain_tumor",
+                "wholebody_ct": "organ",
+                "pathology_nuclei": "general",
+            }
+            context = context_map.get(task_name, "general")
+
+            for finding in findings:
+                if finding.measurements:
+                    result = engine.extract_from_measurements(
+                        finding.measurements, context=context
+                    )
+                    finding.radiomic_features = result
+
+                    if result.get("threshold_flags"):
+                        logger.info(
+                            "  Radiomics: %d threshold flags for '%s'",
+                            len(result["threshold_flags"]),
+                            finding.description[:50],
+                        )
+
+        except ImportError:
+            logger.debug("Radiomics module not available — skipping enrichment")
+        except Exception as e:
+            logger.warning("Radiomics enrichment failed: %s", e)
 
         return findings
 

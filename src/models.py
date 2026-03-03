@@ -105,6 +105,7 @@ class Demographics(BaseModel):
     birth_year: Optional[int] = None
     blood_type: Optional[str] = None
     ethnicity: Optional[str] = None
+    location: Optional[str] = None  # County + State (e.g., "Maricopa County, AZ")
 
 
 # ── Clinical Data Types (all carry Provenance) ─────────────
@@ -162,6 +163,7 @@ class ImagingFinding(BaseModel):
     monai_model: Optional[str] = None       # Which MONAI model detected this
     confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     comparison_to_prior: Optional[str] = None  # "Stable", "Increased", "Decreased", "New"
+    radiomic_features: Optional[dict] = None  # Quantitative texture/shape/intensity features
 
 
 class Diagnosis(BaseModel):
@@ -224,6 +226,61 @@ class Vital(BaseModel):
     unit: Optional[str] = None
     measurement_date: Optional[date] = None
     provenance: Provenance
+
+
+# ── Symptom Tracking (user-reported) ──────────────────────
+
+class SymptomSeverity(str, Enum):
+    HIGH = "high"
+    MID = "mid"
+    LOW = "low"
+
+
+class SymptomEpisode(BaseModel):
+    """A single occurrence of a symptom."""
+    episode_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    episode_date: Optional[date] = None
+    time_of_day: Optional[str] = None      # morning/afternoon/evening/night
+    severity: SymptomSeverity = SymptomSeverity.MID
+    description: Optional[str] = None      # "Throbbing pain behind left eye, lasted 2 hours"
+    duration: Optional[str] = None
+    triggers: Optional[str] = None         # "after skipping lunch"
+    counter_values: dict = Field(default_factory=dict)  # {"stress": 2} or {"sitting_weird": false}
+    date_logged: datetime = Field(default_factory=datetime.now)
+
+
+class CounterMeasureType(str, Enum):
+    SCALE = "scale"        # 1-5
+    YES_NO = "yes_no"
+    FREE_TEXT = "free_text"
+
+
+class CounterDefinition(BaseModel):
+    """Defines how to track a doctor's claimed cause.
+
+    Example: Doctor says headaches = stress → track stress level 1-5 each episode.
+    NEVER deleted — archived when resolved but data stays in analytics.
+    Can be unarchived if doctor revisits the claim.
+    """
+    counter_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    doctor_claim: str                      # "stress", "sitting weird"
+    measure_type: CounterMeasureType       # scale/yes_no/free_text
+    measure_label: Optional[str] = None    # "Stress level" (auto-generated from claim)
+    date_added: datetime = Field(default_factory=datetime.now)
+    date_archived: Optional[datetime] = None  # when resolved (None = active)
+    archived: bool = False                 # UI toggle; data always included in analytics
+
+
+class Symptom(BaseModel):
+    """A named symptom category containing episodes and counter-evidence.
+
+    Example: 'Nerve pain on left leg' with 5 episodes and 2 counter definitions.
+    """
+    symptom_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    symptom_name: str                      # "Headaches", "Nerve pain on left leg"
+    episodes: list[SymptomEpisode] = Field(default_factory=list)
+    counter_definitions: list[CounterDefinition] = Field(default_factory=list)
+    date_created: datetime = Field(default_factory=datetime.now)
 
 
 # ── Analysis Results ───────────────────────────────────────
@@ -319,6 +376,7 @@ class ClinicalTimeline(BaseModel):
     genetics: list[GeneticVariant] = Field(default_factory=list)
     notes: list[ClinicalNote] = Field(default_factory=list)
     vitals: list[Vital] = Field(default_factory=list)
+    symptoms: list[Symptom] = Field(default_factory=list)
 
 
 class AnalysisResults(BaseModel):

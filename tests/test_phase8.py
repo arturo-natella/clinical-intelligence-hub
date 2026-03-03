@@ -90,6 +90,7 @@ def test_flask_app_routes_exist():
         "/api/upload",
         "/api/analyze",
         "/api/progress",
+        "/api/demographics",
         "/api/profile",
         "/api/medications",
         "/api/labs",
@@ -279,7 +280,7 @@ def test_app_js_structure():
 
     # Main controllers
     assert "var App = {" in js or "var App =" in js, "Missing App controller"
-    assert "var BodyMap = {" in js or "var BodyMap =" in js, "Missing BodyMap controller"
+    assert "var BodyMap2DFallback = {" in js or "var BodyMap2DFallback =" in js, "Missing BodyMap2DFallback controller"
     assert "var Timeline = {" in js or "var Timeline =" in js, "Missing Timeline controller"
 
     # Key functions
@@ -308,7 +309,7 @@ def test_css_has_all_components():
 
     required = [
         "--bg-primary",
-        "--accent-teal",
+        "--heat",
         "--severity-critical",
         ".nav",
         ".card",
