@@ -1656,14 +1656,14 @@ var BodyMap3D = {
         // MeshPhysicalMaterial with transmission/thickness gives subsurface scattering
         var skinMat = new THREE.MeshPhysicalMaterial({
             color: new THREE.Color(0.72, 0.52, 0.40),        // warm skin tone
-            roughness: 0.8,
+            roughness: 0.75,
             metalness: 0.0,
-            clearcoat: 0.02,
-            clearcoatRoughness: 0.5,
-            sheen: 0.3,
-            sheenRoughness: 0.6,
+            clearcoat: 0.05,
+            clearcoatRoughness: 0.4,
+            sheen: 0.4,
+            sheenRoughness: 0.5,
             sheenColor: new THREE.Color(0.6, 0.35, 0.25),    // warm sheen for skin depth
-            envMapIntensity: 0.0,                              // prevent env map washout
+            envMapIntensity: 0.5,                              // HDR studio reflections
             side: THREE.DoubleSide,
         });
 
@@ -1694,11 +1694,10 @@ var BodyMap3D = {
         }
 
         // Muscle palette — deep crimson red, specified in sRGB space.
-        // Using setRGB(r,g,b, SRGBColorSpace) tells Three.js these are the EXACT
-        // on-screen colors we want. Combined with toneMapped=false, bypasses ACES.
-        // MeshStandardMaterial (lit) so surface normals create highlights/shadows
-        // that reveal individual muscle contours and fiber boundaries.
-        var baseR = 0.45, baseG = 0.08, baseB = 0.06;   // sRGB deep crimson
+        // Bumped ~10% from previous values to compensate for ACES Filmic tone mapping
+        // which slightly darkens midtones. MeshPhysicalMaterial (lit) + clearcoat
+        // gives wet muscle appearance with HDR env reflections.
+        var baseR = 0.50, baseG = 0.09, baseB = 0.07;   // sRGB deep crimson (ACES-compensated)
         var rangeR = 0.15, rangeG = 0.04, rangeB = 0.03;
 
         var muscleCount = 0, fasciaCount = 0, tendonCount = 0;
@@ -1732,23 +1731,27 @@ var BodyMap3D = {
             }
 
             if (isTendon) {
-                r = 0.50; g = 0.38; b = 0.30;
+                r = 0.55; g = 0.42; b = 0.34;
                 tendonCount++;
             }
 
-            // MeshStandardMaterial (lit) + toneMapped=false + sRGB colors.
+            // MeshPhysicalMaterial with clearcoat + sheen for wet muscle appearance.
             // Lighting reveals surface contours: each muscle mesh catches light
             // differently based on surface normal orientation, making individual
-            // muscles visually distinct.
+            // muscles visually distinct. HDR env reflections add realistic ambient.
             var color = new THREE.Color();
             color.setRGB(r, g, b, THREE.SRGBColorSpace);
-            var mat = new THREE.MeshStandardMaterial({
+            var mat = new THREE.MeshPhysicalMaterial({
                 color: color,
-                roughness: 0.6,        // moderate sheen — wet muscle texture
+                roughness: 0.5,
                 metalness: 0.0,
+                clearcoat: 0.08,
+                clearcoatRoughness: 0.3,
+                sheen: 0.25,
+                sheenRoughness: 0.5,
+                sheenColor: new THREE.Color(0.4, 0.06, 0.04),
+                envMapIntensity: 0.4,
                 side: THREE.DoubleSide,
-                toneMapped: false,
-                envMapIntensity: 0.0,   // no environment reflections
             });
 
             child.material = mat;
@@ -1767,13 +1770,14 @@ var BodyMap3D = {
         var meshes = this.layers.skeleton || [];
         var boneMat = new THREE.MeshPhysicalMaterial({
             color: new THREE.Color(0.92, 0.88, 0.78),   // warm ivory bone
-            roughness: 0.55,
+            roughness: 0.5,
             metalness: 0.0,
-            clearcoat: 0.1,
-            clearcoatRoughness: 0.4,
-            sheen: 0.15,
-            sheenRoughness: 0.7,
+            clearcoat: 0.12,
+            clearcoatRoughness: 0.35,
+            sheen: 0.2,
+            sheenRoughness: 0.6,
             sheenColor: new THREE.Color(0.85, 0.80, 0.65),
+            envMapIntensity: 0.35,                        // waxy porcelain-like surface
             side: THREE.DoubleSide,
         });
         for (var i = 0; i < meshes.length; i++) {
@@ -1793,24 +1797,26 @@ var BodyMap3D = {
         var meshes = this.layers.vasculature || [];
         var arteryMat = new THREE.MeshPhysicalMaterial({
             color: new THREE.Color(0.78, 0.12, 0.10),   // arterial red
-            roughness: 0.45,
+            roughness: 0.35,
+            metalness: 0.0,
+            clearcoat: 0.2,
+            clearcoatRoughness: 0.25,
+            sheen: 0.35,
+            sheenRoughness: 0.35,
+            sheenColor: new THREE.Color(0.6, 0.08, 0.06),
+            envMapIntensity: 0.6,                         // glossiest tissue — wet taut membrane
+            side: THREE.DoubleSide,
+        });
+        var veinMat = new THREE.MeshPhysicalMaterial({
+            color: new THREE.Color(0.20, 0.25, 0.60),   // venous blue
+            roughness: 0.4,
             metalness: 0.0,
             clearcoat: 0.15,
             clearcoatRoughness: 0.3,
             sheen: 0.3,
             sheenRoughness: 0.4,
-            sheenColor: new THREE.Color(0.6, 0.08, 0.06),
-            side: THREE.DoubleSide,
-        });
-        var veinMat = new THREE.MeshPhysicalMaterial({
-            color: new THREE.Color(0.20, 0.25, 0.60),   // venous blue
-            roughness: 0.50,
-            metalness: 0.0,
-            clearcoat: 0.12,
-            clearcoatRoughness: 0.35,
-            sheen: 0.25,
-            sheenRoughness: 0.5,
             sheenColor: new THREE.Color(0.15, 0.18, 0.45),
+            envMapIntensity: 0.6,                         // glossiest tissue — wet taut membrane
             side: THREE.DoubleSide,
         });
         var veinKeywords = ["vein", "venous", "vena", "jugular", "saphenous", "portal", "azygos", "hemiazygos", "sinus"];
@@ -1837,13 +1843,14 @@ var BodyMap3D = {
         var meshes = this.layers.nervous || [];
         var nerveMat = new THREE.MeshPhysicalMaterial({
             color: new THREE.Color(0.95, 0.85, 0.35),   // bright neural yellow
-            roughness: 0.5,
+            roughness: 0.45,
             metalness: 0.0,
-            clearcoat: 0.08,
-            clearcoatRoughness: 0.5,
-            sheen: 0.3,
-            sheenRoughness: 0.4,
+            clearcoat: 0.1,
+            clearcoatRoughness: 0.45,
+            sheen: 0.35,
+            sheenRoughness: 0.35,
             sheenColor: new THREE.Color(0.80, 0.65, 0.20),
+            envMapIntensity: 0.3,                         // myelin sheath subtle sheen
             side: THREE.DoubleSide,
         });
         for (var i = 0; i < meshes.length; i++) {
@@ -1980,13 +1987,16 @@ var BodyMap3D = {
             var color = new THREE.Color();
             color.setRGB(r, g, b, THREE.SRGBColorSpace);
 
-            var mat = new THREE.MeshStandardMaterial({
+            var mat = new THREE.MeshPhysicalMaterial({
                 color: color,
-                roughness: 0.55,
+                roughness: 0.5,
                 metalness: 0.0,
+                clearcoat: 0.08,
+                clearcoatRoughness: 0.4,
+                sheen: 0.2,
+                sheenRoughness: 0.5,
+                envMapIntensity: 0.45,                    // moist organ surfaces
                 side: THREE.DoubleSide,
-                toneMapped: false,
-                envMapIntensity: 0.0,
             });
 
             child.material = mat;
