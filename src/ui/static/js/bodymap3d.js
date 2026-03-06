@@ -1216,26 +1216,18 @@ var BodyMap3D = {
                             existingNames[n] = true; // prevent cross-GLB duplicates
                         });
 
-                        // Detach meshes from the supplementary scene and add
-                        // to the base model's first child (the original modelScene).
-                        // This ensures they inherit the wrapper's scale/rotation/position.
-                        var modelScene = wrapper.children[0];
+                        // Add the supplementary scene as a child of the wrapper
+                        // (NOT of modelScene). Both the base model scene and
+                        // supplementary scenes share the same Z-Anatomy coordinate
+                        // system. The GLTFLoader applies its own Y-up conversion
+                        // per scene, so each scene must be a direct wrapper child
+                        // to get the same scale/rotation/position pipeline.
+                        // DO NOT bake matrixWorld onto individual meshes — that
+                        // double-applies the GLTF coordinate conversion.
+                        wrapper.add(scene);
+
                         for (var mi = 0; mi < newMeshes.length; mi++) {
                             var mesh = newMeshes[mi];
-
-                            // Bake the mesh's world transform from the supplementary
-                            // scene before re-parenting. The supplementary GLB might
-                            // have its own hierarchy of groups with transforms.
-                            scene.updateMatrixWorld(true);
-                            mesh.applyMatrix4(mesh.matrixWorld);
-                            mesh.position.set(0, 0, 0);
-                            mesh.rotation.set(0, 0, 0);
-                            mesh.scale.set(1, 1, 1);
-
-                            // Remove from old parent
-                            if (mesh.parent) mesh.parent.remove(mesh);
-
-                            modelScene.add(mesh);
                             self.layers.muscle.push(mesh);
 
                             // Tag for region mapping
