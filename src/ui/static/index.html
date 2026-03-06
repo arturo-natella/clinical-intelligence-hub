@@ -20,11 +20,25 @@
         const base = "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm";
         const { OrbitControls } = await import(base + "/controls/OrbitControls.js");
         const { GLTFLoader } = await import(base + "/loaders/GLTFLoader.js");
+        // Post-processing pipeline
+        const { EffectComposer } = await import(base + "/postprocessing/EffectComposer.js");
+        const { RenderPass } = await import(base + "/postprocessing/RenderPass.js");
+        const { SSAOPass } = await import(base + "/postprocessing/SSAOPass.js");
+        const { UnrealBloomPass } = await import(base + "/postprocessing/UnrealBloomPass.js");
+        const { OutputPass } = await import(base + "/postprocessing/OutputPass.js");
+        // HDR environment loader
+        const { RGBELoader } = await import(base + "/loaders/RGBELoader.js");
         // Module namespace is immutable — copy to mutable object
         const THREE = {};
         Object.getOwnPropertyNames(_THREE).forEach(k => { THREE[k] = _THREE[k]; });
         THREE.OrbitControls = OrbitControls;
         THREE.GLTFLoader = GLTFLoader;
+        THREE.EffectComposer = EffectComposer;
+        THREE.RenderPass = RenderPass;
+        THREE.SSAOPass = SSAOPass;
+        THREE.UnrealBloomPass = UnrealBloomPass;
+        THREE.OutputPass = OutputPass;
+        THREE.RGBELoader = RGBELoader;
         try {
             const { DRACOLoader } = await import(base + "/loaders/DRACOLoader.js");
             THREE.DRACOLoader = DRACOLoader;
@@ -359,14 +373,43 @@
             <div class="bodymap-toolbar">
                 <button class="btn btn-sm btn-outline bodymap-layer active" data-layer="skin">Skin</button>
                 <button class="btn btn-sm btn-outline bodymap-layer" data-layer="muscle">Muscle</button>
+                <button class="btn btn-sm btn-outline bodymap-layer" data-layer="fascia" style="color:#c4a46c;">Fascia</button>
                 <button class="btn btn-sm btn-outline bodymap-layer" data-layer="skeleton">Skeleton</button>
-                <button class="btn btn-sm btn-outline bodymap-layer" data-layer="organs">Organs</button>
+                <!-- Organs dropdown -->
+                <div class="bodymap-organ-group">
+                    <button class="btn btn-sm btn-outline bodymap-layer" data-layer="organs" id="bodymap-organs-btn">Organs &#9662;</button>
+                    <div class="bodymap-organ-dropdown" id="bodymap-organ-dropdown">
+                        <button class="btn btn-sm btn-outline bodymap-organ-btn active" data-organ="all">All Organs</button>
+                        <button class="btn btn-sm btn-outline bodymap-organ-btn" data-organ="heart" style="color:#c82828;">Heart</button>
+                        <button class="btn btn-sm btn-outline bodymap-organ-btn" data-organ="lungs" style="color:#d4a0a0;">Lungs</button>
+                        <button class="btn btn-sm btn-outline bodymap-organ-btn" data-organ="brain" style="color:#d4b8d4;">Brain</button>
+                        <button class="btn btn-sm btn-outline bodymap-organ-btn" data-organ="liver" style="color:#8b4513;">Liver</button>
+                        <button class="btn btn-sm btn-outline bodymap-organ-btn" data-organ="kidneys" style="color:#a0522d;">Kidneys</button>
+                        <button class="btn btn-sm btn-outline bodymap-organ-btn" data-organ="gi_tract" style="color:#d4a86c;">GI Tract</button>
+                        <button class="btn btn-sm btn-outline bodymap-organ-btn" data-organ="reproductive" style="color:#c87090;">Reproductive</button>
+                        <button class="btn btn-sm btn-outline bodymap-organ-btn" data-organ="other">Other</button>
+                    </div>
+                </div>
                 <button class="btn btn-sm btn-outline bodymap-layer" data-layer="vasculature" style="color:#c82828;">Vessels</button>
                 <button class="btn btn-sm btn-outline bodymap-layer" data-layer="nervous" style="color:#d4c850;">Nerves</button>
                 <div style="flex:1;"></div>
                 <button class="btn btn-sm btn-outline bodymap-healthy-toggle" id="bodymap-healthy-toggle" title="Toggle between healthy baseline and your current state" onclick="BodyMap3D.toggleHealthyView();">Show Healthy</button>
                 <button class="btn btn-sm btn-outline" id="snowball-dx-btn" title="Graph-theory differential diagnosis from your findings" onclick="SnowballDx.toggle();" style="color:var(--accent-amethyst); border-color:var(--accent-amethyst);">Differential Dx</button>
                 <button class="btn btn-sm gender-toggle" id="gender-toggle" title="Switch anatomy model">&#9794;</button>
+                <!-- Zoom-to-region dropdown -->
+                <div class="bodymap-organ-group">
+                    <button class="btn btn-sm btn-outline" id="bodymap-region-btn" title="Zoom to body region">Focus &#9662;</button>
+                    <div class="bodymap-organ-dropdown" id="bodymap-region-dropdown">
+                        <button class="btn btn-sm btn-outline bodymap-region-btn" data-region="head">Head</button>
+                        <button class="btn btn-sm btn-outline bodymap-region-btn" data-region="chest">Chest</button>
+                        <button class="btn btn-sm btn-outline bodymap-region-btn" data-region="abdomen">Abdomen</button>
+                        <button class="btn btn-sm btn-outline bodymap-region-btn" data-region="pelvis">Pelvis</button>
+                        <button class="btn btn-sm btn-outline bodymap-region-btn" data-region="left-arm">Left Arm</button>
+                        <button class="btn btn-sm btn-outline bodymap-region-btn" data-region="right-arm">Right Arm</button>
+                        <button class="btn btn-sm btn-outline bodymap-region-btn" data-region="left-leg">Left Leg</button>
+                        <button class="btn btn-sm btn-outline bodymap-region-btn" data-region="right-leg">Right Leg</button>
+                    </div>
+                </div>
                 <button class="btn btn-sm btn-outline" id="bodymap-zoom-in" title="Zoom in">+</button>
                 <button class="btn btn-sm btn-outline" id="bodymap-zoom-out" title="Zoom out">&minus;</button>
                 <button class="btn btn-sm btn-outline" id="bodymap-reset-btn">Reset View</button>
@@ -885,7 +928,7 @@
 <!-- ═══════════════════════════════════════════════════════
      JavaScript
      ═══════════════════════════════════════════════════════ -->
-<script src="/js/bodymap3d.js"></script>
+<script src="/js/bodymap3d.js?v=8.0"></script>
 <script src="/js/snowball.js"></script>
 <script src="/js/cascades.js"></script>
 <script src="/js/pgx_map.js"></script>
