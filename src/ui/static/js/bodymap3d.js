@@ -1815,12 +1815,11 @@ var BodyMap3D = {
             // Tendons/aponeuroses — actual cord/band connective tissue
             var isTendon = n.indexOf("tendon") >= 0 || n.indexOf("aponeuros") >= 0
                         || n.indexOf("retinacul") >= 0 || n.indexOf("ligament") >= 0;
-            // Fascia — connective tissue sheaths wrapping muscles. In the Z-Anatomy
-            // model there are 44 fascia meshes that stack on top of each other.
-            // Even at low opacity, 17 overlapping layers on the torso create an
-            // effectively opaque veil (0.82^17 = 3.3% passthrough). Hide them
-            // entirely so the 1,559 actual muscle meshes are fully visible.
-            var isFascia = !isTendon && n.indexOf("fascia") >= 0;
+            // Fascia — connective tissue sheaths. Hide them (user preference)
+            // but NOT muscles whose name contains "fasciae" (e.g. Tensor fasciae
+            // latae is a real hip muscle, not connective tissue).
+            var isFascia = !isTendon && n.indexOf("fascia") >= 0
+                        && n.indexOf("fasciae_latae") < 0;
 
             if (isFascia) {
                 child.visible = false;
