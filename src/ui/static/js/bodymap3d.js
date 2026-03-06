@@ -298,8 +298,9 @@ var BodyMap3D = {
         var w = container.clientWidth;
         var h = container.clientHeight || 700;
 
-        // Scene
+        // Scene — explicit dark background so SSAO pass doesn't grey-wash empty space
         this.scene = new THREE.Scene();
+        this.scene.background = new THREE.Color(0x141414);
 
         // Camera
         this.camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 1000);
@@ -1424,19 +1425,75 @@ var BodyMap3D = {
             this.nihOrganRegistry[category][gender] &&
             this.nihOrganRegistry[category][gender].length > 0;
 
+        // ── Companion layers: show for "all", hide for specific organ ──
+        // When drilling into a specific organ (e.g. Liver), the vasculature +
+        // nervous companions clutter the view. Hide them so only the organ shows.
+        var companionLayers = ["vasculature", "nervous"];
+        var self = this;
+        if (category === "all") {
+            // Restore companions at their normal opacity
+            this.currentModel.traverse(function(child) {
+                if (!child.isMesh) return;
+                for (var ci = 0; ci < companionLayers.length; ci++) {
+                    var compArr = self.layers[companionLayers[ci]] || [];
+                    for (var cj = 0; cj < compArr.length; cj++) {
+                        if (compArr[cj].uuid === child.uuid || (compArr[cj].traverse && child.uuid)) {
+                            // Let setLayer handle visibility — just re-run it
+                        }
+                    }
+                }
+            });
+            // Re-run setLayer to restore companion visibility properly
+            this._restoreCompanions = true;
+        } else {
+            // Hide all companion layer meshes
+            for (var ci = 0; ci < companionLayers.length; ci++) {
+                var compMeshes = this.layers[companionLayers[ci]] || [];
+                for (var cj = 0; cj < compMeshes.length; cj++) {
+                    var cm = compMeshes[cj];
+                    if (cm.isMesh) {
+                        cm.visible = false;
+                    } else if (cm.traverse) {
+                        cm.traverse(function(d) { if (d.isMesh) d.visible = false; });
+                    }
+                }
+            }
+        }
+
         // ── Z-Anatomy (base) organ layer ──
         var organMeshes = this.layers.organs || [];
         var shown = 0, hidden = 0;
         for (var i = 0; i < organMeshes.length; i++) {
             var mesh = organMeshes[i];
-            if (!mesh.isMesh) continue;
+            if (!mesh.isMesh) {
+                // Handle group nodes — set visibility on all child meshes
+                if (mesh.traverse) {
+                    mesh.traverse(function(d) {
+                        if (!d.isMesh) return;
+                        if (category === "all") {
+                            d.visible = true;
+                            if (d.material) { d.material.opacity = 1.0; d.material.transparent = false; }
+                            shown++;
+                        } else if (hasNIH || canLoadNIH) {
+                            d.visible = false; hidden++;
+                        } else {
+                            var meshCat = d.userData._organCategory || "other";
+                            if (meshCat === category) {
+                                d.visible = true;
+                                if (d.material) { d.material.opacity = 1.0; d.material.transparent = false; }
+                                shown++;
+                            } else { d.visible = false; hidden++; }
+                        }
+                    });
+                }
+                continue;
+            }
             if (category === "all") {
                 mesh.visible = true;
                 if (mesh.material) {
                     mesh.material.opacity = 1.0;
                     mesh.material.transparent = false;
                 }
-                this._hideAllNIHOrgans();
                 shown++;
             } else if (hasNIH || canLoadNIH) {
                 // Hide Z-Anatomy organs — NIH HRA meshes replace them
@@ -1459,15 +1516,21 @@ var BodyMap3D = {
             }
         }
 
+        if (category === "all") {
+            this._hideAllNIHOrgans();
+            // Re-run setLayer to restore companion visibility
+            this.setLayer("organs");
+        }
+
         // ── NIH HRA organ overlay ──
         if (hasNIH) {
             // Already cached — show immediately
             this._showNIHOrgan(cacheKey);
             console.log("[BodyMap3D] setOrganCategory('" + category + "') — NIH HRA cached, showing");
-        } else if (canLoadNIH) {
+        } else if (canLoadNIH && category !== "all") {
             // Not yet loaded — trigger on-demand load
             this._loadNIHOrgan(category);
-        } else {
+        } else if (category !== "all") {
             this._hideAllNIHOrgans();
         }
 
@@ -1667,16 +1730,20 @@ var BodyMap3D = {
             side: THREE.DoubleSide,
         });
 
+        // Collect all meshes — including children of Group nodes
+        var allMeshes = [];
         for (var i = 0; i < skinMeshes.length; i++) {
-            var child = skinMeshes[i];
-            if (child.isMesh) {
-                child.material = skinMat.clone();
-                child.userData.originalColor = skinMat.color.getHex();
-                child.userData.originalEmissive = 0x000000;
-                // Ensure smooth shading
-                if (child.geometry && !child.geometry.attributes.normal) {
-                    child.geometry.computeVertexNormals();
-                }
+            var entry = skinMeshes[i];
+            if (entry.isMesh) { allMeshes.push(entry); }
+            else if (entry.traverse) { entry.traverse(function(d) { if (d.isMesh) allMeshes.push(d); }); }
+        }
+        for (var i = 0; i < allMeshes.length; i++) {
+            var child = allMeshes[i];
+            child.material = skinMat.clone();
+            child.userData.originalColor = skinMat.color.getHex();
+            child.userData.originalEmissive = 0x000000;
+            if (child.geometry && !child.geometry.attributes.normal) {
+                child.geometry.computeVertexNormals();
             }
         }
     },
@@ -1701,9 +1768,23 @@ var BodyMap3D = {
         var rangeR = 0.15, rangeG = 0.04, rangeB = 0.03;
 
         var muscleCount = 0, fasciaCount = 0, tendonCount = 0;
+
+        // Collect all meshes — including children of Group nodes.
+        // Z-Anatomy packs some muscles as Group → child Mesh(es).
+        var allMeshes = [];
         for (var i = 0; i < meshes.length; i++) {
-            var child = meshes[i];
-            if (!child.isMesh) continue;
+            var entry = meshes[i];
+            if (entry.isMesh) {
+                allMeshes.push(entry);
+            } else if (entry.traverse) {
+                entry.traverse(function(desc) {
+                    if (desc.isMesh) allMeshes.push(desc);
+                });
+            }
+        }
+
+        for (var i = 0; i < allMeshes.length; i++) {
+            var child = allMeshes[i];
 
             var n = (child.name || "muscle_" + i).toLowerCase();
             var h = hashName(n);
@@ -1780,15 +1861,20 @@ var BodyMap3D = {
             envMapIntensity: 0.35,                        // waxy porcelain-like surface
             side: THREE.DoubleSide,
         });
+        // Collect all meshes — including children of Group nodes
+        var allMeshes = [];
         for (var i = 0; i < meshes.length; i++) {
-            var child = meshes[i];
-            if (child.isMesh) {
-                child.material = boneMat.clone();
-                child.userData.originalColor = boneMat.color.getHex();
-                child.userData.originalEmissive = 0x000000;
-                if (child.geometry && !child.geometry.attributes.normal) {
-                    child.geometry.computeVertexNormals();
-                }
+            var entry = meshes[i];
+            if (entry.isMesh) { allMeshes.push(entry); }
+            else if (entry.traverse) { entry.traverse(function(d) { if (d.isMesh) allMeshes.push(d); }); }
+        }
+        for (var i = 0; i < allMeshes.length; i++) {
+            var child = allMeshes[i];
+            child.material = boneMat.clone();
+            child.userData.originalColor = boneMat.color.getHex();
+            child.userData.originalEmissive = 0x000000;
+            if (child.geometry && !child.geometry.attributes.normal) {
+                child.geometry.computeVertexNormals();
             }
         }
     },
@@ -1820,21 +1906,26 @@ var BodyMap3D = {
             side: THREE.DoubleSide,
         });
         var veinKeywords = ["vein", "venous", "vena", "jugular", "saphenous", "portal", "azygos", "hemiazygos", "sinus"];
+        // Collect all meshes — including children of Group nodes
+        var allMeshes = [];
         for (var i = 0; i < meshes.length; i++) {
-            var child = meshes[i];
-            if (child.isMesh) {
-                var n = (child.name || "").toLowerCase();
-                var isVein = false;
-                for (var j = 0; j < veinKeywords.length; j++) {
-                    if (n.indexOf(veinKeywords[j]) >= 0) { isVein = true; break; }
-                }
-                var mat = isVein ? veinMat : arteryMat;
-                child.material = mat.clone();
-                child.userData.originalColor = mat.color.getHex();
-                child.userData.originalEmissive = 0x000000;
-                if (child.geometry && !child.geometry.attributes.normal) {
-                    child.geometry.computeVertexNormals();
-                }
+            var entry = meshes[i];
+            if (entry.isMesh) { allMeshes.push(entry); }
+            else if (entry.traverse) { entry.traverse(function(d) { if (d.isMesh) allMeshes.push(d); }); }
+        }
+        for (var i = 0; i < allMeshes.length; i++) {
+            var child = allMeshes[i];
+            var n = (child.name || "").toLowerCase();
+            var isVein = false;
+            for (var j = 0; j < veinKeywords.length; j++) {
+                if (n.indexOf(veinKeywords[j]) >= 0) { isVein = true; break; }
+            }
+            var mat = isVein ? veinMat : arteryMat;
+            child.material = mat.clone();
+            child.userData.originalColor = mat.color.getHex();
+            child.userData.originalEmissive = 0x000000;
+            if (child.geometry && !child.geometry.attributes.normal) {
+                child.geometry.computeVertexNormals();
             }
         }
     },
@@ -1853,20 +1944,25 @@ var BodyMap3D = {
             envMapIntensity: 0.3,                         // myelin sheath subtle sheen
             side: THREE.DoubleSide,
         });
+        // Collect all meshes — including children of Group nodes
+        var allMeshes = [];
         for (var i = 0; i < meshes.length; i++) {
-            var child = meshes[i];
-            if (child.isMesh) {
-                // Keep existing colors for meshes that already have non-white/non-black colors
-                var existing = child.material && child.material.color ?
-                    child.material.color.getHexString() : "ffffff";
-                if (existing === "ffffff" || existing === "000000") {
-                    child.material = nerveMat.clone();
-                    child.userData.originalColor = nerveMat.color.getHex();
-                    child.userData.originalEmissive = 0x000000;
-                }
-                if (child.geometry && !child.geometry.attributes.normal) {
-                    child.geometry.computeVertexNormals();
-                }
+            var entry = meshes[i];
+            if (entry.isMesh) { allMeshes.push(entry); }
+            else if (entry.traverse) { entry.traverse(function(d) { if (d.isMesh) allMeshes.push(d); }); }
+        }
+        for (var i = 0; i < allMeshes.length; i++) {
+            var child = allMeshes[i];
+            // Keep existing colors for meshes that already have non-white/non-black colors
+            var existing = child.material && child.material.color ?
+                child.material.color.getHexString() : "ffffff";
+            if (existing === "ffffff" || existing === "000000") {
+                child.material = nerveMat.clone();
+                child.userData.originalColor = nerveMat.color.getHex();
+                child.userData.originalEmissive = 0x000000;
+            }
+            if (child.geometry && !child.geometry.attributes.normal) {
+                child.geometry.computeVertexNormals();
             }
         }
     },
@@ -1954,10 +2050,17 @@ var BodyMap3D = {
             return (((h >>> 0) % 10000) / 10000);
         }
 
-        var applied = 0;
+        // Collect all meshes — including children of Group nodes
+        var allMeshes = [];
         for (var i = 0; i < meshes.length; i++) {
-            var child = meshes[i];
-            if (!child.isMesh) continue;
+            var entry = meshes[i];
+            if (entry.isMesh) { allMeshes.push(entry); }
+            else if (entry.traverse) { entry.traverse(function(d) { if (d.isMesh) allMeshes.push(d); }); }
+        }
+
+        var applied = 0;
+        for (var i = 0; i < allMeshes.length; i++) {
+            var child = allMeshes[i];
             if (seen[child.uuid]) continue;
             seen[child.uuid] = true;
 
@@ -2193,14 +2296,24 @@ var BodyMap3D = {
             companionOf[comps[ci].layer] = comps[ci].opacity;
         }
 
-        // Build a Set of UUIDs for each layer from the parsed this.layers dict
+        // Build a Set of UUIDs for each layer from the parsed this.layers dict.
+        // Include all descendant meshes of group nodes — Z-Anatomy packs some
+        // muscles as Group → child Mesh, and those children need layer tagging
+        // or setLayer hides them as "untagged".
         var layerSets = {};
         for (var i = 0; i < layerNames.length; i++) {
             var ln = layerNames[i];
             layerSets[ln] = {};
             var arr = this.layers[ln] || [];
             for (var j = 0; j < arr.length; j++) {
-                layerSets[ln][arr[j].uuid] = true;
+                var node = arr[j];
+                layerSets[ln][node.uuid] = true;
+                // Tag all descendant meshes so they inherit the parent's layer
+                if (!node.isMesh && node.traverse) {
+                    node.traverse(function(desc) {
+                        layerSets[ln][desc.uuid] = true;
+                    });
+                }
             }
         }
 
