@@ -632,11 +632,13 @@ var BodyMap3D = {
         var maleBasic = "/models/male_anatomy.glb";
         var self = this;
 
-        // Cascade: Z-Anatomy full → NIH HRA united → basic → male fallbacks → placeholder
+        // Cascade: Z-Anatomy full → basic → male Z-Anatomy fallbacks → placeholder
+        // NOTE: NIH HRA 3d-vh-f-united.glb is intentionally excluded. It is a
+        // skin-only surface (Y-up, no MUSC__/SKEL__ prefixes) incompatible with
+        // the Z-Anatomy supplementary muscles and layer classification system.
+        // A Z-Anatomy male model with full layered anatomy is far more useful as
+        // a female fallback than a broken NIH HRA skin envelope.
         var candidates = [fullPath];
-        if (gender === "female") {
-            candidates.push("/models/nih_hra/3d-vh-f-united.glb");
-        }
         candidates.push(basicPath);
         if (gender === "female") candidates.push(maleFull, maleBasic);
 
@@ -1160,6 +1162,22 @@ var BodyMap3D = {
         var self = this;
         var wrapper = this.currentModel;
         if (!wrapper) return;
+
+        // Guard: only load supplementary muscles if base model is Z-Anatomy.
+        // Z-Anatomy models use MUSC__/SKEL__/etc. prefixed mesh names.
+        // Non-Z-Anatomy models (NIH HRA, placeholders) have incompatible
+        // coordinate frames and naming conventions — loading supplementary
+        // Z-Anatomy meshes into them causes broken rendering.
+        var hasZAnatomyMeshes = false;
+        wrapper.traverse(function(child) {
+            if (child.isMesh && /^(MUSC__|SKEL__|SKIN__|NERV__|VASC__|VISC__)/.test(child.name || "")) {
+                hasZAnatomyMeshes = true;
+            }
+        });
+        if (!hasZAnatomyMeshes) {
+            console.warn("[BodyMap3D] Skipping supplementary muscles — base model is not Z-Anatomy format");
+            return;
+        }
 
         // Build a set of existing mesh names for fast deduplication
         var existingNames = {};
