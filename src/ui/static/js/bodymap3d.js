@@ -1730,12 +1730,22 @@ var BodyMap3D = {
             side: THREE.DoubleSide,
         });
 
-        // Collect all meshes — including children of Group nodes
+        // Collect all meshes — including children of Group nodes.
+        // When traversing groups, skip meshes whose name prefix belongs to a
+        // different layer (e.g. MUSC__ children under SKIN__ groups).
+        var _otherPrefixes = ["musc__", "skel__", "orgn__", "vasc__", "nerv__"];
         var allMeshes = [];
         for (var i = 0; i < skinMeshes.length; i++) {
             var entry = skinMeshes[i];
             if (entry.isMesh) { allMeshes.push(entry); }
-            else if (entry.traverse) { entry.traverse(function(d) { if (d.isMesh) allMeshes.push(d); }); }
+            else if (entry.traverse) { entry.traverse(function(d) {
+                if (!d.isMesh) return;
+                var dn = (d.name || "").toLowerCase();
+                for (var p = 0; p < _otherPrefixes.length; p++) {
+                    if (dn.indexOf(_otherPrefixes[p]) === 0) return;
+                }
+                allMeshes.push(d);
+            }); }
         }
         for (var i = 0; i < allMeshes.length; i++) {
             var child = allMeshes[i];
@@ -1771,6 +1781,9 @@ var BodyMap3D = {
 
         // Collect all meshes — including children of Group nodes.
         // Z-Anatomy packs some muscles as Group → child Mesh(es).
+        // When traversing groups, skip meshes whose name prefix belongs to a
+        // different layer (e.g. SKEL__ children under MUSC__ groups).
+        var _otherPrefixes = ["skel__", "skin__", "orgn__", "vasc__", "nerv__"];
         var allMeshes = [];
         for (var i = 0; i < meshes.length; i++) {
             var entry = meshes[i];
@@ -1778,7 +1791,12 @@ var BodyMap3D = {
                 allMeshes.push(entry);
             } else if (entry.traverse) {
                 entry.traverse(function(desc) {
-                    if (desc.isMesh) allMeshes.push(desc);
+                    if (!desc.isMesh) return;
+                    var dn = (desc.name || "").toLowerCase();
+                    for (var p = 0; p < _otherPrefixes.length; p++) {
+                        if (dn.indexOf(_otherPrefixes[p]) === 0) return;
+                    }
+                    allMeshes.push(desc);
                 });
             }
         }
@@ -1861,12 +1879,22 @@ var BodyMap3D = {
             envMapIntensity: 0.35,                        // waxy porcelain-like surface
             side: THREE.DoubleSide,
         });
-        // Collect all meshes — including children of Group nodes
+        // Collect all meshes — including children of Group nodes.
+        // When traversing groups, skip meshes whose name prefix belongs to a
+        // different layer (e.g. MUSC__ muscles parented under SKEL__ bone groups).
+        var _otherPrefixes = ["musc__", "skin__", "orgn__", "vasc__", "nerv__"];
         var allMeshes = [];
         for (var i = 0; i < meshes.length; i++) {
             var entry = meshes[i];
             if (entry.isMesh) { allMeshes.push(entry); }
-            else if (entry.traverse) { entry.traverse(function(d) { if (d.isMesh) allMeshes.push(d); }); }
+            else if (entry.traverse) { entry.traverse(function(d) {
+                if (!d.isMesh) return;
+                var dn = (d.name || "").toLowerCase();
+                for (var p = 0; p < _otherPrefixes.length; p++) {
+                    if (dn.indexOf(_otherPrefixes[p]) === 0) return;
+                }
+                allMeshes.push(d);
+            }); }
         }
         for (var i = 0; i < allMeshes.length; i++) {
             var child = allMeshes[i];
@@ -1906,12 +1934,21 @@ var BodyMap3D = {
             side: THREE.DoubleSide,
         });
         var veinKeywords = ["vein", "venous", "vena", "jugular", "saphenous", "portal", "azygos", "hemiazygos", "sinus"];
-        // Collect all meshes — including children of Group nodes
+        // Collect all meshes — including children of Group nodes.
+        // Skip meshes whose name prefix belongs to a different layer.
+        var _otherPrefixes = ["musc__", "skel__", "skin__", "orgn__", "nerv__"];
         var allMeshes = [];
         for (var i = 0; i < meshes.length; i++) {
             var entry = meshes[i];
             if (entry.isMesh) { allMeshes.push(entry); }
-            else if (entry.traverse) { entry.traverse(function(d) { if (d.isMesh) allMeshes.push(d); }); }
+            else if (entry.traverse) { entry.traverse(function(d) {
+                if (!d.isMesh) return;
+                var dn = (d.name || "").toLowerCase();
+                for (var p = 0; p < _otherPrefixes.length; p++) {
+                    if (dn.indexOf(_otherPrefixes[p]) === 0) return;
+                }
+                allMeshes.push(d);
+            }); }
         }
         for (var i = 0; i < allMeshes.length; i++) {
             var child = allMeshes[i];
@@ -1944,12 +1981,21 @@ var BodyMap3D = {
             envMapIntensity: 0.3,                         // myelin sheath subtle sheen
             side: THREE.DoubleSide,
         });
-        // Collect all meshes — including children of Group nodes
+        // Collect all meshes — including children of Group nodes.
+        // Skip meshes whose name prefix belongs to a different layer.
+        var _otherPrefixes = ["musc__", "skel__", "skin__", "orgn__", "vasc__"];
         var allMeshes = [];
         for (var i = 0; i < meshes.length; i++) {
             var entry = meshes[i];
             if (entry.isMesh) { allMeshes.push(entry); }
-            else if (entry.traverse) { entry.traverse(function(d) { if (d.isMesh) allMeshes.push(d); }); }
+            else if (entry.traverse) { entry.traverse(function(d) {
+                if (!d.isMesh) return;
+                var dn = (d.name || "").toLowerCase();
+                for (var p = 0; p < _otherPrefixes.length; p++) {
+                    if (dn.indexOf(_otherPrefixes[p]) === 0) return;
+                }
+                allMeshes.push(d);
+            }); }
         }
         for (var i = 0; i < allMeshes.length; i++) {
             var child = allMeshes[i];
@@ -2050,12 +2096,21 @@ var BodyMap3D = {
             return (((h >>> 0) % 10000) / 10000);
         }
 
-        // Collect all meshes — including children of Group nodes
+        // Collect all meshes — including children of Group nodes.
+        // Skip meshes whose name prefix belongs to a different layer.
+        var _otherPrefixes = ["musc__", "skel__", "skin__", "vasc__", "nerv__"];
         var allMeshes = [];
         for (var i = 0; i < meshes.length; i++) {
             var entry = meshes[i];
             if (entry.isMesh) { allMeshes.push(entry); }
-            else if (entry.traverse) { entry.traverse(function(d) { if (d.isMesh) allMeshes.push(d); }); }
+            else if (entry.traverse) { entry.traverse(function(d) {
+                if (!d.isMesh) return;
+                var dn = (d.name || "").toLowerCase();
+                for (var p = 0; p < _otherPrefixes.length; p++) {
+                    if (dn.indexOf(_otherPrefixes[p]) === 0) return;
+                }
+                allMeshes.push(d);
+            }); }
         }
 
         var applied = 0;
@@ -2297,9 +2352,15 @@ var BodyMap3D = {
         }
 
         // Build a Set of UUIDs for each layer from the parsed this.layers dict.
-        // Include all descendant meshes of group nodes — Z-Anatomy packs some
+        // Include descendant meshes of group nodes — Z-Anatomy packs some
         // muscles as Group → child Mesh, and those children need layer tagging
         // or setLayer hides them as "untagged".
+        // IMPORTANT: When traversing groups, skip descendants whose name prefix
+        // belongs to a different layer (e.g. MUSC__ children of SKEL__ groups).
+        var prefixToLayer = {
+            "skel__": "skeleton", "musc__": "muscle", "orgn__": "organs",
+            "vasc__": "vasculature", "nerv__": "nervous", "skin__": "skin"
+        };
         var layerSets = {};
         for (var i = 0; i < layerNames.length; i++) {
             var ln = layerNames[i];
@@ -2308,9 +2369,17 @@ var BodyMap3D = {
             for (var j = 0; j < arr.length; j++) {
                 var node = arr[j];
                 layerSets[ln][node.uuid] = true;
-                // Tag all descendant meshes so they inherit the parent's layer
+                // Tag descendant meshes — but only if they don't belong to another layer
                 if (!node.isMesh && node.traverse) {
                     node.traverse(function(desc) {
+                        var dn = (desc.name || "").toLowerCase();
+                        var descPrefix = dn.substring(0, 6);
+                        // Check if first 4-6 chars match a known prefix from another layer
+                        for (var pfx in prefixToLayer) {
+                            if (dn.indexOf(pfx) === 0 && prefixToLayer[pfx] !== ln) {
+                                return; // belongs to a different layer — skip
+                            }
+                        }
                         layerSets[ln][desc.uuid] = true;
                     });
                 }
