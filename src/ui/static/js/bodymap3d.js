@@ -2362,6 +2362,10 @@ var BodyMap3D = {
                     if (childLayer === "skin" && child.userData.skinMaterial) {
                         child.material = child.userData.skinMaterial;
                     }
+                    // Restore original material if it was swapped to hidden
+                    if (child.userData._origMat && child.material === child.userData._hiddenMat) {
+                        child.material = child.userData._origMat;
+                    }
                     if (child.material) {
                         child.material.opacity = 1.0;
                         child.material.transparent = false;
@@ -2383,13 +2387,25 @@ var BodyMap3D = {
                     compMat.depthWrite = companionOf[childLayer] > 0.4;
                     child.material = compMat;
                 }
-            } else if (childLayer === "skin" && layer !== "skin") {
-                // Hide skin entirely when viewing other layers — skin ghost was
-                // washing out detail (light overlay on dark muscle = pale veil).
-                // The anatomy meshes themselves provide body outline context.
-                child.visible = false;
             } else {
-                child.visible = false;
+                // Inactive layer — hide this node.
+                // CRITICAL: Only set visible=false on MESH nodes, not groups.
+                // In Three.js, parent.visible=false cascades to ALL children,
+                // which would hide muscles parented under skeleton groups (e.g.
+                // pectoralis_major is a child of the humerus bone group).
+                // For non-mesh nodes, keep visible=true so children can render.
+                if (child.isMesh) {
+                    if (child.material) {
+                        if (!child.userData._hiddenMat) {
+                            child.userData._origMat = child.material;
+                            child.userData._hiddenMat = new THREE.MeshBasicMaterial({
+                                visible: false, transparent: true, opacity: 0
+                            });
+                        }
+                        child.material = child.userData._hiddenMat;
+                    }
+                }
+                // Non-mesh group nodes: keep visible=true (children may be in active layer)
             }
         });
 
