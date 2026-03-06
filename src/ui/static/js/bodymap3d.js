@@ -1103,8 +1103,161 @@ var BodyMap3D = {
         this.modelLoaded = true;
         this.loadFindings();
 
+        // Load supplementary muscle GLBs (deep muscles, insertions) to fill
+        // coverage gaps in the base Z-Anatomy model.
+        this._loadSupplementaryMuscles();
+
         // NIH HRA organs are loaded on-demand when user drills into a category.
         // No eager loading needed — see _loadNIHOrgan().
+    },
+
+    // ── Supplementary Muscle GLBs ───────────────────────────────
+    // Loads additional muscle data from Z-Anatomy HQ exports that aren't
+    // in the base male_anatomy_full.glb. These fill torso, neck, and deep
+    // muscle gaps visible when compared to Zygote Body reference.
+    //
+    // Files:
+    //   z-anatomy-hq/muscular-system.glb  — 579 NEW meshes (deep abdominals,
+    //       neck muscles, intercostals, rotators, etc.)
+    //   z-anatomy-hq/muscular-insertions.glb — 705 NEW meshes (origin/insertion
+    //       attachment point meshes for each muscle)
+    //
+    // Both share Z-Anatomy coordinate space so alignment is automatic when
+    // added to the same wrapper group.
+
+    _loadSupplementaryMuscles: function() {
+        var self = this;
+        var wrapper = this.currentModel;
+        if (!wrapper) return;
+
+        // Build a set of existing mesh names for fast deduplication
+        var existingNames = {};
+        wrapper.traverse(function(child) {
+            if (child.isMesh) {
+                existingNames[(child.name || "").toLowerCase()] = true;
+            }
+        });
+
+        var glbPaths = [
+            "/models/z-anatomy-hq/muscular-system.glb",
+            "/models/z-anatomy-hq/muscular-insertions.glb"
+        ];
+
+        var loader = new THREE.GLTFLoader();
+        try {
+            var draco = new THREE.DRACOLoader();
+            draco.setDecoderPath("https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/libs/draco/");
+            loader.setDRACOLoader(draco);
+        } catch (e) { /* Draco optional */ }
+
+        var totalNew = 0, totalDups = 0, totalGlyphs = 0;
+        var pending = glbPaths.length;
+
+        // Z-Anatomy 3D text glyph filter
+        var glyphRe = /(?:_g|systemg|organsg|glandsg|musclesg|girdleg|genitaliag|abdomeng|termsg|movementsg|linesg|planesg)$/;
+        var instructionalRe = /^(how_to|navigation)/i;
+
+        function onAllLoaded() {
+            if (--pending > 0) return;
+            console.log("[BodyMap3D] Supplementary muscles loaded: " + totalNew +
+                " new, " + totalDups + " duplicates skipped, " + totalGlyphs + " glyphs skipped");
+
+            // Apply muscle material to newly added meshes, then re-apply layer
+            if (totalNew > 0) {
+                self._applyMuscleMaterial();
+                self.setLayer(self.currentLayer);
+            }
+        }
+
+        for (var gi = 0; gi < glbPaths.length; gi++) {
+            (function(glbPath) {
+                fetch(glbPath, { method: "HEAD" }).then(function(r) {
+                    if (!r.ok) {
+                        console.warn("[BodyMap3D] Supplementary muscle GLB not found: " + glbPath);
+                        onAllLoaded();
+                        return;
+                    }
+                    loader.load(glbPath, function(gltf) {
+                        var scene = gltf.scene;
+                        var newMeshes = [];
+
+                        scene.traverse(function(child) {
+                            if (!child.isMesh) return;
+                            var n = (child.name || "").toLowerCase();
+
+                            // Skip instructional text
+                            if (instructionalRe.test(n)) { totalGlyphs++; return; }
+
+                            // Skip glyph/label meshes
+                            var stripped = n.replace(/^(?:skel|musc|orgn|vasc|nerv|skin)__(?:(?:skel|musc|orgn|vasc|nerv|skin)_)*/g, "");
+                            if (glyphRe.test(stripped)) { totalGlyphs++; return; }
+
+                            // Skip duplicates (same name already in base model)
+                            if (existingNames[n]) { totalDups++; return; }
+
+                            // Skip flat text labels (2D geometry)
+                            if (child.geometry) {
+                                if (!child.geometry.boundingBox) child.geometry.computeBoundingBox();
+                                var bb = child.geometry.boundingBox;
+                                var dims = [
+                                    bb.max.x - bb.min.x,
+                                    bb.max.y - bb.min.y,
+                                    bb.max.z - bb.min.z
+                                ];
+                                var dMax = Math.max(dims[0], dims[1], dims[2]);
+                                var dMin = Math.min(dims[0], dims[1], dims[2]);
+                                if (dMax > 0.001 && dMin / dMax < 0.05) {
+                                    totalGlyphs++;
+                                    return;
+                                }
+                            }
+
+                            newMeshes.push(child);
+                            existingNames[n] = true; // prevent cross-GLB duplicates
+                        });
+
+                        // Detach meshes from the supplementary scene and add
+                        // to the base model's first child (the original modelScene).
+                        // This ensures they inherit the wrapper's scale/rotation/position.
+                        var modelScene = wrapper.children[0];
+                        for (var mi = 0; mi < newMeshes.length; mi++) {
+                            var mesh = newMeshes[mi];
+
+                            // Bake the mesh's world transform from the supplementary
+                            // scene before re-parenting. The supplementary GLB might
+                            // have its own hierarchy of groups with transforms.
+                            scene.updateMatrixWorld(true);
+                            mesh.applyMatrix4(mesh.matrixWorld);
+                            mesh.position.set(0, 0, 0);
+                            mesh.rotation.set(0, 0, 0);
+                            mesh.scale.set(1, 1, 1);
+
+                            // Remove from old parent
+                            if (mesh.parent) mesh.parent.remove(mesh);
+
+                            modelScene.add(mesh);
+                            self.layers.muscle.push(mesh);
+
+                            // Tag for region mapping
+                            mesh.userData.region = self._meshNameToRegion(
+                                (mesh.name || "").toLowerCase()
+                            );
+                        }
+
+                        totalNew += newMeshes.length;
+                        console.log("[BodyMap3D] " + glbPath.split("/").pop() + ": " +
+                            newMeshes.length + " new meshes added");
+                        onAllLoaded();
+                    }, null, function(err) {
+                        console.warn("[BodyMap3D] Failed to load " + glbPath + ":", err);
+                        onAllLoaded();
+                    });
+                }).catch(function() {
+                    console.warn("[BodyMap3D] Cannot reach " + glbPath);
+                    onAllLoaded();
+                });
+            })(glbPaths[gi]);
+        }
     },
 
     // ── Detailed Organs (BodyParts3D) ──────────────────────────
