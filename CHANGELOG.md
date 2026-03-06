@@ -2,6 +2,34 @@
 
 All notable changes to the Clinical Intelligence Hub will be documented in this file.
 
+## [2.3.0] — 2026-03-06 (more updates coming)
+
+### Added
+
+#### Supplementary Muscle Coverage
+- Integrated Z-Anatomy HQ supplementary GLBs: `muscular-system.glb` (579 meshes) + `muscular-insertions.glb` (705 meshes) for deep muscle and insertion point coverage
+- Runtime bilateral mirroring: 24 left-side torso muscles (pectoralis major, deltoid, latissimus dorsi) cloned to right side for full symmetry
+
+#### Viewport Controls
+- Vertical drag-to-pan: left-click drag up/down pans the camera along the body instead of orbiting
+- Horizontal orbit preserved via polar angle locking (`minPolarAngle = maxPolarAngle = π/2`)
+- Default camera recentered from Y=0.5 to Y=0.65 so full body (head to feet) is visible on load
+
+### Fixed
+
+#### Female Model Rendering
+- Removed incompatible NIH HRA `3d-vh-f-united.glb` from female model cascade — it is a Y-up skin-only surface with no layer prefixes, causing upside-down duplication and bone fragment bleed-through when combined with Z-Anatomy supplementary muscles
+- Female model now falls through to male Z-Anatomy model with full layered anatomy until a dedicated female GLB is available
+- Added Z-Anatomy format guard in `_loadSupplementaryMuscles()` — supplementary muscles only load when base model has MUSC__/SKEL__/etc. prefixed meshes, preventing coordinate frame mismatches
+
+#### Muscle Layer Bugs
+- Fixed cross-layer material overwrite: muscle material functions now filter by name prefix during group traversal to avoid overwriting bone-white skeleton materials on torso muscles parented under skeleton bone groups
+- Fixed muscles hidden by parent skeleton group visibility cascade: `setLayer()` no longer sets `visible=false` on group nodes, uses material-swap hiding instead
+- Fixed Tensor fasciae latae incorrectly hidden by fascia filter
+- Fixed supplementary muscle transform: removed double-applied coordinate conversion (scene wrapper child instead of baking matrixWorld)
+
+---
+
 ## [2.2.0] — 2026-03-06
 
 ### Added
@@ -53,7 +81,7 @@ All notable changes to the Clinical Intelligence Hub will be documented in this 
 
 ### Known Issues
 - **Z-Anatomy text labels in 3D model**: The Z-Anatomy source data contains 3D font objects (region labels like "BRACHIAL REGION", "MUSCLES OF THORAX") that get converted to meshes by Blender's GLTF exporter. These are filtered out at runtime by a two-layer system (regex + flatness heuristic), but the filter is heuristic — some edge cases may slip through on future Z-Anatomy updates. If unexpected floating text appears, check the glyph detection logic in `bodymap3d.js`.
-- **Female model GLB not yet generated**: The gender toggle infrastructure is complete (UI, JS loader, organ filtering), but the female-specific GLB has not been exported yet. When female is selected, it falls back to the male model with female organ filtering applied client-side.
+- **Female model GLB not yet generated**: The gender toggle infrastructure is complete (UI, JS loader, organ filtering), but the female-specific GLB has not been exported yet. When female is selected, it falls back to the male Z-Anatomy model (v2.3.0 removed the broken NIH HRA fallback). A dedicated female Z-Anatomy export is planned.
 - **WebGL screenshots**: `preview_screenshot` cannot capture the Three.js canvas (shows blank). Must test in actual browser.
 
 ## [2.0.0] — 2026-03-02
