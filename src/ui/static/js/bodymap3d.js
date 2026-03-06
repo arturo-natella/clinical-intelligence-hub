@@ -529,13 +529,16 @@ var BodyMap3D = {
             }
         }
 
-        if (this.renderer && this.scene && this.camera) {
+        if (this.composer) {
+            this.composer.render();
+        } else if (this.renderer && this.scene && this.camera) {
             this.renderer.render(this.scene, this.camera);
         }
     },
 
     destroy: function() {
         if (this.animationId) cancelAnimationFrame(this.animationId);
+        if (this.composer) this.composer.dispose();
         if (this.renderer) this.renderer.dispose();
     },
 
@@ -3443,5 +3446,6 @@ var BodyMap3D = {
         this.camera.aspect = w / h;
         this.camera.updateProjectionMatrix();
         this.renderer.setSize(w, h);
+        if (this.composer) this.composer.setSize(w, h);
     },
 };
