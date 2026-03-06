@@ -272,7 +272,7 @@ var BodyMap3D = {
             "right-arm": { position: new THREE.Vector3(-1.0, 0.7, 1.2), target: new THREE.Vector3(-0.45, 0.65, 0) },
             "left-leg":  { position: new THREE.Vector3(0.5, -0.6, 1.5), target: new THREE.Vector3(0.18, -0.85, 0) },
             "right-leg": { position: new THREE.Vector3(-0.5, -0.6, 1.5), target: new THREE.Vector3(-0.18, -0.85, 0) },
-            default:     { position: new THREE.Vector3(0, 0.5, 3.0), target: new THREE.Vector3(0, 0.5, 0) },
+            default:     { position: new THREE.Vector3(0, 0.65, 2.6), target: new THREE.Vector3(0, 0.65, 0) },
         };
 
         var container = document.getElementById(containerId);
@@ -319,25 +319,56 @@ var BodyMap3D = {
         this._setupEnvironment();
         this._setupPostProcessing();
 
-        // Controls — left-drag = full 360 rotation, scroll = zoom.
-        // Pan is DISABLED so the body always stays centered (like Zygote Body).
-        // Use Focus dropdown to reposition the view to a specific body region.
+        // Controls — OrbitControls for azimuthal (horizontal) rotation + zoom.
+        // Vertical drag is intercepted and converted to vertical panning so
+        // users can slide up/down the body instead of tilting the orbit.
         this.controls = new THREE.OrbitControls(this.camera, canvas);
         this.controls.mouseButtons = {
             LEFT: THREE.MOUSE.ROTATE,
             MIDDLE: THREE.MOUSE.DOLLY,
-            RIGHT: THREE.MOUSE.ROTATE   // Both mouse buttons rotate
+            RIGHT: THREE.MOUSE.PAN
         };
         this.controls.enableDamping = true;
         this.controls.dampingFactor = 0.05;
-        this.controls.enablePan = false;
+        this.controls.enablePan = true;
+        this.controls.screenSpacePanning = true;  // pan in screen Y = world Y
         this.controls.minDistance = 0.3;
         this.controls.maxDistance = 8.0;
         this.controls.target.copy(this.cameraPresets.default.target);
         this.controls.rotateSpeed = 1.0;
-        // Allow full vertical orbit (small margin prevents gimbal lock at poles)
-        this.controls.minPolarAngle = 0.05;
-        this.controls.maxPolarAngle = Math.PI - 0.05;
+        // Lock the polar angle so left-drag only orbits horizontally.
+        // Vertical movement is handled by our custom pan-on-drag below.
+        this.controls.minPolarAngle = Math.PI / 2;
+        this.controls.maxPolarAngle = Math.PI / 2;
+
+        // ── Custom vertical-pan-on-drag ──────────────────────
+        // Intercept vertical component of left-button drag and
+        // convert it to a vertical pan (slide up/down the body).
+        // Horizontal component still goes to OrbitControls for orbit.
+        this._dragState = { active: false, lastY: 0 };
+        var panSpeed = 0.003;  // world-units per pixel
+        var dragSelf = this;
+
+        canvas.addEventListener("mousedown", function(e) {
+            if (e.button === 0) { // left button
+                dragSelf._dragState.active = true;
+                dragSelf._dragState.lastY = e.clientY;
+            }
+        });
+        canvas.addEventListener("mousemove", function(e) {
+            if (!dragSelf._dragState.active) return;
+            var dy = e.clientY - dragSelf._dragState.lastY;
+            dragSelf._dragState.lastY = e.clientY;
+            if (Math.abs(dy) > 0) {
+                // Pan camera + target vertically
+                var pan = -dy * panSpeed;
+                dragSelf.camera.position.y += pan;
+                dragSelf.controls.target.y += pan;
+            }
+        });
+        window.addEventListener("mouseup", function() {
+            dragSelf._dragState.active = false;
+        });
 
         // Lights — balanced studio setup: enough to reveal surface detail
         // without washing out dark anatomical colors (crimson muscle, dark liver).
@@ -1162,8 +1193,67 @@ var BodyMap3D = {
             console.log("[BodyMap3D] Supplementary muscles loaded: " + totalNew +
                 " new, " + totalDups + " duplicates skipped, " + totalGlyphs + " glyphs skipped");
 
+            // ── Mirror left-side supplementary torso muscles to right side ──
+            // Z-Anatomy is an anatomical dissection model: left side has
+            // superficial muscles, right side shows deeper structures.
+            // We mirror key left-side meshes across the X axis so BOTH
+            // sides show full coverage in our clinical viewer.
+            var mirrorTargets = [
+                "pectoralis_major", "clavicular_head_of_pectoralis",
+                "sternocostal_head_of_pectoralis", "abdominal_part_of_pectoralis",
+                "latissimus_dorsi", "deltoid"
+            ];
+            var mirrored = 0;
+            var suppMeshes = self.layers.muscle.filter(function(m) {
+                return !m.name.startsWith("MUSC__");
+            });
+
+            for (var si = 0; si < suppMeshes.length; si++) {
+                var src = suppMeshes[si];
+                var srcName = (src.name || "").toLowerCase();
+                // Only mirror meshes on the anatomical left (positive X worldspace)
+                var wp = src.getWorldPosition(new THREE.Vector3());
+                if (wp.x < 0.02) continue;
+
+                var shouldMirror = false;
+                for (var ti = 0; ti < mirrorTargets.length; ti++) {
+                    if (srcName.indexOf(mirrorTargets[ti]) !== -1) {
+                        shouldMirror = true;
+                        break;
+                    }
+                }
+                if (!shouldMirror) continue;
+
+                // Check if a right-side version already exists
+                var mirrorName = src.name + "_mirrored_R";
+                if (existingNames[mirrorName.toLowerCase()]) continue;
+
+                var clone = src.clone(true);
+                clone.name = mirrorName;
+                // Mirror across the body's sagittal plane (X=0 in world):
+                // 1. Negate local position.x to move to the opposite side
+                // 2. Negate local scale.x to flip the geometry shape
+                clone.position.x = -clone.position.x;
+                clone.scale.x *= -1;
+                // Flip face winding so normals point outward after mirror
+                if (clone.material) {
+                    clone.material = clone.material.clone();
+                    clone.material.side = THREE.DoubleSide;
+                }
+                // Add to the same parent so it gets the same transforms
+                if (src.parent) src.parent.add(clone);
+                self.layers.muscle.push(clone);
+                clone.userData.region = self._meshNameToRegion(srcName);
+                existingNames[mirrorName.toLowerCase()] = true;
+                mirrored++;
+            }
+            if (mirrored > 0) {
+                console.log("[BodyMap3D] Mirrored " + mirrored +
+                    " left-side muscles to fill right-side coverage");
+            }
+
             // Apply muscle material to newly added meshes, then re-apply layer
-            if (totalNew > 0) {
+            if (totalNew > 0 || mirrored > 0) {
                 self._applyMuscleMaterial();
                 self.setLayer(self.currentLayer);
             }
