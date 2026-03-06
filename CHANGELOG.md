@@ -2,6 +2,33 @@
 
 All notable changes to the Clinical Intelligence Hub will be documented in this file.
 
+## [2.2.0] — 2026-03-06
+
+### Added
+
+#### Renderer Upgrade — Production-Level 3D Rendering
+- HDR studio environment (Poly Haven studio_small_08, CC0, 2K) via RGBELoader + PMREMGenerator
+- EffectComposer post-processing pipeline: RenderPass → SSAO → UnrealBloom → OutputPass
+- SSAO contact shadows (kernelRadius 0.5) — visible between ribs, organ boundaries, joint surfaces
+- Subtle bloom (strength 0.15, threshold 0.85) — specular highlight glow on wet tissue surfaces
+- Per-tissue HDR env map reflections: skin 0.5, muscle 0.4, skeleton 0.35, vasculature 0.6, nerves 0.3, organs 0.45
+
+### Changed
+
+#### Material Upgrades
+- Muscles: MeshStandardMaterial → MeshPhysicalMaterial with clearcoat (0.08) + sheen (0.25) for wet muscle appearance
+- Organs: MeshStandardMaterial → MeshPhysicalMaterial with clearcoat (0.08) for moist organ surfaces
+- Skeleton: roughness 0.55 → 0.5, clearcoat 0.1 → 0.12 — waxy porcelain bone surface
+- Vasculature: roughness lowered, clearcoat raised — wet taut membrane appearance
+- Nerves: clearcoat 0.08 → 0.1 — myelin sheath subtle sheen
+
+### Fixed
+- Muscles + organs no longer bypass ACES Filmic tone mapping (removed `toneMapped: false`)
+- All materials now receive HDR env reflections (removed `envMapIntensity: 0.0` overrides)
+- Muscle base colors bumped ~10% to compensate for ACES tone mapping darkening
+
+---
+
 ## [2.1.0] — 2026-03-03
 
 ### Added
