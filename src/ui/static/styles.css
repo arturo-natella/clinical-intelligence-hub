@@ -713,6 +713,41 @@ a, button, input, textarea, select {
     margin-bottom: 12px;
 }
 
+/* Organ & region dropdown groups */
+.bodymap-organ-group {
+    position: relative;
+    display: inline-block;
+}
+
+.bodymap-organ-dropdown {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: 20;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-muted);
+    border-radius: var(--radius-sm);
+    padding: 4px;
+    min-width: 120px;
+    flex-direction: column;
+    gap: 2px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+.bodymap-organ-dropdown.open {
+    display: flex;
+}
+.bodymap-organ-dropdown .btn {
+    text-align: left;
+    width: 100%;
+    justify-content: flex-start;
+}
+.bodymap-organ-btn.active {
+    background: var(--heat) !important;
+    color: white !important;
+    border-color: var(--heat) !important;
+}
+
 .bodymap-tooltip {
     position: absolute;
     background: rgba(10, 10, 10, 0.92);
