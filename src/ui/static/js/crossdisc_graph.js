@@ -1,107 +1,146 @@
 /* ══════════════════════════════════════════════════════════
    Cross-Disciplinary Node Graph — D3 Force-Directed
 
-   Visualizes cross-specialty medical connections as a network:
-     - Coloured circles = systemic patterns (sized by severity)
-     - Small circles = specialties (shared ones pull clusters together)
-     - Edges = which specialties relate to which pattern
-     - Click pattern node → detail panel
+   Reframed to follow the Snowball interaction model:
+     - Header with quick summary + orientation
+     - Split graph/detail layout
+     - Dedicated legend + partner note
+     - Clearer detail hierarchy when a node is selected
    ══════════════════════════════════════════════════════════ */
 
 var CrossDiscGraph = {
 
     _svg: null,
     _simulation: null,
+    _activePatternId: null,
 
     // Specialty color palette — 28 specialties, distinct hues
     _specColors: {
-        // Core organ systems
-        "Cardiology":           "#C87850",
-        "Neurology":            "#9B8BE0",
-        "Pulmonology":          "#8BA8E8",
-        "Nephrology":           "#5ED4C8",
-        "Gastroenterology":     "#7AB0F0",
-        "Hepatology":           "#6BD4A8",
-        "Endocrinology":        "#6B9BF7",
-        "Hematology":           "#C8A848",
-        // Autoimmune / Connective tissue
-        "Rheumatology":         "#68C8D8",
-        "Dermatology":          "#E088B0",
-        "Ophthalmology":        "#7EC4E8",
-        "Allergy/Immunology":   "#D4A06B",
-        // Specialties added in v3.1
-        "Nutrition":            "#8BD470",
-        "Psychiatry":           "#C888D8",
-        "Sleep Medicine":       "#7070C8",
-        "Oncology":             "#D85858",
-        "Genetics":             "#A0D0F0",
-        "Vascular Medicine":    "#D87080",
-        "Infectious Disease":   "#88C888",
-        "Toxicology":           "#B8B868",
-        "ENT":                  "#B09870",
-        "Pain Medicine":        "#D8A088",
-        "Geriatrics":           "#A8A8C8",
-        "Clinical Pharmacology":"#90B8A0",
-        "Orthopedics":          "#C0A080",
-        "Obstetrics/Gynecology":"#D898C0",
-        "Dentistry":            "#80C0B0",
-        "Urology":              "#A0B8D8",
+        "Cardiology":            "#C87850",
+        "Neurology":             "#9B8BE0",
+        "Pulmonology":           "#8BA8E8",
+        "Nephrology":            "#5ED4C8",
+        "Gastroenterology":      "#7AB0F0",
+        "Hepatology":            "#6BD4A8",
+        "Endocrinology":         "#6B9BF7",
+        "Hematology":            "#C8A848",
+        "Rheumatology":          "#68C8D8",
+        "Dermatology":           "#E088B0",
+        "Ophthalmology":         "#7EC4E8",
+        "Allergy/Immunology":    "#D4A06B",
+        "Nutrition":             "#8BD470",
+        "Psychiatry":            "#C888D8",
+        "Sleep Medicine":        "#7070C8",
+        "Oncology":              "#D85858",
+        "Genetics":              "#A0D0F0",
+        "Vascular Medicine":     "#D87080",
+        "Infectious Disease":    "#88C888",
+        "Toxicology":            "#B8B868",
+        "ENT":                   "#B09870",
+        "Pain Medicine":         "#D8A088",
+        "Geriatrics":            "#A8A8C8",
+        "Clinical Pharmacology": "#90B8A0",
+        "Orthopedics":           "#C0A080",
+        "Obstetrics/Gynecology": "#D898C0",
+        "Dentistry":             "#80C0B0",
+        "Urology":               "#A0B8D8",
     },
 
     _sevRadius: { high: 28, moderate: 22, low: 16 },
-    _sevColor:  { high: "#C84040", moderate: "#C8A848", low: "#58B888" },
+    _sevColor: { high: "#C84040", moderate: "#C8A848", low: "#58B888" },
 
-    /**
-     * Render into a container element. Called by loadCrossDisciplinary.
-     * @param {string} containerId - DOM element id
-     * @param {Array} connections - array of cross-disciplinary connection objects
-     */
     render: function(containerId, connections) {
         var container = document.getElementById(containerId);
         if (!container) return;
 
-        // Clear previous
         while (container.firstChild) container.removeChild(container.firstChild);
+        this._activePatternId = null;
 
         if (!connections || connections.length === 0) {
-            var empty = document.createElement("div");
-            empty.style.cssText = "color:var(--text-muted); text-align:center; padding:40px;";
-            empty.textContent = "No cross-disciplinary connections found.";
-            container.appendChild(empty);
+            container.appendChild(this._buildEmptyState(
+                "No cross-disciplinary connections found.",
+                "Analyze your records to discover patterns that span specialties and deserve a closer look."
+            ));
             return;
         }
 
-        // Build layout: graph on left, detail on right
-        var wrapper = document.createElement("div");
-        wrapper.style.cssText = "display:flex; gap:20px; min-height:420px;";
+        var specialties = this._getUniqueSpecialties(connections);
+        var shell = document.createElement("div");
+        shell.className = "crossdisc-shell";
+
+        var header = document.createElement("div");
+        header.className = "crossdisc-header";
+
+        var headerCopy = document.createElement("div");
+        var title = document.createElement("h3");
+        title.textContent = "Connection Map";
+        headerCopy.appendChild(title);
+
+        var subtitle = document.createElement("div");
+        subtitle.className = "crossdisc-subtitle";
+        subtitle.textContent = "Patterns that cut across specialties and adjacent health domains. Click a pattern node to see the evidence, why it matters, and a question to save for your next visit.";
+        headerCopy.appendChild(subtitle);
+        header.appendChild(headerCopy);
+
+        var summary = document.createElement("div");
+        summary.className = "crossdisc-summary";
+        summary.appendChild(this._summaryChip(connections.length + " pattern" + (connections.length === 1 ? "" : "s")));
+        summary.appendChild(this._summaryChip(specialties.length + " specialties"));
+
+        var questionsReady = connections.filter(function(c) { return !!c.question_for_doctor; }).length;
+        if (questionsReady > 0) {
+            summary.appendChild(this._summaryChip(questionsReady + " visit question" + (questionsReady === 1 ? "" : "s")));
+        }
+
+        var verifiedCount = connections.filter(function(c) { return !!c.pubmed_verified; }).length;
+        if (verifiedCount > 0) {
+            summary.appendChild(this._summaryChip(verifiedCount + " PubMed-verified"));
+        }
+        header.appendChild(summary);
+        shell.appendChild(header);
+
+        var body = document.createElement("div");
+        body.className = "crossdisc-body";
+
+        var graphPane = document.createElement("div");
+        graphPane.className = "crossdisc-graph-pane";
+
+        var graphHint = document.createElement("div");
+        graphHint.className = "crossdisc-graph-hint";
+        graphHint.textContent = "Drag nodes to rearrange the map. Scroll to zoom. Click a pattern to load the detail rail.";
+        graphPane.appendChild(graphHint);
 
         var graphDiv = document.createElement("div");
         graphDiv.id = "crossdisc-graph-svg";
-        graphDiv.style.cssText = "flex:2; min-width:300px; background:var(--bg-sunken); border-radius:8px; position:relative; overflow:hidden; height:420px;";
-        wrapper.appendChild(graphDiv);
+        graphDiv.className = "crossdisc-graph";
+        graphPane.appendChild(graphDiv);
+        body.appendChild(graphPane);
 
         var detailDiv = document.createElement("div");
         detailDiv.id = "crossdisc-detail";
-        detailDiv.style.cssText = "flex:1; min-width:260px; max-width:340px; overflow-y:auto; max-height:420px;";
-        var detailEmpty = document.createElement("div");
-        detailEmpty.style.cssText = "color:var(--text-muted); text-align:center; padding:40px 20px; font-size:13px;";
-        detailEmpty.textContent = "Click a pattern node to see what we found and why it matters";
-        detailDiv.appendChild(detailEmpty);
-        wrapper.appendChild(detailDiv);
+        detailDiv.className = "crossdisc-detail";
+        this._renderDetailEmpty(detailDiv);
+        body.appendChild(detailDiv);
 
-        container.appendChild(wrapper);
+        shell.appendChild(body);
+        shell.appendChild(this._buildLegend(connections));
 
-        // Legend
-        var legend = this._buildLegend(connections);
-        container.appendChild(legend);
-
-        // Partner note
         var note = document.createElement("div");
-        note.style.cssText = "margin-top:16px; padding:12px 16px; background:var(--bg-raised); border-radius:8px; font-size:12px; color:var(--text-muted); line-height:1.5;";
-        note.textContent = "We look across all your medical records \u2014 labs, medications, diagnoses, symptoms \u2014 and connect findings that individual specialists might miss. When something stands out, we note it for your next visit.";
-        container.appendChild(note);
+        note.className = "crossdisc-partner-note";
 
-        // Build graph data — defer D3 one frame so flexbox layout settles
+        var noteHeadline = document.createElement("div");
+        noteHeadline.className = "crossdisc-partner-headline";
+        noteHeadline.textContent = "Why this view exists";
+        note.appendChild(noteHeadline);
+
+        var noteBody = document.createElement("div");
+        noteBody.className = "crossdisc-partner-body";
+        noteBody.textContent = "We look across labs, medications, diagnoses, imaging, and symptoms to surface patterns that siloed specialists can miss. These are discussion prompts for your next visit, not diagnoses.";
+        note.appendChild(noteBody);
+        shell.appendChild(note);
+
+        container.appendChild(shell);
+
         var graphData = this._buildGraphData(connections);
         var self = this;
         requestAnimationFrame(function() {
@@ -109,12 +148,46 @@ var CrossDiscGraph = {
         });
     },
 
+    _buildEmptyState: function(titleText, bodyText) {
+        var wrapper = document.createElement("div");
+        wrapper.className = "crossdisc-empty";
+
+        var title = document.createElement("div");
+        title.className = "crossdisc-empty-title";
+        title.textContent = titleText;
+        wrapper.appendChild(title);
+
+        var body = document.createElement("div");
+        body.className = "crossdisc-empty-copy";
+        body.textContent = bodyText;
+        wrapper.appendChild(body);
+
+        return wrapper;
+    },
+
+    _summaryChip: function(text) {
+        var chip = document.createElement("div");
+        chip.className = "crossdisc-summary-chip";
+        chip.textContent = text;
+        return chip;
+    },
+
+    _getUniqueSpecialties: function(connections) {
+        var seen = {};
+        for (var i = 0; i < connections.length; i++) {
+            var specs = connections[i].specialties || [];
+            for (var j = 0; j < specs.length; j++) {
+                seen[specs[j]] = true;
+            }
+        }
+        return Object.keys(seen).sort();
+    },
+
     _buildGraphData: function(connections) {
         var nodes = [];
         var edges = [];
-        var specMap = {}; // name → node index
+        var specMap = {};
 
-        // Add pattern nodes
         for (var i = 0; i < connections.length; i++) {
             var c = connections[i];
             nodes.push({
@@ -126,7 +199,6 @@ var CrossDiscGraph = {
             });
         }
 
-        // Add specialty nodes (deduplicated)
         for (var pi = 0; pi < connections.length; pi++) {
             var specs = connections[pi].specialties || [];
             for (var si = 0; si < specs.length; si++) {
@@ -140,9 +212,7 @@ var CrossDiscGraph = {
                     };
                     nodes.push(specMap[specName]);
                 }
-                specMap[specName].count++;
-
-                // Edge from pattern to specialty
+                specMap[specName].count += 1;
                 edges.push({
                     source: "pattern-" + pi,
                     target: "spec-" + specName,
@@ -156,9 +226,8 @@ var CrossDiscGraph = {
     _renderD3: function(container, data, connections) {
         var self = this;
         var width = container.clientWidth || 500;
-        var height = 400;
+        var height = container.clientHeight || 440;
 
-        // Stop previous simulation
         if (this._simulation) this._simulation.stop();
 
         var svg = d3.select(container)
@@ -169,44 +238,42 @@ var CrossDiscGraph = {
 
         this._svg = svg;
 
-        // Defs for gradients
         var defs = svg.append("defs");
-
-        // Pattern node gradients (by severity)
-        var sevKeys = ["high", "moderate", "low"];
-        for (var si = 0; si < sevKeys.length; si++) {
-            var sev = sevKeys[si];
+        ["high", "moderate", "low"].forEach(function(sev) {
             var grad = defs.append("linearGradient")
                 .attr("id", "crossdisc-sev-" + sev)
                 .attr("x1", "0%").attr("y1", "0%")
                 .attr("x2", "0%").attr("y2", "100%");
-            grad.append("stop").attr("offset", "0%").attr("stop-color", this._sevColor[sev]).attr("stop-opacity", 0.9);
-            grad.append("stop").attr("offset", "100%").attr("stop-color", this._sevColor[sev]).attr("stop-opacity", 0.5);
-        }
+            grad.append("stop")
+                .attr("offset", "0%")
+                .attr("stop-color", self._sevColor[sev] || "#888")
+                .attr("stop-opacity", 0.92);
+            grad.append("stop")
+                .attr("offset", "100%")
+                .attr("stop-color", self._sevColor[sev] || "#888")
+                .attr("stop-opacity", 0.55);
+        });
 
         var g = svg.append("g");
 
-        // Zoom
         svg.call(d3.zoom()
-            .scaleExtent([0.5, 3])
+            .scaleExtent([0.55, 3])
             .on("zoom", function(event) {
                 g.attr("transform", event.transform);
             }));
 
-        // Force simulation
         var simulation = d3.forceSimulation(data.nodes)
             .force("link", d3.forceLink(data.edges)
                 .id(function(d) { return d.id; })
-                .distance(80))
-            .force("charge", d3.forceManyBody().strength(-200))
+                .distance(92))
+            .force("charge", d3.forceManyBody().strength(-240))
             .force("center", d3.forceCenter(width / 2, height / 2))
             .force("collision", d3.forceCollide().radius(function(d) {
-                return d.type === "pattern" ? 35 : 22;
+                return d.type === "pattern" ? 40 : 24;
             }));
 
         this._simulation = simulation;
 
-        // Edges
         var link = g.selectAll(".crossdisc-link")
             .data(data.edges)
             .join("line")
@@ -214,81 +281,105 @@ var CrossDiscGraph = {
             .attr("stroke", "var(--border-faint)")
             .attr("stroke-width", 1.5)
             .attr("stroke-dasharray", "4,3")
-            .attr("stroke-opacity", 0.5);
+            .attr("stroke-opacity", 0.55);
 
-        // Nodes
         var node = g.selectAll(".crossdisc-node")
             .data(data.nodes)
             .join("g")
-            .attr("class", "crossdisc-node")
+            .attr("class", function(d) {
+                return "crossdisc-node crossdisc-node--" + d.type;
+            })
             .style("cursor", function(d) { return d.type === "pattern" ? "pointer" : "default"; })
             .call(d3.drag()
                 .on("start", function(event, d) {
                     if (!event.active) simulation.alphaTarget(0.3).restart();
-                    d.fx = d.x; d.fy = d.y;
+                    d.fx = d.x;
+                    d.fy = d.y;
                 })
                 .on("drag", function(event, d) {
-                    d.fx = event.x; d.fy = event.y;
+                    d.fx = event.x;
+                    d.fy = event.y;
                 })
                 .on("end", function(event, d) {
                     if (!event.active) simulation.alphaTarget(0);
-                    d.fx = null; d.fy = null;
+                    d.fx = null;
+                    d.fy = null;
                 }));
 
-        // Pattern circles
-        node.filter(function(d) { return d.type === "pattern"; })
-            .append("circle")
+        var patternNodes = node.filter(function(d) { return d.type === "pattern"; })
+            .attr("tabindex", 0)
+            .attr("role", "button")
+            .attr("aria-label", function(d) { return "Open details for " + d.label; });
+
+        patternNodes.append("circle")
             .attr("r", function(d) { return self._sevRadius[d.severity] || 22; })
             .attr("fill", function(d) { return "url(#crossdisc-sev-" + d.severity + ")"; })
             .attr("stroke", function(d) { return self._sevColor[d.severity] || "#888"; })
-            .attr("stroke-width", 2);
+            .attr("stroke-width", 2.5);
 
-        // Pattern labels (abbreviated)
-        node.filter(function(d) { return d.type === "pattern"; })
-            .append("text")
+        patternNodes.append("text")
+            .attr("class", "crossdisc-pattern-label")
             .attr("text-anchor", "middle")
             .attr("dy", "0.35em")
-            .attr("fill", "#fff")
-            .attr("font-size", "9px")
-            .attr("font-weight", "600")
             .attr("pointer-events", "none")
             .text(function(d) {
-                var words = d.label.split(/[\s\-]+/);
-                if (words.length <= 2) return d.label.substring(0, 12);
-                return words[0].substring(0, 5) + "…";
+                return self._shortPatternLabel(d.label);
             });
 
-        // Specialty circles
-        node.filter(function(d) { return d.type === "specialty"; })
-            .append("circle")
+        var specialtyNodes = node.filter(function(d) { return d.type === "specialty"; });
+
+        specialtyNodes.append("circle")
             .attr("r", function(d) { return 10 + (d.count || 1) * 3; })
             .attr("fill", function(d) { return self._specColors[d.label] || "#7AB0F0"; })
             .attr("fill-opacity", 0.7)
             .attr("stroke", function(d) { return self._specColors[d.label] || "#7AB0F0"; })
             .attr("stroke-width", 1.5);
 
-        // Specialty labels
-        node.filter(function(d) { return d.type === "specialty"; })
-            .append("text")
+        specialtyNodes.append("text")
+            .attr("class", "crossdisc-specialty-label")
             .attr("text-anchor", "middle")
-            .attr("dy", function(d) { return (12 + (d.count || 1) * 3) + 12; })
-            .attr("fill", "var(--text-secondary)")
-            .attr("font-size", "10px")
+            .attr("dy", function(d) { return (12 + (d.count || 1) * 3) + 13; })
             .attr("pointer-events", "none")
             .text(function(d) { return d.label; });
 
-        // Click handler for pattern nodes
-        node.filter(function(d) { return d.type === "pattern"; })
-            .on("click", function(event, d) {
-                self._showDetail(connections[d.dataIndex]);
+        function selectPattern(d) {
+            self._activePatternId = d.id;
+            self._showDetail(connections[d.dataIndex]);
+            updateSelection();
+        }
 
-                // Highlight selection
-                node.selectAll("circle").attr("stroke-width", function(nd) {
-                    return nd.id === d.id ? 4 : (nd.type === "pattern" ? 2 : 1.5);
-                });
+        patternNodes
+            .on("click", function(event, d) {
+                event.stopPropagation();
+                selectPattern(d);
+            })
+            .on("keydown", function(event, d) {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    selectPattern(d);
+                }
             });
 
-        // Tick
+        function updateSelection() {
+            patternNodes.select("circle")
+                .attr("stroke", function(d) {
+                    return d.id === self._activePatternId
+                        ? "rgba(255,255,255,0.96)"
+                        : (self._sevColor[d.severity] || "#888");
+                })
+                .attr("stroke-width", function(d) {
+                    return d.id === self._activePatternId ? 4 : 2.5;
+                });
+
+            specialtyNodes.select("circle")
+                .attr("stroke-width", 1.5)
+                .attr("fill-opacity", function(d) {
+                    return self._activePatternId ? 0.58 : 0.7;
+                });
+        }
+
+        updateSelection();
+
         simulation.on("tick", function() {
             link
                 .attr("x1", function(d) { return d.source.x; })
@@ -302,98 +393,185 @@ var CrossDiscGraph = {
         });
     },
 
+    _shortPatternLabel: function(label) {
+        if (!label) return "";
+        var words = label.split(/[\s\-]+/).filter(Boolean);
+        if (words.length === 1) return label.length > 14 ? label.substring(0, 13) + "…" : label;
+        if (words.length === 2) return (words[0] + " " + words[1]).substring(0, 16);
+        return words[0].substring(0, 7) + "…";
+    },
+
+    _renderDetailEmpty: function(panel) {
+        var target = panel || document.getElementById("crossdisc-detail");
+        if (!target) return;
+        while (target.firstChild) target.removeChild(target.firstChild);
+
+        var empty = document.createElement("div");
+        empty.className = "crossdisc-detail-empty";
+
+        var title = document.createElement("div");
+        title.className = "crossdisc-detail-empty-title";
+        title.textContent = "Select a connection";
+        empty.appendChild(title);
+
+        var copy = document.createElement("div");
+        copy.className = "crossdisc-detail-empty-copy";
+        copy.textContent = "Choose a pattern node to review the supporting evidence, the specialties involved, and a question you can save for your next visit.";
+        empty.appendChild(copy);
+
+        target.appendChild(empty);
+    },
+
     _showDetail: function(connection) {
-        var self = this;
         var panel = document.getElementById("crossdisc-detail");
         if (!panel) return;
         while (panel.firstChild) panel.removeChild(panel.firstChild);
 
-        // ── Header: title + severity ──
+        var card = document.createElement("div");
+        card.className = "crossdisc-detail-card";
+
         var title = document.createElement("div");
-        title.style.cssText = "font-size:15px; font-weight:600; margin-bottom:6px; line-height:1.3;";
-        title.textContent = connection.title || connection.disease || "";
-        panel.appendChild(title);
+        title.className = "crossdisc-detail-title";
+        title.textContent = connection.title || connection.disease || "Cross-disciplinary pattern";
+        card.appendChild(title);
+
+        var badges = document.createElement("div");
+        badges.className = "crossdisc-detail-badges";
 
         var sevMap = { high: "badge-critical", moderate: "badge-moderate", low: "badge-low" };
-        var badge = document.createElement("span");
-        badge.className = "badge " + (sevMap[connection.severity] || "badge-info");
-        badge.textContent = (connection.severity || "moderate").toUpperCase();
-        badge.style.cssText = "margin-bottom:16px; display:inline-block;";
-        panel.appendChild(badge);
+        var severityBadge = document.createElement("span");
+        severityBadge.className = "badge " + (sevMap[connection.severity] || "badge-info");
+        severityBadge.textContent = (connection.severity || "moderate").toUpperCase();
+        badges.appendChild(severityBadge);
 
-        // ── Section 1: What we found in your records ──
+        var specialtyChip = document.createElement("span");
+        specialtyChip.className = "crossdisc-meta-chip";
+        specialtyChip.textContent = (connection.specialties || []).length + " specialties";
+        badges.appendChild(specialtyChip);
+
+        if (connection.type === "ai_discovered_correlation") {
+            var aiChip = document.createElement("span");
+            aiChip.className = "crossdisc-meta-chip " + (connection.pubmed_verified ? "is-verified" : "is-ai");
+            aiChip.textContent = connection.pubmed_verified ? "PubMed verified" : "AI suggested";
+            badges.appendChild(aiChip);
+        } else if (connection.total_hits && connection.total_possible) {
+            var indicatorChip = document.createElement("span");
+            indicatorChip.className = "crossdisc-meta-chip";
+            indicatorChip.textContent = connection.total_hits + "/" + connection.total_possible + " indicators";
+            badges.appendChild(indicatorChip);
+        }
+
+        card.appendChild(badges);
+
         var dataPoints = connection.patient_data_points || connection.matched_symptoms || [];
         if (dataPoints.length > 0) {
-            panel.appendChild(this._sectionLabel("What we found in your records"));
-
-            var dpList = document.createElement("div");
-            dpList.style.cssText = "margin-bottom:14px; padding:10px 12px; background:var(--bg-sunken); border-radius:8px;";
-            for (var i = 0; i < dataPoints.length; i++) {
-                var dp = document.createElement("div");
-                dp.style.cssText = "font-size:12px; color:var(--text-primary); padding:3px 0; line-height:1.5;";
-                var dot = document.createElement("span");
-                dot.style.cssText = "color:var(--accent-teal); margin-right:6px;";
-                dot.textContent = "\u25cf";
-                dp.appendChild(dot);
-                dp.appendChild(document.createTextNode(dataPoints[i]));
-                dpList.appendChild(dp);
-            }
-            panel.appendChild(dpList);
+            card.appendChild(this._sectionLabel("What we found in your records"));
+            card.appendChild(this._buildList(dataPoints, "crossdisc-list"));
         }
 
-        // Also show matched labs if present and different from data points
         var matchedLabs = connection.matched_labs || [];
-        if (matchedLabs.length > 0 && dataPoints.length > 0) {
-            var labList = document.createElement("div");
-            labList.style.cssText = "margin-bottom:14px; padding:8px 12px; background:var(--bg-sunken); border-radius:8px;";
-            var labNote = document.createElement("div");
-            labNote.style.cssText = "font-size:11px; color:var(--text-muted); margin-bottom:4px;";
-            labNote.textContent = "Lab markers matched:";
-            labList.appendChild(labNote);
-            for (var li = 0; li < matchedLabs.length; li++) {
-                var lp = document.createElement("div");
-                lp.style.cssText = "font-size:12px; color:var(--accent-amber); padding:2px 0;";
-                lp.textContent = "\u25cf " + matchedLabs[li];
-                labList.appendChild(lp);
-            }
-            panel.appendChild(labList);
+        if (matchedLabs.length > 0) {
+            card.appendChild(this._sectionLabel("Matched lab markers"));
+            card.appendChild(this._buildList(matchedLabs, "crossdisc-list crossdisc-list--labs"));
         }
 
-        // ── Section 2: Why this might matter ──
         var desc = connection.description || connection.pattern || "";
         if (desc) {
-            panel.appendChild(this._sectionLabel("Why this might matter"));
+            card.appendChild(this._sectionLabel("Why this might matter"));
             var descDiv = document.createElement("div");
-            descDiv.style.cssText = "font-size:13px; color:var(--text-secondary); line-height:1.6; margin-bottom:14px;";
+            descDiv.className = "crossdisc-body-copy";
             descDiv.textContent = desc;
-            panel.appendChild(descDiv);
+            card.appendChild(descDiv);
         }
 
-        // ── Section 3: The connection (specialties) ──
         var specs = connection.specialties || [];
-        if (specs.length > 1) {
-            panel.appendChild(this._sectionLabel("The connection"));
-            var connNote = document.createElement("div");
-            connNote.style.cssText = "font-size:12px; color:var(--text-secondary); line-height:1.5; margin-bottom:8px;";
-            connNote.textContent = "These findings span " + specs.length + " specialties that don\u2019t always communicate:";
-            panel.appendChild(connNote);
+        if (specs.length > 0) {
+            card.appendChild(this._sectionLabel("The connection"));
 
-            var specRow = document.createElement("div");
-            specRow.style.cssText = "display:flex; flex-wrap:wrap; gap:4px; margin-bottom:14px;";
-            for (var si = 0; si < specs.length; si++) {
-                var sb = document.createElement("span");
-                sb.className = "badge badge-info";
-                sb.style.cssText = "background:" + (this._specColors[specs[si]] || "#7AB0F0") + "; color:#fff; font-size:11px;";
-                sb.textContent = specs[si];
-                specRow.appendChild(sb);
-            }
-            panel.appendChild(specRow);
+            var connNote = document.createElement("div");
+            connNote.className = "crossdisc-note";
+            connNote.textContent = specs.length > 1
+                ? "These findings span specialties that do not always communicate directly:"
+                : "This pattern is anchored in one specialty but has broader implications:";
+            card.appendChild(connNote);
+
+            card.appendChild(this._buildSpecialtyRow(specs));
         }
 
-        // ── Section 4: How we identified this ──
-        panel.appendChild(this._sectionLabel("How we identified this"));
-        var sourceDiv = document.createElement("div");
-        sourceDiv.style.cssText = "font-size:12px; color:var(--text-muted); line-height:1.5; margin-bottom:14px;";
+        card.appendChild(this._sectionLabel("How we identified this"));
+        card.appendChild(this._buildSourceBlock(connection));
+
+        var question = connection.question_for_doctor;
+        if (question) {
+            var visitBox = document.createElement("div");
+            visitBox.className = "crossdisc-visit-box";
+
+            var visitLabel = document.createElement("div");
+            visitLabel.className = "crossdisc-visit-label";
+            visitLabel.textContent = "Noted for your next visit";
+            visitBox.appendChild(visitLabel);
+
+            var qText = document.createElement("div");
+            qText.className = "crossdisc-visit-question";
+            qText.textContent = question;
+            visitBox.appendChild(qText);
+
+            var addBtn = document.createElement("button");
+            addBtn.className = "btn btn-sm crossdisc-visit-btn";
+            addBtn.type = "button";
+            addBtn.textContent = "Add to Visit Prep";
+            addBtn.onclick = this._addToVisitPrep.bind(this, connection, addBtn);
+            visitBox.appendChild(addBtn);
+
+            card.appendChild(visitBox);
+        }
+
+        var disclaimer = document.createElement("div");
+        disclaimer.className = "crossdisc-disclaimer";
+        disclaimer.textContent = "This is a pattern worth exploring, not a diagnosis. Your doctor can decide whether it changes testing, monitoring, or treatment.";
+        card.appendChild(disclaimer);
+
+        panel.appendChild(card);
+    },
+
+    _sectionLabel: function(text) {
+        var el = document.createElement("div");
+        el.className = "crossdisc-section-title";
+        el.textContent = text;
+        return el;
+    },
+
+    _buildList: function(items, className) {
+        var list = document.createElement("ul");
+        list.className = className || "crossdisc-list";
+        for (var i = 0; i < items.length; i++) {
+            var li = document.createElement("li");
+            li.textContent = items[i];
+            list.appendChild(li);
+        }
+        return list;
+    },
+
+    _buildSpecialtyRow: function(specs) {
+        var row = document.createElement("div");
+        row.className = "crossdisc-chip-row";
+
+        for (var i = 0; i < specs.length; i++) {
+            var chip = document.createElement("span");
+            chip.className = "crossdisc-chip";
+            var color = this._specColors[specs[i]] || "#7AB0F0";
+            chip.style.color = color;
+            chip.style.borderColor = color;
+            chip.textContent = specs[i];
+            row.appendChild(chip);
+        }
+
+        return row;
+    },
+
+    _buildSourceBlock: function(connection) {
+        var box = document.createElement("div");
+        box.className = "crossdisc-source-box";
 
         var hits = connection.total_hits;
         var possible = connection.total_possible;
@@ -402,127 +580,91 @@ var CrossDiscGraph = {
         var diagnosticSource = connection.diagnostic_source || "";
 
         if (sourceType === "ai_discovered_correlation") {
-            // ── AI-discovered: show PubMed verification status ──
-            var verified = connection.pubmed_verified;
-            var pmCitations = connection.pubmed_citations || [];
+            var status = document.createElement("div");
+            status.className = "crossdisc-source-status " + (connection.pubmed_verified ? "is-verified" : "is-unverified");
+            status.textContent = connection.pubmed_verified ? "PubMed verified" : "AI suggestion only";
+            box.appendChild(status);
 
-            var verifyBadge = document.createElement("span");
-            if (verified) {
-                verifyBadge.style.cssText = "display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; margin-bottom:6px; background:rgba(88,184,136,0.15); color:var(--accent-green, #58B888); border:1px solid rgba(88,184,136,0.3);";
-                verifyBadge.textContent = "\u2713 Verified against PubMed";
-            } else {
-                verifyBadge.style.cssText = "display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; margin-bottom:6px; background:rgba(200,168,72,0.15); color:var(--accent-amber); border:1px solid rgba(200,168,72,0.3);";
-                verifyBadge.textContent = "\u26a0 Unverified \u2014 AI suggestion only";
-            }
-            sourceDiv.appendChild(verifyBadge);
-
-            var aiExplain = document.createElement("div");
-            aiExplain.style.cssText = "margin-top:6px;";
-            var aiLabel = document.createElement("span");
-            aiLabel.style.color = "var(--accent-blue)";
-            aiLabel.textContent = "AI Analysis";
-            aiExplain.appendChild(aiLabel);
-            aiExplain.appendChild(document.createTextNode(" \u2014 Gemini identified this pattern from your records."));
-            sourceDiv.appendChild(aiExplain);
+            var aiLead = document.createElement("div");
+            aiLead.className = "crossdisc-source-copy";
+            aiLead.textContent = "Gemini identified this pattern from your records and surfaced supporting rationale where available.";
+            box.appendChild(aiLead);
 
             if (evidenceSource) {
-                var srcLine = document.createElement("div");
-                srcLine.style.cssText = "margin-top:4px; color:var(--text-secondary); font-size:11px;";
-                srcLine.textContent = "Gemini cites: " + evidenceSource;
-                sourceDiv.appendChild(srcLine);
+                var cites = document.createElement("div");
+                cites.className = "crossdisc-source-copy";
+                cites.textContent = "Gemini cites: " + evidenceSource;
+                box.appendChild(cites);
             }
 
-            // Show actual PubMed citations if verified
+            var pmCitations = connection.pubmed_citations || [];
             if (pmCitations.length > 0) {
                 var pmLabel = document.createElement("div");
-                pmLabel.style.cssText = "margin-top:8px; font-size:11px; color:var(--accent-green, #58B888); font-weight:600;";
-                pmLabel.textContent = "PubMed supporting literature:";
-                sourceDiv.appendChild(pmLabel);
+                pmLabel.className = "crossdisc-source-label";
+                pmLabel.textContent = "Supporting literature";
+                box.appendChild(pmLabel);
+
+                var citeItems = [];
                 for (var ci = 0; ci < pmCitations.length; ci++) {
                     var cite = pmCitations[ci];
-                    var citeDiv = document.createElement("div");
-                    citeDiv.style.cssText = "font-size:11px; color:var(--text-secondary); padding:2px 0; line-height:1.4;";
                     var citeText = cite.title || "";
-                    if (cite.journal) citeText += " \u2014 " + cite.journal;
+                    if (cite.journal) citeText += " — " + cite.journal;
                     if (cite.year) citeText += " (" + cite.year + ")";
                     if (cite.pmid) citeText += " [PMID:" + cite.pmid + "]";
-                    citeDiv.textContent = citeText;
-                    sourceDiv.appendChild(citeDiv);
+                    citeItems.push(citeText);
                 }
+                box.appendChild(this._buildList(citeItems, "crossdisc-list crossdisc-list--compact"));
             }
-        } else if (hits && possible) {
-            // ── Triad-based: show indicator match + diagnostic source ──
-            sourceDiv.textContent = hits + " of " + possible + " known clinical indicators matched in your records.";
-
-            if (diagnosticSource) {
-                var diagBox = document.createElement("div");
-                diagBox.style.cssText = "margin-top:8px; padding:8px 10px; background:var(--bg-sunken); border-radius:6px; border-left:3px solid var(--accent-teal);";
-
-                var diagLabel = document.createElement("div");
-                diagLabel.style.cssText = "font-size:10px; color:var(--accent-teal); font-weight:600; margin-bottom:3px; text-transform:uppercase; letter-spacing:0.05em;";
-                diagLabel.textContent = "Diagnostic criteria source";
-                diagBox.appendChild(diagLabel);
-
-                var diagText = document.createElement("div");
-                diagText.style.cssText = "font-size:11px; color:var(--text-secondary); line-height:1.4;";
-                diagText.textContent = diagnosticSource;
-                diagBox.appendChild(diagText);
-
-                sourceDiv.appendChild(diagBox);
-            }
-        } else if (evidenceSource) {
-            sourceDiv.textContent = "Based on: " + evidenceSource;
-            if (diagnosticSource) {
-                var diagLine = document.createElement("div");
-                diagLine.style.cssText = "margin-top:4px; font-size:11px; color:var(--text-secondary);";
-                diagLine.textContent = "Source: " + diagnosticSource;
-                sourceDiv.appendChild(diagLine);
-            }
-        } else {
-            sourceDiv.textContent = "Identified by cross-referencing your medical records across specialties.";
-        }
-        panel.appendChild(sourceDiv);
-
-        // ── Section 5: Noted for your next visit ──
-        var question = connection.question_for_doctor;
-        if (question) {
-            var visitBox = document.createElement("div");
-            visitBox.style.cssText = "background:rgba(78,154,241,0.08); border:1px solid var(--accent-blue); padding:14px; border-radius:10px; margin-top:12px;";
-
-            var visitLabel = document.createElement("div");
-            visitLabel.style.cssText = "font-size:11px; color:var(--accent-blue); font-weight:600; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.05em;";
-            visitLabel.textContent = "Noted for your next visit";
-            visitBox.appendChild(visitLabel);
-
-            var qText = document.createElement("div");
-            qText.style.cssText = "font-size:13px; line-height:1.5; margin-bottom:10px; color:var(--text-primary);";
-            qText.textContent = question;
-            visitBox.appendChild(qText);
-
-            var addBtn = document.createElement("button");
-            addBtn.className = "btn btn-sm";
-            addBtn.style.cssText = "background:var(--accent-blue); color:#fff; border:none; padding:6px 14px; border-radius:6px; cursor:pointer; font-size:12px; font-weight:500;";
-            addBtn.textContent = "Add to Visit Prep";
-            addBtn.onclick = function() {
-                self._addToVisitPrep(connection, addBtn);
-            };
-            visitBox.appendChild(addBtn);
-
-            panel.appendChild(visitBox);
+            return box;
         }
 
-        // ── Disclaimer ──
-        var disc = document.createElement("div");
-        disc.style.cssText = "font-size:11px; color:var(--text-muted); margin-top:14px; line-height:1.4; font-style:italic;";
-        disc.textContent = "This is a pattern worth exploring, not a diagnosis. Your doctor can determine if further evaluation is needed.";
-        panel.appendChild(disc);
-    },
+        if (hits && possible) {
+            var matchLead = document.createElement("div");
+            matchLead.className = "crossdisc-source-copy";
+            matchLead.textContent = hits + " of " + possible + " known clinical indicators matched in your records.";
+            box.appendChild(matchLead);
 
-    _sectionLabel: function(text) {
-        var el = document.createElement("div");
-        el.style.cssText = "font-size:11px; color:var(--accent-amber); font-weight:600; margin:12px 0 6px; text-transform:uppercase; letter-spacing:0.05em;";
-        el.textContent = text;
-        return el;
+            if (diagnosticSource) {
+                var criteria = document.createElement("div");
+                criteria.className = "crossdisc-source-criteria";
+
+                var criteriaLabel = document.createElement("div");
+                criteriaLabel.className = "crossdisc-source-criteria-label";
+                criteriaLabel.textContent = "Diagnostic criteria source";
+                criteria.appendChild(criteriaLabel);
+
+                var criteriaText = document.createElement("div");
+                criteriaText.className = "crossdisc-source-criteria-copy";
+                criteriaText.textContent = diagnosticSource;
+                criteria.appendChild(criteriaText);
+
+                box.appendChild(criteria);
+            }
+            return box;
+        }
+
+        if (evidenceSource || diagnosticSource) {
+            if (evidenceSource) {
+                var evidence = document.createElement("div");
+                evidence.className = "crossdisc-source-copy";
+                evidence.textContent = "Based on: " + evidenceSource;
+                box.appendChild(evidence);
+            }
+
+            if (diagnosticSource) {
+                var source = document.createElement("div");
+                source.className = "crossdisc-source-copy";
+                source.textContent = "Source: " + diagnosticSource;
+                box.appendChild(source);
+            }
+            return box;
+        }
+
+        var fallback = document.createElement("div");
+        fallback.className = "crossdisc-source-copy";
+        fallback.textContent = "Identified by cross-referencing your medical records across specialties.";
+        box.appendChild(fallback);
+        return box;
     },
 
     _addToVisitPrep: function(connection, btn) {
@@ -550,80 +692,83 @@ var CrossDiscGraph = {
                 btn.style.background = "var(--accent-red, #C84040)";
                 setTimeout(function() {
                     btn.textContent = "Add to Visit Prep";
-                    btn.style.background = "var(--accent-blue)";
+                    btn.style.background = "";
                     btn.disabled = false;
                 }, 2000);
-            } else {
-                btn.textContent = "\u2713 Added to Visit Prep";
-                btn.style.background = "var(--accent-green, #58B888)";
+                return;
             }
+
+            btn.textContent = "Added to Visit Prep";
+            btn.style.background = "var(--accent-green, #58B888)";
         })
         .catch(function() {
             btn.textContent = "Failed";
             btn.style.background = "var(--accent-red, #C84040)";
             setTimeout(function() {
                 btn.textContent = "Add to Visit Prep";
-                btn.style.background = "var(--accent-blue)";
+                btn.style.background = "";
                 btn.disabled = false;
             }, 2000);
         });
     },
 
     _buildLegend: function(connections) {
-        var self = this;
+        var specialties = this._getUniqueSpecialties(connections);
         var legend = document.createElement("div");
-        legend.style.cssText = "display:flex; flex-wrap:wrap; gap:16px; margin-top:16px; padding:12px; background:var(--bg-raised); border-radius:8px;";
+        legend.className = "crossdisc-legend";
 
-        // Collect unique specialties
-        var specsSeen = {};
-        for (var i = 0; i < connections.length; i++) {
-            var specs = connections[i].specialties || [];
-            for (var j = 0; j < specs.length; j++) {
-                specsSeen[specs[j]] = true;
-            }
+        var nodeGroup = document.createElement("div");
+        nodeGroup.className = "crossdisc-legend-group";
+        nodeGroup.appendChild(this._legendTitle("How to read the map"));
+
+        var nodeItems = document.createElement("div");
+        nodeItems.className = "crossdisc-legend-items";
+        nodeItems.appendChild(this._legendItem("Pattern node", "var(--accent-bluetron)"));
+        nodeItems.appendChild(this._legendItem("Specialty node", "var(--text-muted)"));
+        nodeItems.appendChild(this._legendItem("High severity", this._sevColor.high));
+        nodeItems.appendChild(this._legendItem("Moderate", this._sevColor.moderate));
+        nodeItems.appendChild(this._legendItem("Low", this._sevColor.low));
+        nodeGroup.appendChild(nodeItems);
+        legend.appendChild(nodeGroup);
+
+        var specialtyGroup = document.createElement("div");
+        specialtyGroup.className = "crossdisc-legend-group crossdisc-legend-group--wide";
+        specialtyGroup.appendChild(this._legendTitle("Specialties in this map"));
+
+        var specItems = document.createElement("div");
+        specItems.className = "crossdisc-legend-items";
+        for (var i = 0; i < specialties.length; i++) {
+            specItems.appendChild(this._legendItem(
+                specialties[i],
+                this._specColors[specialties[i]] || "#7AB0F0"
+            ));
         }
-
-        var specNames = Object.keys(specsSeen).sort();
-        for (var k = 0; k < specNames.length; k++) {
-            var item = document.createElement("div");
-            item.style.cssText = "display:flex; align-items:center; gap:6px;";
-
-            var dot = document.createElement("div");
-            var color = self._specColors[specNames[k]] || "#7AB0F0";
-            dot.style.cssText = "width:10px; height:10px; border-radius:50%; background:" + color + ";";
-            item.appendChild(dot);
-
-            var label = document.createElement("span");
-            label.style.cssText = "font-size:12px; color:var(--text-secondary);";
-            label.textContent = specNames[k];
-            item.appendChild(label);
-
-            legend.appendChild(item);
-        }
-
-        // Severity legend
-        var sevs = [
-            { key: "high", label: "High Severity" },
-            { key: "moderate", label: "Moderate" },
-            { key: "low", label: "Low" },
-        ];
-
-        for (var s = 0; s < sevs.length; s++) {
-            var sItem = document.createElement("div");
-            sItem.style.cssText = "display:flex; align-items:center; gap:6px;";
-
-            var sDot = document.createElement("div");
-            sDot.style.cssText = "width:10px; height:10px; border-radius:50%; background:" + self._sevColor[sevs[s].key] + ";";
-            sItem.appendChild(sDot);
-
-            var sLabel = document.createElement("span");
-            sLabel.style.cssText = "font-size:12px; color:var(--text-muted);";
-            sLabel.textContent = sevs[s].label;
-            sItem.appendChild(sLabel);
-
-            legend.appendChild(sItem);
-        }
+        specialtyGroup.appendChild(specItems);
+        legend.appendChild(specialtyGroup);
 
         return legend;
+    },
+
+    _legendTitle: function(text) {
+        var title = document.createElement("div");
+        title.className = "crossdisc-legend-title";
+        title.textContent = text;
+        return title;
+    },
+
+    _legendItem: function(labelText, color) {
+        var item = document.createElement("div");
+        item.className = "crossdisc-legend-item";
+
+        var dot = document.createElement("span");
+        dot.className = "crossdisc-dot";
+        dot.style.background = color;
+        item.appendChild(dot);
+
+        var label = document.createElement("span");
+        label.textContent = labelText;
+        item.appendChild(label);
+
+        return item;
     },
 };

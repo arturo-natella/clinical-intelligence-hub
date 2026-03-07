@@ -7,6 +7,7 @@ and static file serving. Does not test actual browser rendering
 """
 
 import json
+import sqlite3
 import sys
 import tempfile
 from pathlib import Path
@@ -74,6 +75,96 @@ def test_flask_app_import():
     from src.ui.app import app
     assert app is not None
     print("✓ Flask app imports successfully")
+
+
+def test_flask_app_adds_repo_root_to_sys_path():
+    """App entrypoint makes the repo root importable for script launches."""
+    import src.ui.app as app_module
+
+    assert str(app_module.BASE_DIR) in sys.path
+    print("✓ Flask app adds repo root to sys.path")
+
+
+def test_flask_app_can_bypass_passphrase_for_local_dev(monkeypatch):
+    """Local dev bypass can mark the session unlocked without a vault passphrase."""
+    import src.ui.app as app_module
+
+    original_passphrase = app_module._passphrase
+    monkeypatch.setenv("MEDPREP_SKIP_PASSPHRASE", "1")
+
+    try:
+        app_module._passphrase = None
+        assert app_module._activate_dev_passphrase_bypass() is True
+        assert app_module._passphrase == app_module._DEV_BYPASS_SENTINEL
+    finally:
+        app_module._passphrase = original_passphrase
+
+    print("✓ Flask app supports temporary local passphrase bypass")
+
+
+def test_api_session_clear_deletes_local_patient_data(monkeypatch):
+    """Session clear removes local patient data artifacts but keeps the API vault."""
+    import src.ui.app as app_module
+    from src.database import Database
+    from src.encryption import EncryptedVault
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        data_dir = Path(tmpdir)
+        upload_dir = data_dir / "uploads"
+        reports_dir = data_dir / "reports"
+        upload_dir.mkdir(parents=True)
+        reports_dir.mkdir(parents=True)
+
+        (upload_dir / "record.pdf").write_text("local copy of uploaded record")
+        (reports_dir / "visit_prep.docx").write_text("generated report")
+
+        db = Database(data_dir / "cih.db")
+        db.upsert_file_state(
+            file_id="file-1",
+            filename="record.pdf",
+            file_type="pdf",
+            sha256_hash="abc123",
+            file_size_bytes=42,
+        )
+        db.close()
+
+        vault = EncryptedVault(data_dir, "test-passphrase")
+        vault.save_profile({"demographics": {"name": "Test Patient"}})
+        vault.set_api_key("gemini", "test-key")
+
+        monkeypatch.setattr(app_module, "DATA_DIR", data_dir)
+        monkeypatch.setattr(app_module, "UPLOAD_DIR", upload_dir)
+        monkeypatch.setattr(app_module, "REPORTS_DIR", reports_dir)
+        monkeypatch.setattr(app_module, "_passphrase", "test-passphrase")
+        monkeypatch.setattr(app_module, "_profile_data", {"demographics": {"name": "Test Patient"}})
+        monkeypatch.setattr(app_module, "_pipeline_thread", None)
+
+        with app_module.app.test_client() as client:
+            resp = client.post("/api/session/clear")
+
+        assert resp.status_code == 200
+        payload = json.loads(resp.data)
+        assert payload["status"] == "cleared"
+        assert "uploads" in payload["removed"]
+        assert "reports" in payload["removed"]
+        assert "cih.db" in payload["removed"]
+        assert "patient_profile.enc" in payload["removed"]
+
+        assert not (data_dir / "patient_profile.enc").exists()
+        assert (data_dir / "api_vault.enc").exists()
+        assert (data_dir / "cih.db").exists()
+        assert list(upload_dir.iterdir()) == []
+        assert list(reports_dir.iterdir()) == []
+        assert app_module._profile_data is None
+
+        conn = sqlite3.connect(str(data_dir / "cih.db"))
+        try:
+            remaining = conn.execute("SELECT COUNT(*) FROM processing_state").fetchone()[0]
+        finally:
+            conn.close()
+        assert remaining == 0
+
+    print("✓ Session clear deletes local patient data and recreates an empty database")
 
 
 def test_flask_app_routes_exist():
@@ -249,7 +340,6 @@ def test_index_html_structure():
         "view-flags",
         "view-crossdisc",
         "view-community",
-        "view-chat",
         "view-alerts",
         "view-report",
     ]
@@ -261,6 +351,9 @@ def test_index_html_structure():
     assert "passphrase-modal" in html
     assert "passphrase-input" in html
 
+    # Check chat entry point
+    assert "dashboard-chat" in html or "view-chat" in html
+
     # Check drop zone
     assert "drop-zone" in html
 
@@ -268,7 +361,7 @@ def test_index_html_structure():
     assert "settings-overlay" in html
 
     # Check nav
-    assert "nav-tabs" in html
+    assert "sidebar" in html or "nav-tabs" in html
 
     print(f"✓ index.html has all {len(required_views)} views + modal + drop zone + settings")
 
