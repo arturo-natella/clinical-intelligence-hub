@@ -2,6 +2,35 @@
 
 All notable changes to the Clinical Intelligence Hub will be documented in this file.
 
+## [2.4.0] — 2026-03-07
+
+### Added
+
+#### Live Pipeline Terminal
+- Real-time terminal log viewer during analysis — shows every step (file classification, chunk progress, extraction counts) as it happens
+- Timestamped, color-coded log lines: blue for passes, gray for details, red for errors, green for completion
+
+#### Pause/Resume Pipeline
+- Pause button during analysis — safe to close laptop mid-processing
+- Pipeline resumes from the exact chunk where it left off
+- Pause state checked between every MedGemma chunk and between pipeline passes
+
+#### Page-Capped Extraction
+- First 50 pages processed by default for fast initial results (configurable via `MEDPREP_MAX_PAGES` env var)
+- Full document can be processed later in batches
+
+### Fixed
+
+#### Upload-to-Dashboard Pipeline (Root Cause of Empty Dashboard)
+- Added missing `Preprocessor.process()` method — the root cause of "nothing populated" after upload
+- Fixed Pass 1a to pass `pages` list (not `text` string) to TextExtractor
+- Fixed encrypted profile decryption crash when passphrase changes between sessions
+- Fixed SHA-256 duplicate constraint error on re-uploaded files
+- Updated MedGemma model reference to `jwang580/medgemma_27b_q8_0` (Q8 quantization)
+- Made drop zone clickable (previously only drag-and-drop worked)
+
+---
+
 ## [2.3.0] — 2026-03-06 (more updates coming)
 
 ### Added
