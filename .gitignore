@@ -20,6 +20,7 @@ data/uploads/
 data/processed/
 data/databases/
 data/reports/
+data/environmental/
 data/*.json
 data/*.db
 data/*.sqlite

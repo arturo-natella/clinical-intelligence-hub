@@ -87,10 +87,10 @@ class VisitPrepGenerator:
                     recent_episodes.append(ep)
 
             if recent_episodes:
-                # Compute dominant severity
+                # Compute dominant intensity
                 sev_counts = {"high": 0, "mid": 0, "low": 0}
                 for ep in recent_episodes:
-                    sev = ep.get("severity", "mid")
+                    sev = ep.get("intensity", "mid")
                     sev_counts[sev] = sev_counts.get(sev, 0) + 1
                 dominant = max(sev_counts, key=sev_counts.get)
 
@@ -366,7 +366,7 @@ class VisitPrepGenerator:
                 "name": sym.get("symptom_name", ""),
                 "total_episodes": len(episodes),
                 "freq_per_week": freq_per_week,
-                "severity_trend": trend,
+                "intensity_trend": trend,
                 "peak_time_of_day": peak_time,
             })
 
@@ -693,7 +693,7 @@ class VisitPrepGenerator:
                     "improving": "↓ Improving",
                     "stable": "→ Stable",
                     "insufficient_data": "— Too few episodes",
-                }.get(pat.get("severity_trend", ""), "—")
+                }.get(pat.get("intensity_trend", ""), "—")
                 row[2].text = trend_label
                 row[3].text = (pat.get("peak_time_of_day") or "—").capitalize()
 

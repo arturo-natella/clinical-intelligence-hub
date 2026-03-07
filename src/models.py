@@ -41,6 +41,17 @@ class ProcessingStatus(str, Enum):
     SKIPPED = "skipped"               # Duplicate or unsupported
 
 
+class BodySystem(str, Enum):
+    GI = "gi"
+    MUSCULOSKELETAL = "musculoskeletal"
+    NEUROLOGICAL = "neurological"
+    MOOD_ENERGY = "mood_energy"
+    CARDIOVASCULAR = "cardiovascular"
+    SLEEP = "sleep"
+    SKIN = "skin"
+    OTHER = "other"
+
+
 class MedicationStatus(str, Enum):
     ACTIVE = "active"
     DISCONTINUED = "discontinued"
@@ -230,10 +241,14 @@ class Vital(BaseModel):
 
 # ── Symptom Tracking (user-reported) ──────────────────────
 
-class SymptomSeverity(str, Enum):
+class SymptomIntensity(str, Enum):
     HIGH = "high"
     MID = "mid"
     LOW = "low"
+
+
+# Backward-compatible alias for existing code
+SymptomSeverity = SymptomIntensity
 
 
 class SymptomEpisode(BaseModel):
@@ -241,11 +256,18 @@ class SymptomEpisode(BaseModel):
     episode_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     episode_date: Optional[date] = None
     time_of_day: Optional[str] = None      # morning/afternoon/evening/night
-    severity: SymptomSeverity = SymptomSeverity.MID
+    intensity: SymptomIntensity = SymptomIntensity.MID
     description: Optional[str] = None      # "Throbbing pain behind left eye, lasted 2 hours"
     duration: Optional[str] = None
     triggers: Optional[str] = None         # "after skipping lunch"
+    end_date: Optional[date] = Field(default=None, description="When the symptom resolved (null = still ongoing)")
+    resolution_notes: Optional[str] = Field(default=None, description="What helped resolve it (e.g. 'had tea', 'took ibuprofen')")
+    linked_medication_id: Optional[str] = Field(
+        default=None,
+        description="Medication name this symptom is associated with (patient-reported)",
+    )
     counter_values: dict = Field(default_factory=dict)  # {"stress": 2} or {"sitting_weird": false}
+    body_system: Optional[str] = Field(default=None, description="Auto-classified body system (gi, neurological, etc.)")
     date_logged: datetime = Field(default_factory=datetime.now)
 
 

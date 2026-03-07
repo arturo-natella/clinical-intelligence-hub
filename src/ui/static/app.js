@@ -322,6 +322,7 @@ var App = {
             report: function() { App.loadQuestions(); },
             environmental: function() { App.loadEnvironmental(); },
             tracker: function() { App.loadTracker(); },
+            "symptom-landscape": function() { SymptomLandscape.open(); },
         };
         if (loaders[view]) loaders[view]();
     },
@@ -2359,7 +2360,7 @@ var App = {
             var tl = {"worsening": "\u2191 Worsening", "improving": "\u2193 Improving", "stable": "\u2192 Stable", "insufficient_data": "\u2014 Too few"};
             container.appendChild(
                 self._vpTable("Symptom Patterns", ["Symptom", "Frequency", "Trend", "Peak Time"],
-                    patterns.map(function(p) { return [p.name, p.freq_per_week + "/week", tl[p.severity_trend] || "\u2014", (p.peak_time_of_day || "\u2014")]; }))
+                    patterns.map(function(p) { return [p.name, p.freq_per_week + "/week", tl[p.intensity_trend] || "\u2014", (p.peak_time_of_day || "\u2014")]; }))
             );
         }
 
@@ -3038,7 +3039,7 @@ var Timeline = {
             Timeline._appendListField(grid, "Provider", event.provider);
             Timeline._appendListField(grid, "Facility", event.facility);
         } else if (event.type === "symptom") {
-            Timeline._appendListField(grid, "Severity", event.severity);
+            Timeline._appendListField(grid, "Intensity", event.intensity);
             Timeline._appendListField(grid, "Time of Day", event.time_of_day);
             Timeline._appendListField(grid, "Duration", event.duration);
             Timeline._appendListField(grid, "Triggers", event.triggers);

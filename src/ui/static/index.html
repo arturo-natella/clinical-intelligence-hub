@@ -115,6 +115,10 @@
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z"/></svg>
             <span class="sidebar-label">Symptoms</span>
         </button>
+        <button class="sidebar-item" data-view="symptom-landscape">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25H12"/></svg>
+            <span class="sidebar-label">Symptom Landscape</span>
+        </button>
         <button class="sidebar-item" data-view="environmental">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582"/></svg>
             <span class="sidebar-label">Environment</span>
@@ -550,10 +554,10 @@
             <div class="card-title" style="display:flex; align-items:center; justify-content:space-between;">
                 <span>Symptom Tracker</span>
                 <div class="symptom-filters" id="symptom-filters">
-                    <button class="btn btn-sm btn-outline symptom-filter active" data-severity="all" onclick="Symptoms.filter('all')">All</button>
-                    <button class="btn btn-sm btn-outline symptom-filter" data-severity="high" onclick="Symptoms.filter('high')">High</button>
-                    <button class="btn btn-sm btn-outline symptom-filter" data-severity="mid" onclick="Symptoms.filter('mid')">Mid</button>
-                    <button class="btn btn-sm btn-outline symptom-filter" data-severity="low" onclick="Symptoms.filter('low')">Low</button>
+                    <button class="btn btn-sm btn-outline symptom-filter active" data-intensity="all" onclick="Symptoms.filter('all')">All</button>
+                    <button class="btn btn-sm btn-outline symptom-filter" data-intensity="high" onclick="Symptoms.filter('high')">High</button>
+                    <button class="btn btn-sm btn-outline symptom-filter" data-intensity="mid" onclick="Symptoms.filter('mid')">Mid</button>
+                    <button class="btn btn-sm btn-outline symptom-filter" data-intensity="low" onclick="Symptoms.filter('low')">Low</button>
                 </div>
             </div>
             <div id="symptoms-list">
@@ -916,6 +920,9 @@
         </div>
     </div>
 
+    <!-- ── Symptom Landscape ──────────────────────────── -->
+    <div id="view-symptom-landscape" class="view"></div>
+
     <!-- ── Settings Modal ─────────────────────────────── -->
     <div id="settings-overlay" class="modal-overlay" style="display:none;">
         <div class="modal" style="max-width:560px; max-height:82vh; overflow-y:auto;">
@@ -1079,6 +1086,7 @@
 <script src="/js/dashboard_charts.js"></script>
 <script src="/js/crossdisc_graph.js"></script>
 <script src="/js/timeline_flow.js"></script>
+<script src="/js/symptom_landscape.js"></script>
 <script src="/app.js"></script>
 
 </body>

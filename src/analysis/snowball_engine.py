@@ -1596,7 +1596,7 @@ class SnowballEngine:
                     corpus.append({
                         "text": desc.lower(),
                         "type": "symptom_detail",
-                        "severity": sev_map.get(ep.get("severity", "mid"), "moderate"),
+                        "severity": sev_map.get(ep.get("intensity", "mid"), "moderate"),
                         "original": desc,
                     })
 

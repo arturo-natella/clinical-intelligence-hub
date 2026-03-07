@@ -448,7 +448,7 @@ class SymptomAnalytics:
 
             counts = {"high": 0, "mid": 0, "low": 0}
             for ep in episodes:
-                sev = (ep.get("severity") or "mid").lower()
+                sev = (ep.get("intensity") or "mid").lower()
                 if sev in counts:
                     counts[sev] += 1
 
@@ -456,7 +456,7 @@ class SymptomAnalytics:
             pcts = {k: round(v / total * 100, 1) if total else 0 for k, v in counts.items()}
 
             # Trend: compare last 5 episodes to first 5
-            trend = self._compute_severity_trend(episodes)
+            trend = self._compute_intensity_trend(episodes)
 
             result.append({
                 "symptom_name": name,
@@ -473,13 +473,13 @@ class SymptomAnalytics:
 
         return result
 
-    def _compute_severity_trend(self, episodes: list) -> str:
-        """Compare recent vs earlier severity."""
+    def _compute_intensity_trend(self, episodes: list) -> str:
+        """Compare recent vs earlier intensity."""
         sev_map = {"high": 3, "mid": 2, "low": 1}
         dated = []
         for ep in episodes:
             d = self._parse_date(ep.get("episode_date"))
-            sev = sev_map.get((ep.get("severity") or "mid").lower(), 2)
+            sev = sev_map.get((ep.get("intensity") or "mid").lower(), 2)
             if d:
                 dated.append((d, sev))
 
@@ -510,7 +510,7 @@ class SymptomAnalytics:
             timeline.append({
                 "date": ep_date.isoformat() if ep_date else None,
                 "time_of_day": ep.get("time_of_day"),
-                "severity": ep.get("severity", "mid"),
+                "intensity": ep.get("intensity", "mid"),
                 "description": ep.get("description"),
                 "duration": ep.get("duration"),
                 "triggers": ep.get("triggers"),
@@ -731,7 +731,7 @@ class SymptomAnalytics:
             for ep in s.get("episodes", []):
                 desc = (ep.get("description") or "").strip()
                 trig = (ep.get("triggers") or "").strip()
-                sev = ep.get("severity", "mid")
+                sev = ep.get("intensity", "mid")
                 if desc:
                     episodes_text.append(
                         f"[{name}|{sev}] {desc}"
@@ -863,6 +863,159 @@ class SymptomAnalytics:
                 if total_symptoms else 0
             ),
         }
+
+    # ── 8. Temporal Cluster Detection ────────────────────────
+
+    def detect_temporal_clusters(
+        self,
+        symptoms: list,
+        window_days: int = 14,
+    ) -> list:
+        """
+        Finds groups of 2+ DIFFERENT symptoms with episodes occurring
+        within window_days of each other.
+
+        Algorithm:
+          1. Collect all episodes from all symptoms with parsed dates.
+          2. For each episode, look at all episodes from OTHER symptoms
+             within +/- window_days.
+          3. Group overlapping windows into clusters.
+          4. A cluster must have episodes from at least 2 different
+             symptom names.
+
+        Args:
+            symptoms: List of symptom dicts from clinical_timeline.symptoms
+            window_days: Number of days to define co-occurrence window
+
+        Returns:
+            List of cluster dicts, each containing:
+              - cluster_center_date: ISO string
+              - window_start / window_end: ISO strings
+              - symptoms: list of episode info dicts
+              - body_systems_involved: list of unique body system keys
+              - cross_system: bool (True if 2+ different body systems)
+              - attribution_status: 'all_attributed' | 'mixed' | 'all_unattributed'
+        """
+        if not symptoms or window_days < 1:
+            return []
+
+        # 1. Collect all episodes with metadata
+        all_episodes = []
+        for s in symptoms:
+            symptom_name = s.get("symptom_name", "Unknown")
+            body_system = s.get("body_system", "other")
+            for ep in s.get("episodes", []):
+                ep_date = self._parse_date(ep.get("episode_date"))
+                if ep_date is None:
+                    continue
+                # Check for linked_medication_id — gracefully handle if missing
+                linked_med = ep.get("linked_medication_id") or None
+                all_episodes.append({
+                    "symptom_name": symptom_name,
+                    "episode_date": ep_date,
+                    "body_system": body_system,
+                    "intensity": ep.get("intensity", "mid"),
+                    "linked_medication": linked_med,
+                    "description": ep.get("description"),
+                })
+
+        if len(all_episodes) < 2:
+            return []
+
+        # Sort by date
+        all_episodes.sort(key=lambda e: e["episode_date"])
+
+        # 2. Build clusters using a sliding window merge approach
+        # For each pair of episodes from different symptoms within window,
+        # create an edge. Then find connected components.
+        n = len(all_episodes)
+        parent = list(range(n))
+
+        def find(x):
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        def union(a, b):
+            ra, rb = find(a), find(b)
+            if ra != rb:
+                parent[ra] = rb
+
+        # Compare episodes — only merge if from different symptoms
+        for i in range(n):
+            for j in range(i + 1, n):
+                # Since sorted by date, break early if past window
+                day_diff = (all_episodes[j]["episode_date"] - all_episodes[i]["episode_date"]).days
+                if day_diff > window_days:
+                    break
+                # Only merge if from different symptoms
+                if all_episodes[i]["symptom_name"] != all_episodes[j]["symptom_name"]:
+                    union(i, j)
+
+        # 3. Group by connected component
+        from collections import defaultdict
+        groups = defaultdict(list)
+        for i in range(n):
+            groups[find(i)].append(i)
+
+        # 4. Build cluster results (only groups with 2+ different symptom names)
+        clusters = []
+        for indices in groups.values():
+            episodes_in_cluster = [all_episodes[i] for i in indices]
+            unique_symptoms = set(e["symptom_name"] for e in episodes_in_cluster)
+
+            if len(unique_symptoms) < 2:
+                continue
+
+            dates = [e["episode_date"] for e in episodes_in_cluster]
+            min_date = min(dates)
+            max_date = max(dates)
+            center_date = min_date + (max_date - min_date) / 2
+
+            body_systems = list(set(e["body_system"] for e in episodes_in_cluster))
+
+            # Determine attribution status
+            attributed_count = sum(1 for e in episodes_in_cluster if e["linked_medication"])
+            total = len(episodes_in_cluster)
+            if attributed_count == total:
+                attribution_status = "all_attributed"
+            elif attributed_count == 0:
+                attribution_status = "all_unattributed"
+            else:
+                attribution_status = "mixed"
+
+            cluster_symptoms = []
+            for e in episodes_in_cluster:
+                cluster_symptoms.append({
+                    "symptom_name": e["symptom_name"],
+                    "episode_date": e["episode_date"].isoformat(),
+                    "body_system": e["body_system"],
+                    "intensity": e["intensity"],
+                    "linked_medication": e["linked_medication"],
+                })
+
+            clusters.append({
+                "cluster_center_date": center_date.isoformat(),
+                "window_start": min_date.isoformat(),
+                "window_end": max_date.isoformat(),
+                "symptoms": cluster_symptoms,
+                "body_systems_involved": body_systems,
+                "cross_system": len(body_systems) >= 2,
+                "attribution_status": attribution_status,
+            })
+
+        # Sort clusters by center date
+        clusters.sort(key=lambda c: c["cluster_center_date"])
+
+        if clusters:
+            logger.info(
+                "Detected %d temporal clusters across %d symptoms",
+                len(clusters),
+                len(symptoms),
+            )
+
+        return clusters
 
     @staticmethod
     def _parse_date(value) -> Optional[date]:

@@ -690,7 +690,7 @@ var TimelineFlow = (function () {
             _appendDetailField(grid, "Region", eventData.body_region);
             _appendDetailField(grid, "Provider", eventData.provider);
         } else if (eventData.type === "symptom") {
-            _appendDetailField(grid, "Severity", eventData.severity);
+            _appendDetailField(grid, "Intensity", eventData.intensity);
             _appendDetailField(grid, "Time of Day", eventData.time_of_day);
             _appendDetailField(grid, "Triggers", eventData.triggers);
         }

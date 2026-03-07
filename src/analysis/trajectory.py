@@ -14,12 +14,15 @@ Results feed into:
   - Trajectories overlay (D3 line charts)
   - Doctor Visit Prep ("Your HbA1c is trending toward X by [date]")
   - Flags view (threshold crossing warnings)
+  - Treatment bar overlay (medication ↔ lab correlation)
 """
 
 import logging
 import math
 from datetime import date, timedelta
 from typing import Optional
+
+from src.analysis.med_lab_mapping import get_relevant_medications
 
 logger = logging.getLogger("CIH-Trajectory")
 
@@ -137,9 +140,18 @@ class TrajectoryForecaster:
         """
         timeline = profile_data.get("clinical_timeline", {})
         labs = timeline.get("labs", [])
+        medications = timeline.get("medications", [])
 
         # Group labs by test name
         grouped = self._group_labs(labs)
+
+        # Anomaly detection integration
+        try:
+            from src.analysis.anomaly_investigator import AnomalyInvestigator
+            anomaly_investigator = AnomalyInvestigator()
+        except Exception as exc:
+            logger.warning("Could not load AnomalyInvestigator: %s", exc)
+            anomaly_investigator = None
 
         trajectories = []
         rising = 0
@@ -153,6 +165,33 @@ class TrajectoryForecaster:
 
             trajectory = self._analyze_test(test_key, group)
             if trajectory:
+                # Attach relevant medications for treatment bar display
+                try:
+                    rel_meds = get_relevant_medications(
+                        trajectory["test_name"], medications
+                    )
+                    trajectory["relevant_medications"] = rel_meds
+                except Exception as e:
+                    logger.warning(
+                        "Failed to map medications for '%s': %s",
+                        trajectory["test_name"], e,
+                    )
+                    trajectory["relevant_medications"] = []
+
+                # Detect anomalies for this trajectory
+                if anomaly_investigator:
+                    try:
+                        anomalies = anomaly_investigator.detect_anomalies(trajectory)
+                        trajectory["anomalies"] = anomalies
+                    except Exception as exc:
+                        logger.warning(
+                            "Anomaly detection failed for %s: %s",
+                            trajectory.get("test_name", test_key), exc
+                        )
+                        trajectory["anomalies"] = []
+                else:
+                    trajectory["anomalies"] = []
+
                 trajectories.append(trajectory)
                 d = trajectory["trend"]["direction"]
                 if d == "rising":

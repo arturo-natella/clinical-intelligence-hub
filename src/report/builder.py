@@ -90,6 +90,9 @@ class ReportBuilder:
         # ── Section 4: Lab Trends ──
         self._section_4_lab_trends(timeline)
 
+        # ── Section 4b: Treatment Response ──
+        self._section_4b_treatment_response(timeline)
+
         # ── Section 5: Imaging Analysis ──
         self._section_5_imaging(timeline)
 
@@ -98,6 +101,12 @@ class ReportBuilder:
 
         # ── Section 7: Patterns & Flags ──
         self._section_7_patterns_flags(analysis)
+
+        # ── Section 7b: Symptom Landscape ──
+        self._section_7b_symptom_landscape(timeline)
+
+        # ── Section 7c: Drug-Drug Interaction Review ──
+        self._section_7c_interaction_review(timeline, analysis)
 
         # ── Section 8: Cross-Disciplinary Insights ──
         self._section_8_cross_disciplinary(analysis)
@@ -422,6 +431,99 @@ class ReportBuilder:
             row.cells[4].text = str(lab.test_date or "Unknown")
             row.cells[5].text = self._format_provenance(lab.provenance)
 
+    # ── Section 4b: Treatment Response ──────────────────────────
+
+    def _section_4b_treatment_response(self, timeline):
+        """Per-medication scorecard: lab effectiveness + tolerability + conversation guide."""
+        if not timeline.medications:
+            return
+
+        try:
+            from src.analysis.treatment_response import TreatmentResponseAnalyzer
+
+            meds_data = [{"name": m.name, "dosage": m.dosage or "",
+                          "start_date": str(m.start_date) if m.start_date else None,
+                          "end_date": str(m.end_date) if m.end_date else None,
+                          "status": m.status.value if m.status else "unknown"}
+                         for m in timeline.medications]
+
+            labs_data = [{"name": lab.name, "value": lab.value, "value_text": lab.value_text,
+                          "unit": lab.unit or "",
+                          "test_date": str(lab.test_date) if lab.test_date else None,
+                          "provenance": {"source_file": lab.provenance.source_file if lab.provenance else "",
+                                         "source_page": lab.provenance.source_page if lab.provenance else None}}
+                         for lab in timeline.labs]
+
+            symptoms_data = [{"symptom_name": s.symptom_name,
+                              "episodes": [{"episode_date": str(ep.episode_date) if ep.episode_date else None,
+                                             "intensity": ep.intensity.value if ep.intensity else "mid",
+                                             "description": ep.description or s.symptom_name}
+                                            for ep in s.episodes]}
+                             for s in timeline.symptoms]
+
+            genetics_data = [{"gene": g.gene, "variant": g.variant, "phenotype": g.phenotype}
+                             for g in timeline.genetics]
+
+            analyzer = TreatmentResponseAnalyzer()
+            result = analyzer.analyze(meds_data, labs_data, symptoms_data, genetics_data)
+        except Exception as e:
+            logger.warning("Treatment response analysis failed for report: %s", e)
+            return
+
+        responses = result.get("medication_responses", [])
+        if not responses:
+            return
+
+        self._doc.add_heading("4b. Treatment Response", level=1)
+        self._doc.add_paragraph(
+            "This section shows how each medication is performing based on "
+            "your lab results and any symptoms you reported. Discuss these "
+            "findings with your doctor at your next visit."
+        )
+
+        for resp in responses:
+            med_name = resp.get("medication_name", "Unknown")
+            dosage = resp.get("dosage", "")
+            heading = med_name + (f" {dosage}" if dosage else "")
+            self._doc.add_heading(heading, level=2)
+
+            # Lab effectiveness
+            for lr in resp.get("lab_effectiveness", []):
+                lab_name = lr.get("lab_name", lr.get("lab_key", ""))
+                assessment = lr.get("assessment", "")
+                baseline = lr.get("baseline")
+                current = lr.get("current", {})
+                unit = lr.get("unit", "")
+                lab_p = self._doc.add_paragraph(style="List Bullet")
+                lab_p.add_run(f"{lab_name}: ").bold = True
+                if assessment == "improved" and baseline:
+                    lab_p.add_run(f"Improved from {baseline['value']} to {current.get('value', '—')} {unit}")
+                elif assessment == "worsened" and baseline:
+                    lab_p.add_run(f"Changed from {baseline['value']} to {current.get('value', '—')} {unit} (worth discussing)")
+                elif assessment == "stable":
+                    lab_p.add_run(f"Stable at {current.get('value', '—')} {unit}")
+                else:
+                    lab_p.add_run(f"Currently at {current.get('value', '—')} {unit} (no pre-medication baseline)")
+
+            # Tolerability
+            tol = resp.get("tolerability", {})
+            total_eps = tol.get("total_episodes", 0)
+            p = self._doc.add_paragraph()
+            p.add_run("What you reported: ").bold = True
+            if total_eps == 0:
+                p.add_run(f"No symptoms linked to {med_name}.")
+            else:
+                p.add_run(f"{total_eps} episode(s) may be related.")
+
+            # Conversation guide
+            guide = resp.get("conversation_guide", {})
+            if guide.get("discuss_because"):
+                p = self._doc.add_paragraph()
+                p.add_run("\u2192 ").bold = True
+                p.add_run(guide["discuss_because"])
+
+            self._doc.add_paragraph()
+
     # ── Section 5: Imaging Analysis ───────────────────────────
 
     def _section_5_imaging(self, timeline: ClinicalTimeline):
@@ -554,6 +656,259 @@ class ReportBuilder:
             self._doc.add_paragraph(
                 "No significant patterns or flags were identified."
             )
+
+    # ── Section 7b: Symptom Landscape ──────────────────────────
+
+    def _section_7b_symptom_landscape(self, timeline: ClinicalTimeline):
+        """Symptoms organized by body system with temporal clusters and unattributed list."""
+        symptoms = timeline.symptoms
+        if not symptoms:
+            return  # Skip section entirely if no symptoms tracked
+
+        try:
+            from src.analysis.symptom_classifier import SymptomClassifier, BODY_SYSTEM_LABELS
+            from src.analysis.symptom_analytics import SymptomAnalytics
+        except ImportError:
+            logger.warning("Symptom classifier/analytics not available, skipping Symptom Landscape report section")
+            return
+
+        self._doc.add_heading("Symptom Landscape", level=1)
+        self._doc.add_paragraph(
+            "This section organizes all tracked symptoms by body system, "
+            "identifies temporal clusters (symptoms co-occurring within a "
+            "time window), and highlights symptoms not yet linked to any medication."
+        )
+
+        # Convert symptoms to dicts for the classifier
+        symptom_dicts = []
+        for s in symptoms:
+            if hasattr(s, "model_dump"):
+                symptom_dicts.append(s.model_dump())
+            elif isinstance(s, dict):
+                symptom_dicts.append(s)
+            else:
+                symptom_dicts.append({"symptom_name": str(s), "episodes": []})
+
+        # Classify into body systems
+        classifier = SymptomClassifier()
+        by_system = classifier.classify_all(symptom_dicts)
+
+        # Summary table: symptom count per body system
+        self._doc.add_heading("Symptoms by Body System", level=2)
+
+        if by_system:
+            table = self._doc.add_table(rows=1, cols=3)
+            table.style = "Light Grid Accent 1"
+            headers = table.rows[0].cells
+            headers[0].text = "Body System"
+            headers[1].text = "Symptoms"
+            headers[2].text = "Total Episodes"
+
+            for system_key in sorted(by_system.keys()):
+                symptom_list = by_system[system_key]
+                total_eps = sum(len(s.get("episodes", [])) for s in symptom_list)
+                names = ", ".join(s.get("symptom_name", "?") for s in symptom_list)
+
+                row = table.add_row()
+                row.cells[0].text = BODY_SYSTEM_LABELS.get(system_key, system_key)
+                row.cells[1].text = names
+                row.cells[2].text = str(total_eps)
+
+        # Temporal clusters
+        enriched_symptoms = []
+        for system_key, symptom_list in by_system.items():
+            for s in symptom_list:
+                enriched = dict(s)
+                enriched["body_system"] = system_key
+                enriched_symptoms.append(enriched)
+
+        analytics = SymptomAnalytics()
+        clusters = analytics.detect_temporal_clusters(enriched_symptoms, window_days=14)
+
+        if clusters:
+            self._doc.add_heading("Temporal Clusters", level=2)
+            self._doc.add_paragraph(
+                "These symptoms co-occurred within 14 days of each other, "
+                "which may indicate shared triggers or underlying causes."
+            )
+
+            for i, cluster in enumerate(clusters, 1):
+                p = self._doc.add_paragraph()
+                window = f"{cluster.get('window_start', '?')} to {cluster.get('window_end', '?')}"
+                p.add_run(f"Cluster {i} ({window})").bold = True
+
+                cluster_symptoms = cluster.get("symptoms", [])
+                seen_names = set()
+                for cs in cluster_symptoms:
+                    name = cs.get("symptom_name", "?")
+                    if name not in seen_names:
+                        seen_names.add(name)
+                        body_sys = BODY_SYSTEM_LABELS.get(
+                            cs.get("body_system", "other"), "Other"
+                        )
+                        severity = cs.get("severity", "mid")
+                        bp = self._doc.add_paragraph(style="List Bullet")
+                        bp.add_run(f"{name} ({body_sys}, severity: {severity})")
+
+                if cluster.get("cross_system"):
+                    systems_involved = [
+                        BODY_SYSTEM_LABELS.get(bs, bs)
+                        for bs in cluster.get("body_systems_involved", [])
+                    ]
+                    self._doc.add_paragraph(
+                        f"    Cross-system cluster involving: {', '.join(systems_involved)}"
+                    )
+
+                attr_status = cluster.get("attribution_status", "all_unattributed")
+                if attr_status == "all_unattributed":
+                    self._doc.add_paragraph(
+                        "    Note: None of these symptoms are linked to a medication."
+                    )
+                elif attr_status == "mixed":
+                    self._doc.add_paragraph(
+                        "    Note: Some symptoms in this cluster are linked to medications, others are not."
+                    )
+
+                p_discuss = self._doc.add_paragraph()
+                p_discuss.add_run("    Discuss with your doctor because ").bold = True
+                p_discuss.add_run(
+                    "symptoms clustering together across body systems "
+                    "may suggest a systemic cause that individual specialists might miss."
+                )
+
+        # Unattributed symptoms
+        unattributed = []
+        for system_key, symptom_list in by_system.items():
+            for s in symptom_list:
+                has_attribution = False
+                for ep in s.get("episodes", []):
+                    if ep.get("linked_medication_id"):
+                        has_attribution = True
+                        break
+                if not has_attribution and len(s.get("episodes", [])) > 0:
+                    unattributed.append({
+                        "symptom_name": s.get("symptom_name", "?"),
+                        "body_system": system_key,
+                        "episode_count": len(s.get("episodes", [])),
+                    })
+
+        if unattributed:
+            self._doc.add_heading("Unattributed Symptoms", level=2)
+            self._doc.add_paragraph(
+                "The following symptoms have not been linked to any medication. "
+                "This does not mean they are unrelated to your treatment — "
+                "discuss these with your doctor to explore possible connections."
+            )
+
+            for ua in unattributed:
+                body_sys = BODY_SYSTEM_LABELS.get(ua["body_system"], "Other")
+                p = self._doc.add_paragraph(style="List Bullet")
+                p.add_run(f"{ua['symptom_name']}").bold = True
+                p.add_run(f" ({body_sys}) — {ua['episode_count']} episodes recorded")
+
+            p_discuss = self._doc.add_paragraph()
+            p_discuss.add_run("Discuss with your doctor because ").bold = True
+            p_discuss.add_run(
+                "unattributed symptoms may be side effects of current medications, "
+                "symptoms of an undiagnosed condition, or related to lifestyle factors."
+            )
+
+    # ── Section 7c: Drug Interaction Review ─────────────────────
+
+    def _section_7c_interaction_review(self, timeline, analysis):
+        """Drug-drug interaction overlap zones with symptoms and PGx context."""
+        try:
+            from src.analysis.interaction_timeline import InteractionTimelineAnalyzer
+
+            medications = [{"name": m.name, "dosage": m.dosage or "",
+                            "start_date": str(m.start_date) if m.start_date else None,
+                            "end_date": str(m.end_date) if m.end_date else None,
+                            "status": m.status.value if m.status else "unknown"}
+                           for m in timeline.medications]
+
+            interactions = []
+            if hasattr(analysis, "drug_interactions") and analysis.drug_interactions:
+                for di in analysis.drug_interactions:
+                    interactions.append({
+                        "drug_a": di.drug_a if hasattr(di, "drug_a") else "",
+                        "drug_b": di.drug_b if hasattr(di, "drug_b") else "",
+                        "severity": di.severity if hasattr(di, "severity") else "moderate",
+                        "description": di.description if hasattr(di, "description") else "",
+                    })
+
+            symptoms_data = [{"symptom_name": s.symptom_name,
+                              "episodes": [{"episode_date": str(ep.episode_date) if ep.episode_date else None,
+                                             "intensity": ep.intensity.value if ep.intensity else "mid",
+                                             "linked_medication_id": getattr(ep, "linked_medication_id", None)}
+                                            for ep in s.episodes]}
+                             for s in timeline.symptoms]
+
+            genetics_data = [{"gene": g.gene, "variant": g.variant, "phenotype": g.phenotype}
+                             for g in timeline.genetics]
+
+            analyzer = InteractionTimelineAnalyzer()
+            result = analyzer.analyze(medications, interactions, symptoms_data, genetics_data)
+        except Exception as e:
+            logger.warning("Interaction timeline analysis failed for report: %s", e)
+            return
+
+        zones = result.get("overlap_zones", [])
+        if not zones:
+            return
+
+        self._doc.add_heading("7c. Drug Interaction Review", level=1)
+        self._doc.add_paragraph(
+            "This section identifies medications you are taking simultaneously that "
+            "have known interactions. Discuss these overlaps with your doctor."
+        )
+
+        for zone in zones:
+            med_a = zone.get("med_a", "Unknown")
+            med_b = zone.get("med_b", "Unknown")
+            sev = zone.get("interaction", {}).get("severity", "moderate")
+            desc = zone.get("interaction", {}).get("description", "")
+            duration = zone.get("duration_days", 0)
+            is_active = zone.get("is_active", False)
+
+            heading = f"{med_a} + {med_b} ({sev} severity)"
+            self._doc.add_heading(heading, level=2)
+
+            if desc:
+                self._doc.add_paragraph(desc)
+
+            status = "Currently active" if is_active else "Past overlap"
+            self._doc.add_paragraph(
+                f"    Overlap: {zone.get('overlap_start', '?')} to "
+                f"{zone.get('overlap_end', '?')} ({duration} days) — {status}"
+            )
+
+            symptoms_during = zone.get("symptoms_during", [])
+            if symptoms_during:
+                self._doc.add_paragraph(f"    Symptoms during overlap: {len(symptoms_during)}")
+                for symp in symptoms_during[:5]:
+                    self._doc.add_paragraph(
+                        f"      • {symp.get('symptom_name', '?')} — "
+                        f"{symp.get('severity', '?')} — {symp.get('episode_date', '?')}",
+                        style="List Bullet"
+                    )
+
+            pgx = zone.get("pgx_flags", [])
+            if pgx:
+                for flag in pgx:
+                    self._doc.add_paragraph(
+                        f"    Genetic context: {flag.get('gene', '?')} "
+                        f"{flag.get('variant', '')} — {flag.get('phenotype', '')}"
+                    )
+
+            if is_active:
+                p = self._doc.add_paragraph()
+                p.add_run("\u2192 Discuss with your doctor because ").bold = True
+                p.add_run(
+                    f"you are currently taking {med_a} and {med_b} together. "
+                    "Your doctor should review whether this combination is appropriate."
+                )
+
+            self._doc.add_paragraph()
 
     # ── Section 8: Cross-Disciplinary ─────────────────────────
 

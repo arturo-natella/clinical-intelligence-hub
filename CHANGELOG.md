@@ -2,6 +2,86 @@
 
 All notable changes to the Clinical Intelligence Hub will be documented in this file.
 
+## [2.6.0] — 2026-03-07
+
+### Changed
+
+#### Symptom Logging UX Improvements
+Better episode logging workflow and clinical data capture for non-technical users.
+
+**Severity → Intensity rename (codebase-wide)**
+- Renamed `SymptomSeverity` enum → `SymptomIntensity` across 20+ files (models, API, JS, CSS, analysis modules, tests)
+- Backward-compatible alias `SymptomSeverity = SymptomIntensity` preserved for safety
+- Kept `AlertSeverity` and interaction/anomaly severity unchanged (distinct clinical concepts)
+
+**New episode fields: end_date + resolution_notes**
+- `SymptomEpisode` model now tracks when a symptom ended and what helped resolve it
+- API route and Symptom Landscape endpoint pass through new fields
+
+**Episode form UX overhaul**
+- Every form field now has a contextual "why" hint explaining its clinical value (e.g., "Timing patterns can reveal triggers like meals, medication schedules, or sleep")
+- New "When did it end?" date field with "Still ongoing" checkbox
+- New "What helped?" textarea for tracking resolution strategies
+- Fixed center-alignment bleed from `.wizard-card` into form fields
+
+**Wizard → first episode logging flow**
+- Creating a new symptom now auto-transitions into logging the first episode (instead of closing)
+- "Skip for now" link lets users defer episode logging
+
+**Episode display table**
+- Added "Ended" column showing end date or "Ongoing" in muted italic
+- Added "What Helped" column for resolution notes
+- Old episodes with null values display gracefully (em dash or "Ongoing")
+- Fixed leftover "Severity" header → "Intensity"
+
+## [2.5.0] — 2026-03-07
+
+### Added
+
+#### Lab Trends + Treatment Timeline (6 Phases)
+Unified clinical intelligence dashboard integrating medications, symptoms, and lab data on shared timelines.
+
+**Phase 1 — Treatment Bars on Lab Charts**
+- Medication bars appear below lab trend charts showing which drugs were active, with dose change ticks and start/stop markers
+- `src/analysis/med_lab_mapping.py` — 60+ medication → lab test mapping table
+- D3 treatment bar rendering inside trajectory charts
+
+**Phase 2 — Side Effect Overlay**
+- Patients tag symptoms to medications; tagged symptoms render as severity-colored dots on treatment bars
+- `src/analysis/side_effect_scorer.py` — 5-factor adverse reaction scoring (SIDER, temporal, dose-response, genetic, alternative explanations)
+- Side effect dots rendered INSIDE each medication's `.med-group` container for unambiguous attribution
+- "Associate with medication" dropdown added to symptom episode logging form
+
+**Phase 3 — Treatment Response Report Section**
+- Per-medication scorecard: lab effectiveness + tolerability + conversation guide
+- `src/analysis/treatment_response.py` — baseline vs current comparison using full medication duration, linear regression on lab values during medication period
+- New report section 4b: "What your labs show" + "What you reported" + "Discuss with your doctor"
+
+**Phase 4 — "What Happened Here?" Investigation Panel**
+- Pulsing indicator on anomalous lab points (residual > 2×MAD or direction reversal)
+- Click opens investigation panel showing all events in the 30-90 day window before the draw
+- `src/analysis/anomaly_investigator.py` — MAD-based anomaly detection with configurable investigation windows per lab type
+
+**Phase 5 — Unified Symptom Landscape**
+- New view grouping ALL symptoms by body system on a single D3 swim-lane timeline
+- `src/analysis/symptom_classifier.py` — keyword-scored body system classification (8 systems)
+- Temporal cluster detection (union-find algorithm, 14-day window)
+- Unattributed symptoms highlighted with dashed border + "?" indicator
+- New report section 7b: symptoms by body system, temporal clusters, conversation guides
+
+**Phase 6 — Drug-Drug Interaction Timeline**
+- Interaction zones on treatment bars where interacting meds overlap, color-coded by severity
+- `src/analysis/interaction_timeline.py` — 4-tier interaction lookup (pre-computed → DDinter → RxNorm → static fallback)
+- Pharmacogenomic context flags from PharmGKB
+- New report section 7c: interaction table, overlap durations, symptoms during overlap, PGx context
+
+### Fixed
+- Treatment response analyzer API mismatch with med_lab_mapping (medication→labs direction vs lab→medications)
+- Side effect scorer integration — properly handles `{med_name: [scored_episodes]}` dict return format
+- Symptom Landscape UX — changed from full-screen overlay to tab-style view matching other views in the app
+
+---
+
 ## [2.4.0] — 2026-03-07
 
 ### Added

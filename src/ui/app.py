@@ -407,15 +407,15 @@ def _build_demo_profile():
                 {"symptom_id": "sym-tingling-feet", "symptom_name": "Tingling in feet",
                  "date_created": "2025-08-05",
                  "episodes": [
-                     {"episode_id": "ep-tf-1", "episode_date": "2025-12-01", "time_of_day": "21:30", "severity": "high",
+                     {"episode_id": "ep-tf-1", "episode_date": "2025-12-01", "time_of_day": "21:30", "intensity": "high",
                       "description": "Burning tingling both feet, worse at night", "triggers": "Standing all day"},
-                     {"episode_id": "ep-tf-2", "episode_date": "2025-11-15", "time_of_day": "22:00", "severity": "high",
+                     {"episode_id": "ep-tf-2", "episode_date": "2025-11-15", "time_of_day": "22:00", "intensity": "high",
                       "description": "Pins and needles extending to ankles", "triggers": "Evening after walk"},
-                     {"episode_id": "ep-tf-3", "episode_date": "2025-10-20", "time_of_day": "20:45", "severity": "mid",
+                     {"episode_id": "ep-tf-3", "episode_date": "2025-10-20", "time_of_day": "20:45", "intensity": "mid",
                       "description": "Mild tingling in toes bilaterally", "triggers": "After sitting long period"},
-                     {"episode_id": "ep-tf-4", "episode_date": "2025-09-10", "time_of_day": "23:00", "severity": "mid",
+                     {"episode_id": "ep-tf-4", "episode_date": "2025-09-10", "time_of_day": "23:00", "intensity": "mid",
                       "description": "Numbness and tingling, had to walk it off", "triggers": "Bedtime"},
-                     {"episode_id": "ep-tf-5", "episode_date": "2025-08-05", "time_of_day": "19:30", "severity": "low",
+                     {"episode_id": "ep-tf-5", "episode_date": "2025-08-05", "time_of_day": "19:30", "intensity": "low",
                       "description": "First noticed occasional tingling", "triggers": "None identified"},
                  ],
                  "counter_definitions": [
@@ -426,13 +426,13 @@ def _build_demo_profile():
                 {"symptom_id": "sym-fatigue", "symptom_name": "Fatigue",
                  "date_created": "2025-09-20",
                  "episodes": [
-                     {"episode_id": "ep-fat-1", "episode_date": "2025-12-10", "time_of_day": "14:00", "severity": "high",
+                     {"episode_id": "ep-fat-1", "episode_date": "2025-12-10", "time_of_day": "14:00", "intensity": "high",
                       "description": "Extreme fatigue, could barely function after lunch", "triggers": "High-carb meal"},
-                     {"episode_id": "ep-fat-2", "episode_date": "2025-11-25", "time_of_day": "10:30", "severity": "mid",
+                     {"episode_id": "ep-fat-2", "episode_date": "2025-11-25", "time_of_day": "10:30", "intensity": "mid",
                       "description": "Dragging all morning, needed nap by 11am", "triggers": "Poor sleep night before"},
-                     {"episode_id": "ep-fat-3", "episode_date": "2025-10-30", "time_of_day": "15:00", "severity": "mid",
+                     {"episode_id": "ep-fat-3", "episode_date": "2025-10-30", "time_of_day": "15:00", "intensity": "mid",
                       "description": "Afternoon crash, hard to concentrate at work", "triggers": "Skipped lunch"},
-                     {"episode_id": "ep-fat-4", "episode_date": "2025-09-20", "time_of_day": "09:00", "severity": "low",
+                     {"episode_id": "ep-fat-4", "episode_date": "2025-09-20", "time_of_day": "09:00", "intensity": "low",
                       "description": "Woke up tired despite 8 hours sleep", "triggers": "None identified"},
                  ],
                  "counter_definitions": [
@@ -443,26 +443,26 @@ def _build_demo_profile():
                 {"symptom_id": "sym-blurred-vision", "symptom_name": "Blurred vision",
                  "date_created": "2025-10-08",
                  "episodes": [
-                     {"episode_id": "ep-bv-1", "episode_date": "2025-12-05", "time_of_day": "08:00", "severity": "high",
+                     {"episode_id": "ep-bv-1", "episode_date": "2025-12-05", "time_of_day": "08:00", "intensity": "high",
                       "description": "Blurry for 20 min after waking, slow to clear", "triggers": "Morning, high glucose reading"},
-                     {"episode_id": "ep-bv-2", "episode_date": "2025-11-20", "time_of_day": "16:30", "severity": "mid",
+                     {"episode_id": "ep-bv-2", "episode_date": "2025-11-20", "time_of_day": "16:30", "intensity": "mid",
                       "description": "Intermittent blur while reading", "triggers": "Screen time"},
-                     {"episode_id": "ep-bv-3", "episode_date": "2025-10-08", "time_of_day": "09:15", "severity": "mid",
+                     {"episode_id": "ep-bv-3", "episode_date": "2025-10-08", "time_of_day": "09:15", "intensity": "mid",
                       "description": "Difficulty focusing on distant objects", "triggers": "After insulin adjustment"},
                  ],
                  "counter_definitions": []},
                 {"symptom_id": "sym-frequent-urination", "symptom_name": "Frequent urination",
                  "date_created": "2025-08-20",
                  "episodes": [
-                     {"episode_id": "ep-fu-1", "episode_date": "2025-12-08", "time_of_day": "02:00", "severity": "high",
+                     {"episode_id": "ep-fu-1", "episode_date": "2025-12-08", "time_of_day": "02:00", "intensity": "high",
                       "description": "Up 4 times overnight", "triggers": "High glucose day (220+)"},
-                     {"episode_id": "ep-fu-2", "episode_date": "2025-11-18", "time_of_day": "03:30", "severity": "mid",
+                     {"episode_id": "ep-fu-2", "episode_date": "2025-11-18", "time_of_day": "03:30", "intensity": "mid",
                       "description": "Up 3 times, disrupted sleep", "triggers": "Late dinner"},
-                     {"episode_id": "ep-fu-3", "episode_date": "2025-10-25", "time_of_day": "01:00", "severity": "mid",
+                     {"episode_id": "ep-fu-3", "episode_date": "2025-10-25", "time_of_day": "01:00", "intensity": "mid",
                       "description": "Nocturia x3", "triggers": "Elevated evening glucose"},
-                     {"episode_id": "ep-fu-4", "episode_date": "2025-09-15", "time_of_day": "04:00", "severity": "low",
+                     {"episode_id": "ep-fu-4", "episode_date": "2025-09-15", "time_of_day": "04:00", "intensity": "low",
                       "description": "Woke twice overnight", "triggers": "Extra water intake"},
-                     {"episode_id": "ep-fu-5", "episode_date": "2025-08-20", "time_of_day": "02:30", "severity": "mid",
+                     {"episode_id": "ep-fu-5", "episode_date": "2025-08-20", "time_of_day": "02:30", "intensity": "mid",
                       "description": "Nocturia started becoming regular pattern", "triggers": "Glucose poorly controlled"},
                  ],
                  "counter_definitions": [
@@ -473,52 +473,52 @@ def _build_demo_profile():
                 {"symptom_id": "sym-headache", "symptom_name": "Headache",
                  "date_created": "2025-11-05",
                  "episodes": [
-                     {"episode_id": "ep-ha-1", "episode_date": "2025-12-12", "time_of_day": "16:00", "severity": "mid",
+                     {"episode_id": "ep-ha-1", "episode_date": "2025-12-12", "time_of_day": "16:00", "intensity": "mid",
                       "description": "Dull pressure headache, frontal area", "triggers": "Blood pressure spike"},
-                     {"episode_id": "ep-ha-2", "episode_date": "2025-11-05", "time_of_day": "10:00", "severity": "low",
+                     {"episode_id": "ep-ha-2", "episode_date": "2025-11-05", "time_of_day": "10:00", "intensity": "low",
                       "description": "Mild tension headache", "triggers": "Stress at work"},
                  ],
                  "counter_definitions": []},
                 {"symptom_id": "sym-heartburn", "symptom_name": "Heartburn",
                  "date_created": "2025-11-10",
                  "episodes": [
-                     {"episode_id": "ep-hb-1", "episode_date": "2025-12-01", "time_of_day": "22:00", "severity": "mid",
+                     {"episode_id": "ep-hb-1", "episode_date": "2025-12-01", "time_of_day": "22:00", "intensity": "mid",
                       "description": "Burning after dinner, despite omeprazole", "triggers": "Spicy food, late meal"},
-                     {"episode_id": "ep-hb-2", "episode_date": "2025-11-10", "time_of_day": "21:30", "severity": "low",
+                     {"episode_id": "ep-hb-2", "episode_date": "2025-11-10", "time_of_day": "21:30", "intensity": "low",
                       "description": "Mild acid reflux", "triggers": "Large meal"},
                  ],
                  "counter_definitions": []},
                 {"symptom_id": "sym-numbness-hands", "symptom_name": "Numbness in hands",
                  "date_created": "2025-11-12",
                  "episodes": [
-                     {"episode_id": "ep-nh-1", "episode_date": "2025-12-03", "time_of_day": "07:00", "severity": "mid",
+                     {"episode_id": "ep-nh-1", "episode_date": "2025-12-03", "time_of_day": "07:00", "intensity": "mid",
                       "description": "Woke with numb fingers, took 10 min to resolve", "triggers": "Sleeping position"},
-                     {"episode_id": "ep-nh-2", "episode_date": "2025-11-12", "time_of_day": "06:45", "severity": "low",
+                     {"episode_id": "ep-nh-2", "episode_date": "2025-11-12", "time_of_day": "06:45", "intensity": "low",
                       "description": "Tingling in ring/pinky fingers on waking", "triggers": "Unknown"},
                  ],
                  "counter_definitions": []},
                 {"symptom_id": "sym-excessive-thirst", "symptom_name": "Excessive thirst",
                  "date_created": "2025-10-18",
                  "episodes": [
-                     {"episode_id": "ep-et-1", "episode_date": "2025-12-09", "time_of_day": "14:30", "severity": "mid",
+                     {"episode_id": "ep-et-1", "episode_date": "2025-12-09", "time_of_day": "14:30", "intensity": "mid",
                       "description": "Drank 4L water by afternoon, still thirsty", "triggers": "High glucose day"},
-                     {"episode_id": "ep-et-2", "episode_date": "2025-11-22", "time_of_day": "11:00", "severity": "mid",
+                     {"episode_id": "ep-et-2", "episode_date": "2025-11-22", "time_of_day": "11:00", "intensity": "mid",
                       "description": "Constant dry mouth, excessive water intake", "triggers": "Missed metformin dose"},
-                     {"episode_id": "ep-et-3", "episode_date": "2025-10-18", "time_of_day": "15:00", "severity": "low",
+                     {"episode_id": "ep-et-3", "episode_date": "2025-10-18", "time_of_day": "15:00", "intensity": "low",
                       "description": "Noticeably thirstier than normal", "triggers": "Warm day, but felt excessive"},
                  ],
                  "counter_definitions": []},
                 {"symptom_id": "sym-dizziness", "symptom_name": "Dizziness on standing",
                  "date_created": "2025-12-11", "archived": True,
                  "episodes": [
-                     {"episode_id": "ep-dz-1", "episode_date": "2025-12-11", "time_of_day": "08:00", "severity": "mid",
+                     {"episode_id": "ep-dz-1", "episode_date": "2025-12-11", "time_of_day": "08:00", "intensity": "mid",
                       "description": "Lightheaded when standing from bed, had to grab wall", "triggers": "Morning, possible orthostatic from metoprolol"},
                  ],
                  "counter_definitions": []},
                 {"symptom_id": "sym-wound-healing", "symptom_name": "Slow wound healing",
                  "date_created": "2025-11-28",
                  "episodes": [
-                     {"episode_id": "ep-wh-1", "episode_date": "2025-11-28", "time_of_day": "12:00", "severity": "low",
+                     {"episode_id": "ep-wh-1", "episode_date": "2025-11-28", "time_of_day": "12:00", "intensity": "low",
                       "description": "Small cut on finger took 2 weeks to fully heal", "triggers": "Paper cut from Nov 14"},
                  ],
                  "counter_definitions": []},
@@ -1917,7 +1917,7 @@ def get_timeline():
         for ep in symptom.get("episodes", []):
             ep_date = _iso_date(ep.get("episode_date"))
             if ep_date:
-                sev = (ep.get("severity") or "mid").upper()
+                sev = (ep.get("intensity") or "mid").upper()
                 tod = ep.get("time_of_day") or ""
                 tod_label = f" — {tod}" if tod else ""
                 detail = ep.get("description") or ""
@@ -1927,7 +1927,7 @@ def get_timeline():
                     "title": f"{symptom.get('symptom_name', 'Symptom')} ({sev}){tod_label}",
                     "detail": detail,
                     "symptom_name": symptom.get("symptom_name"),
-                    "severity": ep.get("severity"),
+                    "intensity": ep.get("intensity"),
                     "time_of_day": ep.get("time_of_day"),
                     "description": ep.get("description"),
                     "triggers": ep.get("triggers"),
@@ -2915,10 +2915,13 @@ def add_episode(symptom_id):
         "episode_id": str(_uuid.uuid4()),
         "episode_date": data.get("episode_date"),
         "time_of_day": data.get("time_of_day"),
-        "severity": data.get("severity", "mid"),
+        "intensity": data.get("intensity", "mid"),
         "description": data.get("description"),
         "duration": data.get("duration"),
         "triggers": data.get("triggers"),
+        "end_date": data.get("end_date"),
+        "resolution_notes": data.get("resolution_notes"),
+        "linked_medication_id": data.get("linked_medication_id"),
         "counter_values": data.get("counter_values", {}),
         "date_logged": _dt.now().isoformat(),
     }
@@ -3039,6 +3042,29 @@ def toggle_counter_archive(symptom_id, counter_id):
     return jsonify(counter)
 
 
+# ── Active Medications ────────────────────────────────────────
+
+@app.route("/api/medications/active")
+def active_medications():
+    """Return list of active medication names for UI dropdowns."""
+    if not _passphrase and not _profile_data:
+        return jsonify({"error": "No data loaded"}), 401
+
+    profile = _profile_data or {}
+    timeline = profile.get("clinical_timeline", {})
+    medications = timeline.get("medications", [])
+
+    active = []
+    for med in medications:
+        status = (med.get("status") or "unknown").lower()
+        if status in ("active", "unknown"):
+            name = med.get("name", "")
+            if name and name not in active:
+                active.append(name)
+
+    return jsonify(active)
+
+
 # ── Biomarker Cascades ────────────────────────────────────────
 
 # ── Predictive Trajectory Forecasting ─────────────────────────
@@ -3056,10 +3082,283 @@ def trajectories():
 
         forecaster = TrajectoryForecaster()
         result = forecaster.analyze(profile)
+
+        # ── Phase 2: Enrich with side effect scoring ─────────
+        try:
+            from src.analysis.side_effect_scorer import SideEffectScorer
+
+            timeline = profile.get("clinical_timeline", {})
+            symptoms = timeline.get("symptoms", [])
+            medications = timeline.get("medications", [])
+            genetics = timeline.get("genetics", [])
+
+            scorer = SideEffectScorer()
+            scored_by_med = scorer.score_all_linked_episodes(
+                symptoms, medications, genetics
+            )
+
+            # Attach side_effects array to each medication in each trajectory
+            for traj in result.get("trajectories", []):
+                for med in traj.get("relevant_medications", []):
+                    med_name = med.get("name", "")
+                    med["side_effects"] = scored_by_med.get(med_name, [])
+        except Exception as se_err:
+            logger.warning(
+                "Side effect scoring failed (non-fatal): %s", se_err
+            )
+
         return jsonify(result)
 
     except Exception as e:
         logger.error("Trajectory analysis failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/trajectories/investigate", methods=["POST"])
+def trajectories_investigate():
+    """Investigate what happened before an anomalous lab value."""
+    if not _passphrase and not _profile_data:
+        return jsonify({"error": "No data loaded"}), 401
+
+    profile = _profile_data or {}
+
+    body = request.get_json(silent=True) or {}
+    test_name = body.get("test_name")
+    anomaly_date = body.get("anomaly_date")
+
+    if not test_name or not anomaly_date:
+        return jsonify({"error": "test_name and anomaly_date are required"}), 400
+
+    try:
+        from src.analysis.anomaly_investigator import AnomalyInvestigator
+
+        investigator = AnomalyInvestigator()
+        result = investigator.investigate(
+            anomaly_date=anomaly_date,
+            test_name=test_name,
+            profile_data=profile,
+        )
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error("Anomaly investigation failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Symptom Landscape ─────────────────────────────────────────
+
+@app.route("/api/symptom-landscape")
+def symptom_landscape():
+    """Return symptoms classified by body system with temporal clusters."""
+    if not _profile_data:
+        return jsonify({
+            "by_body_system": {},
+            "medications": [],
+            "temporal_clusters": [],
+            "unattributed": [],
+            "summary": {
+                "total_symptoms": 0,
+                "total_episodes": 0,
+                "body_systems_involved": 0,
+                "unattributed_count": 0,
+                "cluster_count": 0,
+            },
+        })
+
+    try:
+        from src.analysis.symptom_classifier import SymptomClassifier
+        from src.analysis.symptom_analytics import SymptomAnalytics
+
+        timeline = _profile_data.get("clinical_timeline", {})
+        symptoms = timeline.get("symptoms", [])
+        medications = timeline.get("medications", [])
+
+        # Classify symptoms into body systems
+        classifier = SymptomClassifier()
+        by_body_system = classifier.classify_all(symptoms)
+
+        # Build per-symptom response with body_system and linked_medication
+        by_system_response = {}
+        all_classified_symptoms = []
+        for system, symptom_list in by_body_system.items():
+            system_entries = []
+            for s in symptom_list:
+                episodes = []
+                for ep in s.get("episodes", []):
+                    episodes.append({
+                        "episode_id": ep.get("episode_id", ""),
+                        "episode_date": str(ep.get("episode_date", "")) if ep.get("episode_date") else None,
+                        "intensity": ep.get("intensity", "mid"),
+                        "description": ep.get("description"),
+                        "time_of_day": ep.get("time_of_day"),
+                        "duration": ep.get("duration"),
+                        "triggers": ep.get("triggers"),
+                        "end_date": str(ep.get("end_date", "")) if ep.get("end_date") else None,
+                        "resolution_notes": ep.get("resolution_notes"),
+                        "linked_medication_id": ep.get("linked_medication_id"),
+                    })
+                # Check if any episode has a linked medication
+                linked_med = None
+                for ep in s.get("episodes", []):
+                    med_id = ep.get("linked_medication_id")
+                    if med_id:
+                        linked_med = med_id
+                        break
+
+                entry = {
+                    "symptom_name": s.get("symptom_name", ""),
+                    "symptom_id": s.get("symptom_id", ""),
+                    "body_system": system,
+                    "episodes": episodes,
+                    "episode_count": len(episodes),
+                    "linked_medication": linked_med,
+                }
+                system_entries.append(entry)
+                all_classified_symptoms.append(entry)
+            by_system_response[system] = system_entries
+
+        # Medication bars for context
+        med_colors = ["#3b82f6", "#f97316", "#a78bfa", "#ec4899", "#10b981", "#f0c550"]
+        med_bars = []
+        for i, med in enumerate(medications):
+            med_dict = med if isinstance(med, dict) else {}
+            if hasattr(med, "model_dump"):
+                med_dict = med.model_dump()
+            elif hasattr(med, "__dict__"):
+                med_dict = med.__dict__
+
+            start = med_dict.get("start_date")
+            end = med_dict.get("end_date")
+            name = med_dict.get("name", "Unknown")
+            status = med_dict.get("status", "unknown")
+            if hasattr(status, "value"):
+                status = status.value
+
+            med_bars.append({
+                "name": name,
+                "start_date": str(start) if start else None,
+                "end_date": str(end) if end else None,
+                "status": status,
+                "color": med_colors[i % len(med_colors)],
+            })
+
+        # Temporal cluster detection
+        # Enrich symptoms with body_system before passing to cluster detection
+        enriched_symptoms = []
+        for system, symptom_list in by_body_system.items():
+            for s in symptom_list:
+                enriched = dict(s)
+                enriched["body_system"] = system
+                enriched_symptoms.append(enriched)
+
+        analytics = SymptomAnalytics()
+        window_days = int(request.args.get("window_days", 14))
+        clusters = analytics.detect_temporal_clusters(enriched_symptoms, window_days)
+
+        # Unattributed symptoms (no linked_medication_id on any episode)
+        unattributed = []
+        for s in all_classified_symptoms:
+            has_attribution = False
+            for ep in s.get("episodes", []):
+                if ep.get("linked_medication_id"):
+                    has_attribution = True
+                    break
+            if not has_attribution and s.get("episode_count", 0) > 0:
+                unattributed.append({
+                    "symptom_name": s["symptom_name"],
+                    "body_system": s["body_system"],
+                    "episode_count": s["episode_count"],
+                })
+
+        # Summary stats
+        total_symptoms = sum(len(v) for v in by_system_response.values())
+        total_episodes = sum(
+            s.get("episode_count", 0)
+            for entries in by_system_response.values()
+            for s in entries
+        )
+
+        result = {
+            "by_body_system": by_system_response,
+            "medications": med_bars,
+            "temporal_clusters": clusters,
+            "unattributed": unattributed,
+            "summary": {
+                "total_symptoms": total_symptoms,
+                "total_episodes": total_episodes,
+                "body_systems_involved": len(by_system_response),
+                "unattributed_count": len(unattributed),
+                "cluster_count": len(clusters),
+            },
+        }
+
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error("Symptom landscape analysis failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Treatment Response Analysis ──────────────────────────────────
+
+@app.route("/api/treatment-response")
+def treatment_response():
+    """Per-medication scorecard: lab effectiveness + tolerability + conversation guide."""
+    if not _passphrase and not _profile_data:
+        return jsonify({"error": "No data loaded"}), 401
+
+    profile = _profile_data or {}
+
+    try:
+        from src.analysis.treatment_response import TreatmentResponseAnalyzer
+
+        timeline = profile.get("clinical_timeline", {})
+        medications = timeline.get("medications", [])
+        labs = timeline.get("labs", [])
+        symptoms = timeline.get("symptoms", [])
+        genetics = timeline.get("genetics", [])
+
+        analyzer = TreatmentResponseAnalyzer()
+        result = analyzer.analyze(medications, labs, symptoms, genetics)
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error("Treatment response analysis failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Drug-Drug Interaction Timeline ───────────────────────────────
+
+@app.route("/api/interaction-timeline")
+def interaction_timeline():
+    """Analyze drug interaction overlap zones across the medication timeline."""
+    if not _passphrase and not _profile_data:
+        return jsonify({"error": "No data loaded"}), 401
+
+    profile = _profile_data or {}
+
+    try:
+        from src.analysis.interaction_timeline import InteractionTimelineAnalyzer
+
+        clinical = profile.get("clinical_timeline", {})
+        analysis = profile.get("analysis", {})
+
+        medications = clinical.get("medications", [])
+        interactions = analysis.get("drug_interactions", [])
+        symptoms = clinical.get("symptoms", [])
+        genetics = clinical.get("genetics", [])
+
+        analyzer = InteractionTimelineAnalyzer()
+        result = analyzer.analyze(
+            medications=medications,
+            interactions=interactions,
+            symptoms=symptoms,
+            genetics=genetics,
+        )
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error("Interaction timeline analysis failed: %s", e)
         return jsonify({"error": str(e)}), 500
 
 

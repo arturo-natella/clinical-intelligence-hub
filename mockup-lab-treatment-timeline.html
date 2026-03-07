@@ -1,0 +1,1140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lab + Treatment + Side Effects Timeline — Concept Mockup</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0e1117; color: #c9d1d9; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', sans-serif;
+    padding: 32px; min-height: 100vh;
+  }
+  .mockup-badge {
+    display: inline-block; background: #f59e0b; color: #000; font-size: 11px; font-weight: 700;
+    padding: 3px 10px; border-radius: 4px; margin-bottom: 16px; letter-spacing: 0.05em;
+  }
+  h1 { font-size: 22px; font-weight: 700; margin-bottom: 6px; color: #fff; }
+  .subtitle { font-size: 13px; color: #7d8590; margin-bottom: 28px; max-width: 860px; line-height: 1.5; }
+
+  .chart-card {
+    background: #161b22; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;
+    padding: 24px 24px 20px 24px; margin-bottom: 28px; max-width: 920px;
+  }
+  .chart-header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 4px; }
+  .chart-title { font-size: 15px; font-weight: 600; color: #fff; }
+  .chart-tag {
+    font-size: 9px; font-weight: 600; padding: 2px 8px; border-radius: 3px;
+    letter-spacing: 0.04em;
+  }
+  .tag-improving { background: rgba(63,185,80,0.15); color: #3fb950; }
+  .tag-declining { background: rgba(248,81,73,0.15); color: #f85149; }
+  .tag-suboptimal { background: rgba(245,158,11,0.15); color: #f59e0b; }
+  .chart-subtitle { font-size: 11px; color: #7d8590; margin-bottom: 16px; }
+
+  .chart-wrapper { margin-left: 150px; }
+
+  /* Chart area */
+  .chart-area { position: relative; height: 180px; margin-bottom: 0; border-left: 1px solid #30363d; border-bottom: 1px solid #30363d; }
+
+  /* Y-axis */
+  .y-labels { position: absolute; left: -40px; top: 0; bottom: 0; display: flex; flex-direction: column; justify-content: space-between; }
+  .y-label { font-size: 10px; color: #484f58; }
+
+  /* Reference band */
+  .ref-band {
+    position: absolute; left: 0; right: 0; background: rgba(63, 185, 80, 0.06);
+    border-top: 1px dashed rgba(63, 185, 80, 0.25); border-bottom: 1px dashed rgba(63, 185, 80, 0.25);
+  }
+  .ref-label { position: absolute; right: 4px; top: 2px; font-size: 9px; color: rgba(63,185,80,0.5); }
+
+  svg.line-chart { position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: visible; }
+
+  /* X dates */
+  .x-dates { display: flex; justify-content: space-between; padding: 6px 0 0 0; }
+  .x-date { font-size: 9px; color: #484f58; text-align: center; }
+
+  /* Section labels */
+  .section-label {
+    font-size: 8px; font-weight: 700; letter-spacing: 0.12em; color: #484f58;
+    margin: 10px 0 4px 0; padding-left: 2px; text-transform: uppercase;
+  }
+
+  /* Treatment timeline */
+  .treatment-timeline { border-left: 1px solid #30363d; }
+
+  /* Medication group box — groups a medication bar + its side effects */
+  .med-group {
+    border: 1px solid rgba(255,255,255,0.08); border-radius: 6px;
+    margin: 6px 0; padding: 4px 0;
+    background: rgba(255,255,255,0.015);
+    position: relative;
+  }
+  .med-group:hover { border-color: rgba(255,255,255,0.14); background: rgba(255,255,255,0.025); }
+  .med-group-label {
+    position: absolute; left: -148px; top: 4px; width: 140px; text-align: right;
+    font-size: 10px; color: #c9d1d9; font-weight: 600; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  /* No side effects variant — slimmer */
+  .med-group--no-se { padding: 2px 0; }
+  .treatment-lane {
+    display: flex; align-items: center; height: 26px; position: relative;
+    border-bottom: 1px solid rgba(255,255,255,0.02);
+  }
+  .treatment-label {
+    position: absolute; left: -148px; width: 140px; text-align: right;
+    font-size: 10px; color: #8b949e; font-weight: 500; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .treatment-bar {
+    position: absolute; height: 14px; border-radius: 3px; opacity: 0.85;
+    display: flex; align-items: center; padding-left: 6px;
+    font-size: 8px; font-weight: 600; color: rgba(255,255,255,0.9); letter-spacing: 0.02em;
+  }
+  .treatment-bar:hover { opacity: 1; }
+
+  /* Dose change tick */
+  .dose-tick {
+    position: absolute; top: -1px; width: 2px; height: 16px; background: rgba(255,255,255,0.5);
+    border-radius: 1px;
+  }
+  .dose-tick::after {
+    content: attr(data-label); position: absolute; top: -13px; left: 4px;
+    font-size: 7px; color: #c9d1d9; white-space: nowrap; font-weight: 600;
+  }
+
+  /* Side effects row */
+  .side-effect-lane {
+    display: flex; align-items: flex-start; height: 38px; position: relative;
+    border-bottom: 1px solid rgba(255,255,255,0.02);
+    padding-top: 6px;
+  }
+  .side-effect-label {
+    position: absolute; left: -148px; width: 140px; text-align: right;
+    font-size: 9px; color: #f85149; font-weight: 500; font-style: italic;
+  }
+  .side-effect-track {
+    position: absolute; height: 20px; display: flex; align-items: center; gap: 0;
+  }
+  /* Individual side effect dots */
+  .se-dot {
+    width: 8px; height: 8px; border-radius: 50%; position: absolute;
+    cursor: pointer; transition: transform 0.15s;
+  }
+  .se-dot:hover { transform: scale(1.8); z-index: 10; }
+  /* Visible symptom label below dot */
+  .se-dot-label {
+    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    font-size: 7px; color: #8b949e; white-space: nowrap;
+    pointer-events: none; font-weight: 500;
+  }
+  /* Severity colors */
+  .se-mild { background: rgba(248, 81, 73, 0.3); border: 1px solid rgba(248, 81, 73, 0.4); }
+  .se-moderate { background: rgba(248, 81, 73, 0.55); border: 1px solid rgba(248, 81, 73, 0.6); }
+  .se-severe { background: rgba(248, 81, 73, 0.85); border: 1px solid rgba(248, 81, 73, 0.9); }
+
+  /* Side effect tooltip */
+  .se-tooltip {
+    display: none; position: absolute; bottom: 28px; left: 50%; transform: translateX(-50%);
+    background: #1c2129; border: 1px solid rgba(248,81,73,0.3); border-radius: 6px;
+    padding: 8px 10px; min-width: 180px; z-index: 100; pointer-events: none;
+  }
+  .se-dot:hover .se-tooltip { display: block; }
+  .se-tooltip-name { font-size: 10px; font-weight: 600; color: #f85149; margin-bottom: 2px; }
+  .se-tooltip-detail { font-size: 9px; color: #8b949e; line-height: 1.4; }
+  .se-tooltip-likelihood {
+    margin-top: 6px; padding-top: 5px; border-top: 1px solid rgba(255,255,255,0.08);
+    font-size: 9px; line-height: 1.4;
+  }
+  .likelihood-badge {
+    display: inline-block; font-size: 8px; font-weight: 700; padding: 1px 6px;
+    border-radius: 3px; letter-spacing: 0.04em; margin-right: 4px;
+  }
+  .lh-high { background: rgba(248,81,73,0.2); color: #f85149; }
+  .lh-moderate { background: rgba(245,158,11,0.2); color: #f59e0b; }
+  .lh-low { background: rgba(139,148,158,0.2); color: #8b949e; }
+  .lh-very-high { background: rgba(248,81,73,0.35); color: #ff6b6b; }
+  .se-tooltip-factors { margin-top: 4px; padding-left: 2px; }
+  .factor-row { display: flex; align-items: center; gap: 4px; margin-bottom: 1px; }
+  .factor-check { color: #3fb950; font-size: 9px; }
+  .factor-x { color: #484f58; font-size: 9px; }
+  .factor-text { font-size: 8px; color: #7d8590; }
+
+  /* Event line */
+  .event-line {
+    position: absolute; top: 0; width: 1px; height: 100%;
+    border-left: 1px dashed rgba(245, 158, 11, 0.4);
+  }
+  .event-flag {
+    position: absolute; top: -16px; font-size: 7px; padding: 1px 5px;
+    background: rgba(245, 158, 11, 0.12); color: #f59e0b; border-radius: 3px;
+    white-space: nowrap; transform: translateX(-50%); font-weight: 600;
+  }
+
+  /* Response summary box */
+  .response-summary {
+    margin-top: 14px; padding: 12px 14px;
+    background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 8px;
+  }
+  .response-summary-title {
+    font-size: 10px; font-weight: 700; color: #58a6ff; margin-bottom: 6px;
+    letter-spacing: 0.04em;
+  }
+  .response-row {
+    display: flex; gap: 24px; font-size: 10px; color: #8b949e; line-height: 1.5;
+  }
+  .response-col { flex: 1; }
+  .response-label { font-weight: 600; color: #c9d1d9; font-size: 9px; margin-bottom: 2px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .response-good { color: #3fb950; }
+  .response-bad { color: #f85149; }
+  .response-warn { color: #f59e0b; }
+
+  /* Report preview card */
+  .report-card {
+    background: #161b22; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;
+    padding: 24px; margin-bottom: 28px; max-width: 920px;
+  }
+  .report-title { font-size: 15px; font-weight: 600; color: #fff; margin-bottom: 4px; }
+  .report-subtitle { font-size: 11px; color: #7d8590; margin-bottom: 16px; }
+  .report-entry {
+    background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 8px; padding: 16px; margin-bottom: 12px;
+    font-family: 'Georgia', serif; font-size: 12px; line-height: 1.7; color: #c9d1d9;
+  }
+  .report-entry h4 { font-family: -apple-system, sans-serif; font-size: 12px; font-weight: 700; color: #fff; margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 6px; }
+  .report-entry .eff { color: #3fb950; }
+  .report-entry .tol { color: #f85149; }
+  .report-entry .note { color: #f59e0b; font-style: italic; }
+  .report-entry .metric { font-weight: 600; color: #fff; }
+
+  /* Legend */
+  .legend { display: flex; gap: 20px; margin: 24px 0; flex-wrap: wrap; max-width: 920px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 10px; color: #7d8590; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+
+  /* Anomaly spike marker */
+  .anomaly-point {
+    position: absolute; width: 18px; height: 18px; border-radius: 50%;
+    background: rgba(248,81,73,0.3); border: 2px solid #f85149;
+    cursor: pointer; transform: translate(-50%, -50%);
+    animation: anomaly-pulse 2s ease-in-out infinite;
+    z-index: 5;
+  }
+  .anomaly-point:hover { animation: none; background: rgba(248,81,73,0.5); }
+  @keyframes anomaly-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(248,81,73,0.4); }
+    50% { box-shadow: 0 0 0 8px rgba(248,81,73,0); }
+  }
+  .anomaly-label {
+    position: absolute; font-size: 8px; font-weight: 700; color: #f85149;
+    white-space: nowrap; transform: translateX(-50%);
+  }
+
+  /* "What Happened Here?" investigation panel */
+  .investigation-panel {
+    margin-top: 14px; background: rgba(248,81,73,0.04);
+    border: 1px solid rgba(248,81,73,0.2); border-radius: 10px;
+    padding: 16px 18px; max-width: 100%;
+  }
+  .investigation-header {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 12px;
+  }
+  .investigation-icon {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: rgba(248,81,73,0.15); border: 1px solid rgba(248,81,73,0.3);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; flex-shrink: 0;
+  }
+  .investigation-title { font-size: 12px; font-weight: 700; color: #f85149; }
+  .investigation-subtitle { font-size: 10px; color: #8b949e; }
+
+  .event-source-group {
+    margin-bottom: 12px; padding-left: 4px;
+  }
+  .event-source-header {
+    font-size: 9px; font-weight: 700; color: #58a6ff; text-transform: uppercase;
+    letter-spacing: 0.08em; margin-bottom: 6px; padding-bottom: 3px;
+    border-bottom: 1px solid rgba(88,166,255,0.15);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .event-source-icon { font-size: 11px; }
+  .event-row {
+    display: flex; gap: 10px; align-items: flex-start; padding: 4px 0 4px 4px;
+    border-bottom: 1px solid rgba(255,255,255,0.02);
+  }
+  .event-date {
+    font-size: 9px; font-weight: 600; color: #c9d1d9; white-space: nowrap;
+    min-width: 72px; flex-shrink: 0;
+  }
+  .event-desc { font-size: 10px; color: #8b949e; line-height: 1.4; }
+  .event-desc strong { color: #c9d1d9; }
+  .event-source-tag {
+    font-size: 7px; color: #484f58; background: rgba(255,255,255,0.04);
+    padding: 1px 5px; border-radius: 2px; white-space: nowrap;
+    margin-top: 1px;
+  }
+
+  .investigation-summary {
+    margin-top: 12px; padding: 10px 12px;
+    background: rgba(63,185,80,0.06); border: 1px solid rgba(63,185,80,0.15);
+    border-radius: 8px;
+  }
+  .investigation-summary-title {
+    font-size: 9px; font-weight: 700; color: #3fb950; text-transform: uppercase;
+    letter-spacing: 0.06em; margin-bottom: 4px;
+  }
+  .investigation-summary-text {
+    font-size: 10px; color: #c9d1d9; line-height: 1.5;
+  }
+
+  /* Device data mini-chart */
+  .device-data-row {
+    display: flex; gap: 8px; align-items: center; padding: 3px 0 3px 4px;
+    border-bottom: 1px solid rgba(255,255,255,0.02);
+  }
+  .device-icon { font-size: 11px; flex-shrink: 0; }
+  .device-bar-container {
+    flex: 1; display: flex; align-items: center; gap: 6px;
+  }
+  .device-bar-label { font-size: 8px; color: #484f58; min-width: 60px; text-align: right; }
+  .device-bar-track {
+    flex: 1; height: 6px; background: rgba(255,255,255,0.04); border-radius: 3px;
+    position: relative; overflow: hidden;
+  }
+  .device-bar-fill {
+    position: absolute; top: 0; left: 0; height: 100%; border-radius: 3px;
+    transition: width 0.3s;
+  }
+  .device-bar-value { font-size: 8px; color: #8b949e; min-width: 50px; }
+
+  /* Divider */
+  .section-divider {
+    max-width: 920px; border: none; border-top: 1px solid rgba(255,255,255,0.06);
+    margin: 32px 0;
+  }
+  .section-heading {
+    font-size: 16px; font-weight: 700; color: #fff; margin-bottom: 4px;
+  }
+  .section-desc { font-size: 12px; color: #7d8590; margin-bottom: 20px; }
+</style>
+</head>
+<body>
+
+<div class="mockup-badge">CONCEPT MOCKUP</div>
+<h1>Lab Trends + Treatment Response + Side Effects + "What Happened?"</h1>
+<p class="subtitle">Each chart shows a lab value over time with the medications that affect it below. Your side effects from the symptom log appear as labeled dots on the medication bars. When a lab spikes unexpectedly, click to see what was happening from your records, symptoms, and health devices. Everything flows into the report with "Discuss with your doctor" conversation guides.</p>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- CHART 1: HbA1c                             -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="chart-card">
+  <div class="chart-header">
+    <div class="chart-title">HbA1c — Glycemic Control</div>
+    <span class="chart-tag tag-improving">IMPROVING</span>
+  </div>
+  <div class="chart-subtitle">9.4% → 8.2% over 12 months &nbsp;·&nbsp; Target: &lt; 7.0% &nbsp;·&nbsp; 3 medications active</div>
+
+  <div class="chart-wrapper">
+    <div class="chart-area">
+      <div class="y-labels">
+        <span class="y-label">10%</span>
+        <span class="y-label">8%</span>
+        <span class="y-label">6%</span>
+        <span class="y-label">4%</span>
+      </div>
+      <div class="ref-band" style="bottom: 0%; height: 27%;">
+        <span class="ref-label">Normal &le; 5.6%</span>
+      </div>
+
+      <!-- Event markers -->
+      <div class="event-line" style="left: 25%;">
+        <div class="event-flag">Metformin &uarr; 2000mg</div>
+      </div>
+      <div class="event-line" style="left: 42%;">
+        <div class="event-flag">Started insulin</div>
+      </div>
+      <div class="event-line" style="left: 50%;">
+        <div class="event-flag" style="background:rgba(248,81,73,0.12); color:#f85149;">Glipizide stopped</div>
+      </div>
+
+      <svg class="line-chart" viewBox="0 0 800 200" preserveAspectRatio="none">
+        <polyline points="40,24 200,48 400,76 600,96 760,88"
+          fill="none" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <line x1="760" y1="88" x2="800" y2="82"
+          stroke="#58a6ff" stroke-width="1.5" stroke-dasharray="6,4" opacity="0.35"/>
+        <circle cx="40"  cy="24"  r="5" fill="#58a6ff" stroke="#161b22" stroke-width="2"/>
+        <circle cx="200" cy="48"  r="5" fill="#58a6ff" stroke="#161b22" stroke-width="2"/>
+        <circle cx="400" cy="76"  r="5" fill="#58a6ff" stroke="#161b22" stroke-width="2"/>
+        <circle cx="600" cy="96"  r="5" fill="#58a6ff" stroke="#161b22" stroke-width="2"/>
+        <circle cx="760" cy="88"  r="5" fill="#58a6ff" stroke="#161b22" stroke-width="2"/>
+        <text x="40"  y="16" fill="#c9d1d9" font-size="11" text-anchor="middle" font-weight="600">9.4</text>
+        <text x="200" y="40" fill="#c9d1d9" font-size="11" text-anchor="middle" font-weight="600">9.1</text>
+        <text x="400" y="68" fill="#c9d1d9" font-size="11" text-anchor="middle" font-weight="600">8.5</text>
+        <text x="600" y="88" fill="#c9d1d9" font-size="11" text-anchor="middle" font-weight="600">7.8</text>
+        <text x="760" y="80" fill="#c9d1d9" font-size="11" text-anchor="middle" font-weight="600">8.2</text>
+      </svg>
+    </div>
+
+    <div class="x-dates">
+      <span class="x-date">Dec 2024</span>
+      <span class="x-date">Mar 2025</span>
+      <span class="x-date">Jun 2025</span>
+      <span class="x-date">Sep 2025</span>
+      <span class="x-date">Dec 2025</span>
+    </div>
+
+    <div class="section-label">Treatments</div>
+    <div class="treatment-timeline">
+
+      <!-- ── METFORMIN GROUP ── -->
+      <div class="med-group">
+        <div class="med-group-label">Metformin</div>
+        <div class="treatment-lane">
+          <div class="treatment-bar" style="left: 0%; width: 100%; background: #3b82f6;">
+            1000mg &rarr; 2000mg
+            <div class="dose-tick" style="left: 25%;" data-label="&uarr; 2000mg"></div>
+          </div>
+        </div>
+        <div class="side-effect-lane">
+          <div class="side-effect-label">side effects</div>
+          <div class="side-effect-track" style="left: 0%; width: 100%;">
+            <div class="se-dot se-mild" style="left: 8%;">
+              <span class="se-dot-label">Nausea · Jan 15</span>
+              <div class="se-tooltip">
+                <div class="se-tooltip-name">&#x1F4AC; Discuss with your doctor</div>
+                <div class="se-tooltip-detail"><strong>Nausea</strong> &middot; Severity: 3/10 &middot; Jan 15<br>"Slight stomach upset after meals"</div>
+                <div class="se-tooltip-likelihood">
+                  <span class="likelihood-badge lh-high">HIGH LIKELIHOOD</span> associated with Metformin
+                  <div class="se-tooltip-factors">
+                    <div class="factor-row"><span class="factor-check">&check;</span><span class="factor-text">Known side effect (reported in 25% of patients) &mdash; OpenFDA</span></div>
+                    <div class="factor-row"><span class="factor-check">&check;</span><span class="factor-text">Symptom started after medication began</span></div>
+                    <div class="factor-row"><span class="factor-x">&ndash;</span><span class="factor-text">No dose change at this time</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="se-dot se-moderate" style="left: 28%;">
+              <span class="se-dot-label">Nausea · Apr 2</span>
+              <div class="se-tooltip">
+                <div class="se-tooltip-name">&#x1F4AC; Discuss with your doctor</div>
+                <div class="se-tooltip-detail"><strong>Nausea</strong> worsened &middot; Severity: 6/10 &middot; Apr 2<br>"Much worse since dose increase to 2000mg"</div>
+                <div class="se-tooltip-likelihood">
+                  <span class="likelihood-badge lh-very-high">VERY HIGH LIKELIHOOD</span> associated with Metformin
+                  <div class="se-tooltip-factors">
+                    <div class="factor-row"><span class="factor-check">&check;</span><span class="factor-text">Known side effect (25% of patients) &mdash; OpenFDA</span></div>
+                    <div class="factor-row"><span class="factor-check">&check;</span><span class="factor-text">Worsened after dose increase (1000 &rarr; 2000mg)</span></div>
+                    <div class="factor-row"><span class="factor-check">&check;</span><span class="factor-text">Dose-response pattern observed</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="se-dot se-severe" style="left: 33%;">
+              <span class="se-dot-label">Diarrhea · Apr 10</span>
+              <div class="se-tooltip">
+                <div class="se-tooltip-name">&#x1F4AC; Discuss with your doctor</div>
+                <div class="se-tooltip-detail"><strong>Diarrhea</strong> &middot; Severity: 7/10 &middot; Apr 10<br>"3-4 episodes daily, started after dose increase"</div>
+                <div class="se-tooltip-likelihood">
+                  <span class="likelihood-badge lh-very-high">VERY HIGH LIKELIHOOD</span> associated with Metformin
+                  <div class="se-tooltip-factors">
+                    <div class="factor-row"><span class="factor-check">&check;</span><span class="factor-text">Known side effect (53% of patients) &mdash; DailyMed label</span></div>
+                    <div class="factor-row"><span class="factor-check">&check;</span><span class="factor-text">Onset 10 days after dose increase</span></div>
+                    <div class="factor-row"><span class="factor-check">&check;</span><span class="factor-text">No other GI-affecting medications active</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="se-dot se-moderate" style="left: 42%;">
+              <span class="se-dot-label">Nausea · May 5</span>
+              <div class="se-tooltip">
+                <div class="se-tooltip-name">&#x1F4AC; Discuss with your doctor</div>
+                <div class="se-tooltip-detail"><strong>Nausea</strong> improving &middot; Severity: 5/10 &middot; May 5<br>"Getting a bit better"</div>
+                <div class="se-tooltip-likelihood">
+                  <span class="likelihood-badge lh-high">HIGH LIKELIHOOD</span> associated with Metformin
+                </div>
+              </div>
+            </div>
+            <div class="se-dot se-moderate" style="left: 50%;">
+              <span class="se-dot-label">Diarrhea · Jun 1</span>
+              <div class="se-tooltip">
+                <div class="se-tooltip-name">&#x1F4AC; Discuss with your doctor</div>
+                <div class="se-tooltip-detail"><strong>Diarrhea</strong> improving &middot; Severity: 5/10 &middot; Jun 1<br>"Down to once a day"</div>
+                <div class="se-tooltip-likelihood">
+                  <span class="likelihood-badge lh-high">HIGH LIKELIHOOD</span> associated with Metformin
+                </div>
+              </div>
+            </div>
+            <div class="se-dot se-mild" style="left: 62%;">
+              <span class="se-dot-label">Nausea · Jul 15</span>
+              <div class="se-tooltip">
+                <div class="se-tooltip-name">&#x1F4AC; For your reference</div>
+                <div class="se-tooltip-detail"><strong>Nausea</strong> nearly resolved &middot; Severity: 2/10 &middot; Jul 15<br>"Mostly resolved"</div>
+              </div>
+            </div>
+            <div class="se-dot se-mild" style="left: 75%;">
+              <span class="se-dot-label">Stomach · Sep 3</span>
+              <div class="se-tooltip">
+                <div class="se-tooltip-name">&#x1F4AC; For your reference</div>
+                <div class="se-tooltip-detail"><strong>Stomach upset</strong> &middot; Severity: 2/10 &middot; Sep 3<br>"Only with heavy meals now"</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── GLIPIZIDE GROUP (no side effects) ── -->
+      <div class="med-group med-group--no-se">
+        <div class="med-group-label">Glipizide</div>
+        <div class="treatment-lane">
+          <div class="treatment-bar" style="left: 0%; width: 50%; background: #8b5cf6; border-right: 2px solid #f85149;">
+            10mg &mdash; discontinued
+          </div>
+        </div>
+      </div>
+
+      <!-- ── INSULIN GLARGINE GROUP ── -->
+      <div class="med-group">
+        <div class="med-group-label">Insulin Glargine</div>
+        <div class="treatment-lane">
+          <div class="treatment-bar" style="left: 42%; width: 58%; background: #f97316;">
+            20 units nightly
+          </div>
+        </div>
+        <div class="side-effect-lane">
+          <div class="side-effect-label">side effects</div>
+          <div class="side-effect-track" style="left: 42%; width: 58%;">
+            <div class="se-dot se-mild" style="left: 8%;">
+              <span class="se-dot-label">Injection site · Jun 20</span>
+              <div class="se-tooltip">
+                <div class="se-tooltip-name">&#x1F4AC; For your reference</div>
+                <div class="se-tooltip-detail"><strong>Injection site irritation</strong> &middot; Severity: 2/10 &middot; Jun 20<br>"Small red bump, goes away in an hour"</div>
+              </div>
+            </div>
+            <div class="se-dot se-mild" style="left: 25%;">
+              <span class="se-dot-label">Low blood sugar · Aug 4</span>
+              <div class="se-tooltip">
+                <div class="se-tooltip-name">&#x1F4AC; Discuss with your doctor</div>
+                <div class="se-tooltip-detail"><strong>Mild hypoglycemia</strong> &middot; Severity: 3/10 &middot; Aug 4<br>"Felt shaky before dinner, ate a snack and it passed"</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Response summary -->
+    <div class="response-summary">
+      <div class="response-summary-title">Treatment Response Summary</div>
+      <div class="response-row">
+        <div class="response-col">
+          <div class="response-label">Effectiveness</div>
+          <span class="response-good">&#x2713;</span> HbA1c dropped <strong>1.2%</strong> in 12 months (9.4 &rarr; 8.2)<br>
+          <span class="response-warn">&#x25CB;</span> Still above target of 7.0% &mdash; needs further reduction
+        </div>
+        <div class="response-col">
+          <div class="response-label">Tolerability</div>
+          <span class="response-bad">&#x25CF;</span> Metformin: <strong>8 side effect reports</strong> (GI symptoms)<br>
+          &nbsp;&nbsp;&nbsp;Peaked after dose increase, trending down over 4 months<br>
+          <span class="response-good">&#x25CB;</span> Insulin: <strong>2 reports</strong> (mild, well-tolerated)
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- CHART 2: eGFR                              -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="chart-card">
+  <div class="chart-header">
+    <div class="chart-title">eGFR — Kidney Function</div>
+    <span class="chart-tag tag-declining">DECLINING</span>
+  </div>
+  <div class="chart-subtitle">92 → 78 mL/min over 18 months &nbsp;·&nbsp; CKD Stage 2 if &lt; 60 &nbsp;·&nbsp; 3 kidney-relevant medications</div>
+
+  <div class="chart-wrapper">
+    <div class="chart-area">
+      <div class="y-labels">
+        <span class="y-label">120</span>
+        <span class="y-label">90</span>
+        <span class="y-label">60</span>
+        <span class="y-label">30</span>
+      </div>
+      <div class="ref-band" style="bottom: 0%; height: 50%;">
+        <span class="ref-label">Normal &ge; 60</span>
+      </div>
+      <div class="event-line" style="left: 45%;">
+        <div class="event-flag">Started Gabapentin</div>
+      </div>
+      <svg class="line-chart" viewBox="0 0 800 200" preserveAspectRatio="none">
+        <polyline points="80,46 300,58 540,74 760,88"
+          fill="none" stroke="#f97316" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <line x1="760" y1="88" x2="800" y2="108"
+          stroke="#f85149" stroke-width="1.5" stroke-dasharray="6,4" opacity="0.5"/>
+        <circle cx="80"  cy="46" r="5" fill="#f97316" stroke="#161b22" stroke-width="2"/>
+        <circle cx="300" cy="58" r="5" fill="#f97316" stroke="#161b22" stroke-width="2"/>
+        <circle cx="540" cy="74" r="5" fill="#f97316" stroke="#161b22" stroke-width="2"/>
+        <circle cx="760" cy="88" r="5" fill="#f97316" stroke="#161b22" stroke-width="2"/>
+        <text x="80"  y="38" fill="#c9d1d9" font-size="11" text-anchor="middle" font-weight="600">92</text>
+        <text x="300" y="50" fill="#c9d1d9" font-size="11" text-anchor="middle" font-weight="600">88</text>
+        <text x="540" y="66" fill="#c9d1d9" font-size="11" text-anchor="middle" font-weight="600">82</text>
+        <text x="760" y="80" fill="#c9d1d9" font-size="11" text-anchor="middle" font-weight="600">78</text>
+      </svg>
+    </div>
+
+    <div class="x-dates">
+      <span class="x-date">Jun 2024</span>
+      <span class="x-date">Dec 2024</span>
+      <span class="x-date">Jun 2025</span>
+      <span class="x-date">Dec 2025</span>
+    </div>
+
+    <div class="section-label">Treatments</div>
+    <div class="treatment-timeline">
+
+      <!-- ── LISINOPRIL GROUP (no side effects) ── -->
+      <div class="med-group med-group--no-se">
+        <div class="med-group-label">Lisinopril (ACEi)</div>
+        <div class="treatment-lane">
+          <div class="treatment-bar" style="left: 0%; width: 100%; background: #10b981;">
+            20mg &mdash; renal protective
+          </div>
+        </div>
+      </div>
+
+      <!-- ── METFORMIN GROUP (no side effects on this chart) ── -->
+      <div class="med-group med-group--no-se">
+        <div class="med-group-label">Metformin</div>
+        <div class="treatment-lane">
+          <div class="treatment-bar" style="left: 0%; width: 100%; background: #3b82f6;">
+            2000mg &mdash; dose-adjust if eGFR &lt; 45
+          </div>
+        </div>
+      </div>
+
+      <!-- ── GABAPENTIN GROUP ── -->
+      <div class="med-group">
+        <div class="med-group-label">Gabapentin</div>
+        <div class="treatment-lane">
+          <div class="treatment-bar" style="left: 45%; width: 55%; background: #a78bfa;">
+            300mg &mdash; renally cleared
+          </div>
+        </div>
+        <div class="side-effect-lane">
+          <div class="side-effect-label">side effects</div>
+          <div class="side-effect-track" style="left: 45%; width: 55%;">
+            <div class="se-dot se-moderate" style="left: 10%;">
+              <span class="se-dot-label">Drowsy · Jul 12</span>
+              <div class="se-tooltip">
+                <div class="se-tooltip-name">&#x1F4AC; Mention to your doctor</div>
+                <div class="se-tooltip-detail"><strong>Drowsiness</strong> &middot; Severity: 5/10 &middot; Jul 12<br>"Very drowsy first 2 weeks"</div>
+              </div>
+            </div>
+            <div class="se-dot se-moderate" style="left: 18%;">
+              <span class="se-dot-label">Dizziness · Jul 28</span>
+              <div class="se-tooltip">
+                <div class="se-tooltip-name">&#x1F4AC; Mention to your doctor</div>
+                <div class="se-tooltip-detail"><strong>Dizziness</strong> &middot; Severity: 4/10 &middot; Jul 28<br>"Dizzy when standing up quickly"</div>
+              </div>
+            </div>
+            <div class="se-dot se-mild" style="left: 35%;">
+              <span class="se-dot-label">Drowsy · Sep 15</span>
+              <div class="se-tooltip">
+                <div class="se-tooltip-name">&#x1F4AC; For your reference</div>
+                <div class="se-tooltip-detail"><strong>Drowsiness</strong> improving &middot; Severity: 2/10 &middot; Sep 15<br>"Mostly adjusted now"</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="response-summary">
+      <div class="response-summary-title">Treatment Response Summary</div>
+      <div class="response-row">
+        <div class="response-col">
+          <div class="response-label">Effectiveness</div>
+          <span class="response-bad">&#x25CF;</span> eGFR declining <strong>-14 mL/min</strong> over 18 months despite Lisinopril<br>
+          <span class="response-warn">&#x25CB;</span> Projected to cross CKD Stage 2 threshold in ~24 months
+        </div>
+        <div class="response-col">
+          <div class="response-label">Tolerability</div>
+          <span class="response-warn">&#x25CF;</span> Gabapentin: <strong>3 reports</strong> (drowsiness, dizziness)<br>
+          &nbsp;&nbsp;&nbsp;Symptoms improving over time (adapted)<br>
+          <span class="response-bad">&#x26A0;</span> <strong>Gabapentin is renally cleared</strong> &mdash; may need dose reduction as eGFR drops
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- CHART 3: LDL                               -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="chart-card">
+  <div class="chart-header">
+    <div class="chart-title">LDL Cholesterol</div>
+    <span class="chart-tag tag-suboptimal">ABOVE TARGET</span>
+  </div>
+  <div class="chart-subtitle">142 → 118 mg/dL &nbsp;·&nbsp; Diabetic target: &lt; 70 mg/dL &nbsp;·&nbsp; Pharmacogenomic flag</div>
+
+  <div class="chart-wrapper">
+    <div class="chart-area">
+      <div class="y-labels">
+        <span class="y-label">160</span>
+        <span class="y-label">120</span>
+        <span class="y-label">80</span>
+        <span class="y-label">40</span>
+      </div>
+      <div class="ref-band" style="bottom: 0%; height: 44%;">
+        <span class="ref-label">Target &lt; 70</span>
+      </div>
+      <svg class="line-chart" viewBox="0 0 800 200" preserveAspectRatio="none">
+        <polyline points="60,30 270,50 530,68 760,76"
+          fill="none" stroke="#a78bfa" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="60"  cy="30" r="5" fill="#a78bfa" stroke="#161b22" stroke-width="2"/>
+        <circle cx="270" cy="50" r="5" fill="#a78bfa" stroke="#161b22" stroke-width="2"/>
+        <circle cx="530" cy="68" r="5" fill="#a78bfa" stroke="#161b22" stroke-width="2"/>
+        <circle cx="760" cy="76" r="5" fill="#a78bfa" stroke="#161b22" stroke-width="2"/>
+        <text x="60"  y="22" fill="#c9d1d9" font-size="11" text-anchor="middle" font-weight="600">142</text>
+        <text x="270" y="42" fill="#c9d1d9" font-size="11" text-anchor="middle" font-weight="600">131</text>
+        <text x="530" y="60" fill="#c9d1d9" font-size="11" text-anchor="middle" font-weight="600">124</text>
+        <text x="760" y="68" fill="#c9d1d9" font-size="11" text-anchor="middle" font-weight="600">118</text>
+      </svg>
+    </div>
+
+    <div class="x-dates">
+      <span class="x-date">Mar 2024</span>
+      <span class="x-date">Sep 2024</span>
+      <span class="x-date">Jun 2025</span>
+      <span class="x-date">Dec 2025</span>
+    </div>
+
+    <div class="section-label">Treatments</div>
+    <div class="treatment-timeline">
+
+      <!-- ── ATORVASTATIN GROUP ── -->
+      <div class="med-group">
+        <div class="med-group-label">Atorvastatin</div>
+        <div class="treatment-lane">
+          <div class="treatment-bar" style="left: 0%; width: 100%; background: #ec4899;">
+            40mg daily
+          </div>
+        </div>
+        <div class="side-effect-lane">
+          <div class="side-effect-label">side effects</div>
+          <div class="side-effect-track" style="left: 0%; width: 100%;">
+            <div class="se-dot se-moderate" style="left: 15%;">
+              <span class="se-dot-label">Muscle aches · Jun 2024</span>
+              <div class="se-tooltip">
+                <div class="se-tooltip-name">&#x1F4AC; Discuss with your doctor</div>
+                <div class="se-tooltip-detail"><strong>Muscle aches</strong> &middot; Severity: 5/10 &middot; Jun 2024<br>"Legs feel heavy and achy after walking"</div>
+                <div class="se-tooltip-likelihood">
+                  <span class="likelihood-badge lh-very-high">VERY HIGH LIKELIHOOD</span> associated with Atorvastatin
+                  <div class="se-tooltip-factors">
+                    <div class="factor-row"><span class="factor-check">&check;</span><span class="factor-text">Myalgia reported in 5-10% of statin users &mdash; OpenFDA</span></div>
+                    <div class="factor-row"><span class="factor-check">&check;</span><span class="factor-text">SLCO1B1 rs4149056 T/C increases risk 3-5x &mdash; PharmGKB</span></div>
+                    <div class="factor-row"><span class="factor-check">&check;</span><span class="factor-text">Symptom consistent with statin myopathy pattern</span></div>
+                    <div class="factor-row"><span class="factor-check">&check;</span><span class="factor-text">No other myotoxic medications active</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="se-dot se-moderate" style="left: 30%;">
+              <span class="se-dot-label">Muscle pain · Oct 2024</span>
+              <div class="se-tooltip">
+                <div class="se-tooltip-name">&#x1F4AC; Discuss with your doctor</div>
+                <div class="se-tooltip-detail"><strong>Muscle pain</strong> worsening &middot; Severity: 6/10 &middot; Oct 2024<br>"Thigh pain wakes me up at night sometimes"</div>
+                <div class="se-tooltip-likelihood">
+                  <span class="likelihood-badge lh-very-high">VERY HIGH LIKELIHOOD</span> associated with Atorvastatin
+                  <div class="se-tooltip-factors">
+                    <div class="factor-row"><span class="factor-check">&check;</span><span class="factor-text">Worsening pattern consistent with cumulative myotoxicity</span></div>
+                    <div class="factor-row"><span class="factor-check">&check;</span><span class="factor-text">Genetic risk factor present (SLCO1B1)</span></div>
+                    <div class="factor-row"><span class="factor-check">&check;</span><span class="factor-text">Proximal muscle involvement consistent with statin myopathy</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="se-dot se-severe" style="left: 50%;">
+              <span class="se-dot-label">Cramps · Mar 2025</span>
+              <div class="se-tooltip">
+                <div class="se-tooltip-name">&#x1F4AC; Discuss with your doctor</div>
+                <div class="se-tooltip-detail"><strong>Muscle cramps</strong> &middot; Severity: 7/10 &middot; Mar 2025<br>"Bad cramps in calves, hard to walk some days"</div>
+                <div class="se-tooltip-likelihood">
+                  <span class="likelihood-badge lh-very-high">VERY HIGH LIKELIHOOD</span> associated with Atorvastatin
+                  <div class="se-tooltip-factors">
+                    <div class="factor-row"><span class="factor-check">&check;</span><span class="factor-text">Progressive worsening over 9 months on medication</span></div>
+                    <div class="factor-row"><span class="factor-check">&check;</span><span class="factor-text">SLCO1B1 variant: 3-5x myopathy risk &mdash; CPIC guideline</span></div>
+                    <div class="factor-row"><span class="factor-check">&check;</span><span class="factor-text">Functional impairment (difficulty walking)</span></div>
+                    <div class="factor-row"><span class="factor-x" style="color:#f85149;">&uarr;</span><span class="factor-text" style="color:#f85149;">Ask your doctor about a CK level check</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="se-dot se-severe" style="left: 65%;">
+              <span class="se-dot-label">Weakness · Jul 2025</span>
+              <div class="se-tooltip">
+                <div class="se-tooltip-name">&#x1F4AC; Discuss with your doctor — urgent</div>
+                <div class="se-tooltip-detail"><strong>Muscle weakness</strong> &middot; Severity: 7/10 &middot; Jul 2025<br>"Can't do stairs like I used to"</div>
+                <div class="se-tooltip-likelihood">
+                  <span class="likelihood-badge lh-very-high">VERY HIGH LIKELIHOOD</span> associated with Atorvastatin
+                  <div class="se-tooltip-factors">
+                    <div class="factor-row"><span class="factor-check">&check;</span><span class="factor-text">Progressive weakness: escalation from aches &rarr; pain &rarr; weakness</span></div>
+                    <div class="factor-row"><span class="factor-check">&check;</span><span class="factor-text">Genetic + clinical + temporal evidence all align</span></div>
+                    <div class="factor-row"><span class="factor-x" style="color:#f85149;">&uarr;</span><span class="factor-text" style="color:#f85149;">Weakness with functional decline — bring this up at your next visit</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="se-dot se-moderate" style="left: 82%;">
+              <span class="se-dot-label">Fatigue · Nov 2025</span>
+              <div class="se-tooltip">
+                <div class="se-tooltip-name">&#x1F4AC; Mention to your doctor</div>
+                <div class="se-tooltip-detail"><strong>Fatigue</strong> &middot; Severity: 5/10 &middot; Nov 2025<br>"Tired all the time, wondering if it's the statin"</div>
+                <div class="se-tooltip-likelihood">
+                  <span class="likelihood-badge lh-moderate">MODERATE LIKELIHOOD</span> possibly associated with Atorvastatin
+                  <div class="se-tooltip-factors">
+                    <div class="factor-row"><span class="factor-check">&check;</span><span class="factor-text">Fatigue reported in statin users &mdash; SIDER (8%)</span></div>
+                    <div class="factor-row"><span class="factor-check">&check;</span><span class="factor-text">Co-occurs with other statin muscle symptoms</span></div>
+                    <div class="factor-row"><span class="factor-x">&ndash;</span><span class="factor-text">Fatigue also common in diabetes, obesity, low Vitamin D</span></div>
+                    <div class="factor-row"><span class="factor-x">&ndash;</span><span class="factor-text">Multiple confounding conditions present</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── SLCO1B1 GENE VARIANT (contextual flag) ── -->
+      <div class="med-group med-group--no-se">
+        <div class="med-group-label" style="color: #f59e0b;">&#x26A0; Gene Variant</div>
+        <div class="treatment-lane">
+          <div class="treatment-bar" style="left: 0%; width: 100%; background: rgba(245,158,11,0.1); border: 1px dashed rgba(245,158,11,0.4);">
+            SLCO1B1 rs4149056 T/C &mdash; increased statin myopathy risk
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="response-summary">
+      <div class="response-summary-title">Treatment Response Summary</div>
+      <div class="response-row">
+        <div class="response-col">
+          <div class="response-label">Effectiveness</div>
+          <span class="response-warn">&#x25CB;</span> LDL dropped <strong>24 mg/dL</strong> (142 &rarr; 118) but still <strong>48 above target</strong><br>
+          <span class="response-warn">&#x25CB;</span> Suboptimal response may be related to SLCO1B1 variant
+        </div>
+        <div class="response-col">
+          <div class="response-label">Tolerability</div>
+          <span class="response-bad">&#x25CF;</span> Atorvastatin: <strong>5 reports, worsening trend</strong><br>
+          &nbsp;&nbsp;&nbsp;Muscle pain/weakness increasing over 18 months<br>
+          <span class="response-bad">&#x26A0;</span> <strong>SLCO1B1 variant associated with statin intolerance</strong><br>
+          &nbsp;&nbsp;&nbsp;Ask your doctor about alternatives (CPIC guideline available)
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SECTION: What Happened Here? (Part 4)       -->
+<!-- ═══════════════════════════════════════════ -->
+<hr class="section-divider">
+<div class="section-heading">"What Happened Here?" &mdash; Contextual Event Correlation</div>
+<div class="section-desc">When a lab value spikes unexpectedly, click the anomaly marker to see everything that was happening around that time. All events are pulled from your medical records, symptom log, and health devices &mdash; nothing is made up.</div>
+
+<div class="chart-card">
+  <div class="chart-header">
+    <div class="chart-title">HbA1c — Glycemic Control (with anomaly)</div>
+    <span class="chart-tag tag-declining" style="background: rgba(248,81,73,0.25);">&#x26A0; SPIKE DETECTED</span>
+  </div>
+  <div class="chart-subtitle">Was 6.8% and improving &rarr; suddenly jumped to 9.1% &nbsp;·&nbsp; What happened?</div>
+
+  <div class="chart-wrapper">
+    <div class="chart-area">
+      <div class="y-labels">
+        <span class="y-label">10%</span>
+        <span class="y-label">8%</span>
+        <span class="y-label">6%</span>
+        <span class="y-label">4%</span>
+      </div>
+      <div class="ref-band" style="bottom: 0%; height: 27%;">
+        <span class="ref-label">Normal &le; 5.6%</span>
+      </div>
+      <svg class="line-chart" viewBox="0 0 800 200" preserveAspectRatio="none">
+        <!-- Good trajectory -->
+        <polyline points="40,52 200,64 400,76 520,84"
+          fill="none" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <!-- Spike -->
+        <line x1="520" y1="84" x2="620" y2="20"
+          stroke="#f85149" stroke-width="2.5" stroke-linecap="round"/>
+        <!-- Recovery projection -->
+        <line x1="620" y1="20" x2="780" y2="50"
+          stroke="#58a6ff" stroke-width="1.5" stroke-dasharray="6,4" opacity="0.35"/>
+
+        <circle cx="40"  cy="52" r="5" fill="#58a6ff" stroke="#161b22" stroke-width="2"/>
+        <circle cx="200" cy="64" r="5" fill="#58a6ff" stroke="#161b22" stroke-width="2"/>
+        <circle cx="400" cy="76" r="5" fill="#58a6ff" stroke="#161b22" stroke-width="2"/>
+        <circle cx="520" cy="84" r="5" fill="#58a6ff" stroke="#161b22" stroke-width="2"/>
+        <circle cx="620" cy="20" r="7" fill="#f85149" stroke="#161b22" stroke-width="2"/>
+        <text x="40"  y="44" fill="#c9d1d9" font-size="11" text-anchor="middle" font-weight="600">7.8</text>
+        <text x="200" y="56" fill="#c9d1d9" font-size="11" text-anchor="middle" font-weight="600">7.4</text>
+        <text x="400" y="68" fill="#c9d1d9" font-size="11" text-anchor="middle" font-weight="600">7.0</text>
+        <text x="520" y="76" fill="#c9d1d9" font-size="11" text-anchor="middle" font-weight="600">6.8</text>
+        <text x="620" y="14" fill="#f85149" font-size="12" text-anchor="middle" font-weight="700">9.1</text>
+      </svg>
+      <!-- Pulsing anomaly marker -->
+      <div class="anomaly-point" style="left: 77.5%; top: 10%;"></div>
+    </div>
+
+    <div class="x-dates">
+      <span class="x-date">Jan 2025</span>
+      <span class="x-date">Apr 2025</span>
+      <span class="x-date">Jul 2025</span>
+      <span class="x-date">Oct 2025</span>
+      <span class="x-date">Jan 2026</span>
+      <span class="x-date">Apr 2026</span>
+    </div>
+  </div>
+
+  <!-- ═══ "What Happened Here?" Investigation Panel ═══ -->
+  <div class="investigation-panel">
+    <div class="investigation-header">
+      <div class="investigation-icon">&#x1F50D;</div>
+      <div>
+        <div class="investigation-title">What Happened Here?</div>
+        <div class="investigation-subtitle">HbA1c spiked from 6.8% &rarr; 9.1% (Jan 2026 draw) &middot; Expected: ~6.6% based on your trajectory &middot; Investigation window: Oct &ndash; Jan 2026</div>
+      </div>
+    </div>
+
+    <!-- Medical Records -->
+    <div class="event-source-group">
+      <div class="event-source-header"><span class="event-source-icon">&#x1F4CB;</span> FROM YOUR MEDICAL RECORDS</div>
+      <div class="event-row">
+        <div class="event-date">Nov 12, 2025</div>
+        <div class="event-desc">
+          <strong>Pneumonia diagnosis</strong> &mdash; ER visit, admitted to hospital<br>
+          <span class="event-source-tag">Source: Regional Medical Center discharge summary, p.3</span>
+        </div>
+      </div>
+      <div class="event-row">
+        <div class="event-date">Nov 12–19</div>
+        <div class="event-desc">
+          <strong>Hospitalization</strong> &mdash; 7-day inpatient stay<br>
+          <span class="event-source-tag">Source: Discharge summary</span>
+        </div>
+      </div>
+      <div class="event-row">
+        <div class="event-date">Nov 15, 2025</div>
+        <div class="event-desc">
+          <strong>Prednisone 40mg prescribed</strong> (10-day taper) &mdash; corticosteroids are known to raise blood sugar<br>
+          <span class="event-source-tag">Source: Hospital medication reconciliation, p.1</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Medication Changes -->
+    <div class="event-source-group">
+      <div class="event-source-header"><span class="event-source-icon">&#x1F48A;</span> MEDICATION CHANGES</div>
+      <div class="event-row">
+        <div class="event-date">Nov 15</div>
+        <div class="event-desc"><strong>Prednisone started</strong> &mdash; known to elevate blood sugar</div>
+      </div>
+      <div class="event-row">
+        <div class="event-date">Nov 25</div>
+        <div class="event-desc"><strong>Prednisone tapered off</strong></div>
+      </div>
+      <div class="event-row">
+        <div class="event-date">Dec 3, 2025</div>
+        <div class="event-desc">
+          <strong>Metformin refill gap</strong> &mdash; 14 days between pharmacy fills<br>
+          <span class="event-source-tag">Source: Pharmacy refill records</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Symptom Tracker -->
+    <div class="event-source-group">
+      <div class="event-source-header"><span class="event-source-icon">&#x1F4DD;</span> FROM YOUR SYMPTOM TRACKER</div>
+      <div class="event-row">
+        <div class="event-date">Nov 10</div>
+        <div class="event-desc"><strong>"Terrible cough, fever 101&deg;F"</strong> &mdash; severity 8/10<br><span class="event-source-tag">Patient-reported, Symptom Tracker entry</span></div>
+      </div>
+      <div class="event-row">
+        <div class="event-date">Nov 25</div>
+        <div class="event-desc"><strong>"Still weak, not eating well"</strong> &mdash; severity 5/10<br><span class="event-source-tag">Patient-reported, Symptom Tracker entry</span></div>
+      </div>
+      <div class="event-row">
+        <div class="event-date">Dec 8</div>
+        <div class="event-desc"><strong>"Back to normal, but forgot to take meds for a week"</strong><br><span class="event-source-tag">Patient-reported, Symptom Tracker entry</span></div>
+      </div>
+    </div>
+
+    <!-- Health Devices -->
+    <div class="event-source-group">
+      <div class="event-source-header"><span class="event-source-icon">&#x231A;</span> FROM YOUR HEALTH DEVICES</div>
+      <div class="device-data-row">
+        <span class="device-icon">&#x1F6B6;</span>
+        <div class="device-bar-container">
+          <span class="device-bar-label">Daily steps</span>
+          <div class="device-bar-track">
+            <div class="device-bar-fill" style="width: 87%; background: #3fb950; opacity: 0.6;"></div>
+            <div class="device-bar-fill" style="width: 13%; background: #f85149; opacity: 0.6;"></div>
+          </div>
+          <span class="device-bar-value">6,200 &rarr; <strong style="color:#f85149;">800</strong> avg</span>
+        </div>
+        <span class="event-source-tag">Fitbit sync, Nov 5&ndash;20</span>
+      </div>
+      <div class="device-data-row">
+        <span class="device-icon">&#x1F4C8;</span>
+        <div class="device-bar-container">
+          <span class="device-bar-label">CGM in-range</span>
+          <div class="device-bar-track">
+            <div class="device-bar-fill" style="width: 72%; background: #3fb950; opacity: 0.6;"></div>
+          </div>
+          <span class="device-bar-value">72% &rarr; <strong style="color:#f85149;">31%</strong></span>
+        </div>
+        <span class="event-source-tag">Dexcom G7, Nov 14&ndash;28</span>
+      </div>
+      <div class="device-data-row">
+        <span class="device-icon">&#x2764;&#xFE0F;</span>
+        <div class="device-bar-container">
+          <span class="device-bar-label">Resting HR</span>
+          <div class="device-bar-track">
+            <div class="device-bar-fill" style="width: 68%; background: #3fb950; opacity: 0.6;"></div>
+            <div class="device-bar-fill" style="left: 68%; width: 24%; background: #f85149; opacity: 0.6;"></div>
+          </div>
+          <span class="device-bar-value">68 &rarr; <strong style="color:#f85149;">92</strong> bpm</span>
+        </div>
+        <span class="event-source-tag">Apple Watch, Nov 11&ndash;18</span>
+      </div>
+    </div>
+
+    <!-- Summary -->
+    <div class="investigation-summary">
+      <div class="investigation-summary-title">&#x1F4AC; Discuss with your doctor because:</div>
+      <div class="investigation-summary-text">
+        Your HbA1c spiked from 6.8% to 9.1%, which is unusual given your improving trend. Your records show several events in that time period: a <strong>pneumonia hospitalization</strong> (Nov 2025), a <strong>10-day Prednisone course</strong> (steroids are known to raise blood sugar), and a <strong>2-week Metformin refill gap</strong> during recovery. Your CGM data also shows glucose control dropped significantly during this exact window.<br><br>
+        <strong>How to bring this up:</strong> <em>"My HbA1c jumped from 6.8 to 9.1. I was hospitalized for pneumonia in November and was on Prednisone for 10 days. I also missed about two weeks of Metformin during recovery. Could that explain the spike? Should my next test show improvement now that those things have resolved?"</em>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SECTION: Report Preview                     -->
+<!-- ═══════════════════════════════════════════ -->
+<hr class="section-divider">
+<div class="section-heading">Download Report Preview</div>
+<div class="section-desc">This is how the Treatment Response &amp; Tolerability section would appear in the downloadable Word document. Every section starts with "Discuss with your doctor because..." and includes a suggested conversation starter.</div>
+
+<div class="report-card">
+  <div class="report-title">Section 4: Treatment Response &amp; Tolerability</div>
+  <div class="report-subtitle">Auto-generated from lab trends, medication history, and your symptom log. All data comes from your uploaded records and symptom entries.</div>
+
+  <div class="report-entry">
+    <h4>Metformin 2000mg (started Dec 2024, dose increased Mar 2025)</h4>
+    <span class="eff">What your labs show:</span> HbA1c improved from <span class="metric">9.4%</span> to <span class="metric">8.2%</span> (-1.2% over 12 months). Fasting glucose improved from <span class="metric">178</span> to <span class="metric">156 mg/dL</span>. Improvement accelerated after dose increase and addition of insulin glargine.<br><br>
+    <span class="tol">What you reported:</span> You logged <span class="metric">8 side effect episodes</span> you associated with this medication:<br>
+    &bull; <strong>Nausea</strong> (severity up to 6/10) &mdash; <span class="metric" style="color:#f85149;">Very high likelihood</span> of association with Metformin. This is a known side effect in 25% of patients (OpenFDA FAERS). Worsened after dose increase from 1000mg to 2000mg, consistent with dose-response pattern.<br>
+    &bull; <strong>Diarrhea</strong> (severity up to 7/10) &mdash; <span class="metric" style="color:#f85149;">Very high likelihood</span> of association with Metformin. Reported in 53% of patients on drug label (DailyMed). Onset 10 days after dose increase. No other GI-affecting medications active.<br>
+    &bull; Both symptoms peaked in April 2025 and gradually improved over 4 months, consistent with documented GI adaptation pattern (SIDER). Most recent report (Sep 2025) rated severity 2/10.<br><br>
+
+    <span class="note" style="display:block; padding: 10px; background: rgba(245,158,11,0.06); border: 1px solid rgba(245,158,11,0.2); border-radius: 6px;">
+      <strong style="color: #f59e0b;">&#x1F4AC; Discuss with your doctor because:</strong> Your records show GI symptoms that are consistent with Metformin, especially after the dose increase. They appear to be improving on their own.<br><br>
+      <strong>How to bring this up:</strong> <em>"I've been having stomach issues since my Metformin dose went up to 2000mg. The nausea and diarrhea have gotten better over the last few months, but I wanted to mention it. Is there an extended-release version that might be easier on my stomach if they come back?"</em>
+    </span>
+  </div>
+
+  <div class="report-entry">
+    <h4>Atorvastatin 40mg (started before records begin)</h4>
+    <span class="eff">What your labs show:</span> LDL decreased from <span class="metric">142</span> to <span class="metric">118 mg/dL</span> (-24 mg/dL over 18 months). However, LDL remains <span class="metric">48 mg/dL above</span> the diabetic target of 70 mg/dL. Response appears suboptimal for a 40mg dose.<br><br>
+    <span class="tol">What you reported:</span> You logged <span class="metric">5 side effect episodes</span> you associated with this medication:<br>
+    &bull; <strong>Muscle aches &rarr; pain &rarr; cramps &rarr; weakness</strong> (severity escalating 5/10 &rarr; 7/10 over 18 months) &mdash; <span class="metric" style="color:#ff6b6b;">Very high likelihood</span> of association with Atorvastatin.<br><br>
+
+    <span class="tol">Evidence summary (4 of 5 Naranjo criteria met):</span><br>
+    &bull; <span style="color:#3fb950;">&check;</span> <strong>Known side effect:</strong> Statin myalgia reported in 5-10% of users. Your SLCO1B1 variant is associated with 3-5x increased risk (PharmGKB, CPIC guideline).<br>
+    &bull; <span style="color:#3fb950;">&check;</span> <strong>Temporal relationship:</strong> Muscle symptoms present throughout medication period with progressive worsening.<br>
+    &bull; <span style="color:#3fb950;">&check;</span> <strong>Genetic factor:</strong> SLCO1B1 rs4149056 T/C variant is associated with reduced hepatic statin uptake, which may increase muscle exposure.<br>
+    &bull; <span style="color:#3fb950;">&check;</span> <strong>No alternative explanation identified:</strong> No other myotoxic medications. Hypothyroidism and Vitamin D deficiency have been checked.<br>
+    &bull; <span style="color:#484f58;">&ndash;</span> <strong>Dechallenge not tested:</strong> Medication has not been stopped to see if symptoms resolve.<br><br>
+
+    &bull; <strong>Fatigue</strong> (severity 5/10) &mdash; <span class="metric" style="color:#f59e0b;">Moderate likelihood</span>. Fatigue is reported in 8% of statin users (SIDER) and co-occurs with other muscle symptoms, but diabetes, obesity, and low Vitamin D are also possible explanations.<br><br>
+
+    <span class="note" style="display:block; padding: 10px; background: rgba(248,81,73,0.06); border: 1px solid rgba(248,81,73,0.2); border-radius: 6px;">
+      <strong style="color: #f85149;">&#x1F4AC; Discuss with your doctor because:</strong> Your records show worsening muscle symptoms that multiple evidence sources associate with Atorvastatin. You also have a genetic variant (SLCO1B1) that is associated with increased statin sensitivity. Your LDL is still well above target, which may also be relevant to this conversation.<br><br>
+      <strong>How to bring this up:</strong> <em>"My muscle pain has been getting worse over the last year and a half &mdash; it started as achiness and now I'm having trouble with stairs. My genetic test showed an SLCO1B1 variant that's linked to statin sensitivity. My cholesterol is also still above target. Can we talk about whether a different statin or approach might work better for me?"</em>
+    </span>
+  </div>
+
+  <div class="report-entry">
+    <h4>Gabapentin 300mg (started Jun 2025)</h4>
+    <span class="eff">What your labs show:</span> Prescribed for peripheral neuropathy pain. Your symptom log shows <span class="metric">reduction in nerve pain episodes</span> from 5/month to 2/month since starting.<br><br>
+    <span class="tol">What you reported:</span> You logged <span class="metric">3 side effect episodes</span> you associated with this medication:<br>
+    &bull; <strong>Drowsiness</strong> (severity 5/10) &mdash; <span class="metric" style="color:#f85149;">High likelihood</span> of association with Gabapentin. Somnolence reported in 19% of patients (DailyMed). Onset within first 2 weeks of starting.<br>
+    &bull; <strong>Dizziness</strong> (severity 4/10) &mdash; <span class="metric" style="color:#f85149;">High likelihood</span> of association with Gabapentin. Dizziness reported in 17% of patients (DailyMed). Resolved by month 3.<br>
+    &bull; Both symptoms improved to 2/10 by September 2025.<br><br>
+
+    <span class="note" style="display:block; padding: 10px; background: rgba(245,158,11,0.06); border: 1px solid rgba(245,158,11,0.2); border-radius: 6px;">
+      <strong style="color: #f59e0b;">&#x1F4AC; Discuss with your doctor because:</strong> Gabapentin appears to be helping with your neuropathy pain and the initial drowsiness/dizziness have improved. However, gabapentin is cleared through your kidneys, and your kidney function (eGFR) has been declining. If it drops further, the medication may build up in your system.<br><br>
+      <strong>How to bring this up:</strong> <em>"The Gabapentin has really helped my nerve pain, but I know my kidney numbers have been going down. Since Gabapentin goes through the kidneys, should we keep an eye on the dose? Is there a kidney level where we'd need to adjust it?"</em>
+    </span>
+  </div>
+</div>
+
+<!-- Legend -->
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:#58a6ff;"></div> Lab data points</div>
+  <div class="legend-item"><div class="legend-dot" style="background:rgba(63,185,80,0.3); border:1px dashed rgba(63,185,80,0.5);"></div> Reference range</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#3b82f6;"></div><div class="legend-dot" style="background:#f97316;"></div><div class="legend-dot" style="background:#a78bfa;"></div> Medication bars</div>
+  <div class="legend-item"><div class="legend-dot se-mild" style="border-radius:50%;"></div> Mild side effect (1-3)</div>
+  <div class="legend-item"><div class="legend-dot se-moderate" style="border-radius:50%;"></div> Moderate side effect (4-6)</div>
+  <div class="legend-item"><div class="legend-dot se-severe" style="border-radius:50%;"></div> Severe side effect (7-10)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:rgba(245,158,11,0.3); border:1px dashed rgba(245,158,11,0.5);"></div> Pharmacogenomic flag</div>
+  <div class="legend-item"><div class="legend-dot" style="background:rgba(248,81,73,0.3); border:2px solid #f85149; border-radius:50%;"></div> Lab anomaly (click to investigate)</div>
+</div>
+
+<div style="max-width: 920px; margin-top: 20px; padding: 16px; background: #161b22; border: 1px solid rgba(255,255,255,0.08); border-radius: 10px;">
+  <div style="font-size: 11px; font-weight: 600; color: #fff; margin-bottom: 8px;">How Likelihood Is Calculated</div>
+  <div style="font-size: 10px; color: #8b949e; line-height: 1.6;">
+    Each side effect is scored against 5 evidence factors. The more factors present, the higher the confidence:<br><br>
+    <span class="likelihood-badge lh-very-high">VERY HIGH</span> 4-5 factors &mdash; Strong evidence of association. Multiple data sources align.<br>
+    <span class="likelihood-badge lh-high">HIGH</span> 3 factors &mdash; Likely associated with the medication. Known side effect with supporting timeline.<br>
+    <span class="likelihood-badge lh-moderate">MODERATE</span> 2 factors &mdash; Possibly related. Known side effect but other explanations exist.<br>
+    <span class="likelihood-badge lh-low">LOW</span> 0-1 factors &mdash; Unlikely to be medication-related, or insufficient evidence.<br><br>
+    <strong style="color:#c9d1d9;">Evidence factors checked:</strong><br>
+    1. <strong>Known side effect</strong> &mdash; Is this reported in FDA adverse events (OpenFDA FAERS), drug labels (DailyMed), or clinical databases (SIDER)?<br>
+    2. <strong>Temporal relationship</strong> &mdash; Did the symptom start after the medication was started or the dose was changed?<br>
+    3. <strong>Dose-response</strong> &mdash; Did severity increase with a dose increase, or improve with a decrease?<br>
+    4. <strong>Genetic factors</strong> &mdash; Does the patient's pharmacogenomic profile increase risk for this side effect? (PharmGKB, CPIC)<br>
+    5. <strong>Alternative explanations</strong> &mdash; Can this symptom be explained by another medication, condition, or lifestyle factor?<br><br>
+    <span style="color: #484f58;">This is a computational assessment for discussion purposes, not a clinical diagnosis. Always discuss medication concerns with your doctor.</span>
+  </div>
+</div>
+
+<div style="max-width: 920px; margin-top: 20px; padding: 16px; background: #161b22; border: 1px solid rgba(255,255,255,0.08); border-radius: 10px;">
+  <div style="font-size: 11px; font-weight: 600; color: #fff; margin-bottom: 8px;">Where Does This Data Come From?</div>
+  <div style="font-size: 10px; color: #8b949e; line-height: 1.6;">
+    <strong style="color:#c9d1d9;">No data is fabricated. Everything shown comes from real sources:</strong><br><br>
+    &#x1F4CB; <strong>Medical records</strong> &mdash; Extracted from your uploaded PDFs (lab reports, discharge summaries, clinical notes). Source page numbers are tracked.<br>
+    &#x1F4DD; <strong>Symptom Tracker</strong> &mdash; Your own entries with dates, severity, and notes. You choose which medication to associate a symptom with (optional).<br>
+    &#x231A; <strong>Health devices</strong> &mdash; Imported from Fitbit, Apple Watch, CGM (Dexcom/Libre), blood pressure monitors, etc.<br>
+    &#x1F48A; <strong>Medication timeline</strong> &mdash; Prescriptions and refill dates extracted from your records.<br>
+    &#x1F4CA; <strong>Clinical databases</strong> &mdash; OpenFDA FAERS, DailyMed, SIDER, PharmGKB, and CPIC are cross-referenced for known side effect frequencies and genetic risk factors.<br><br>
+    <span style="color: #484f58;">This tool provides evidence-based information to structure your doctor visit. It does not diagnose, and it does not replace medical advice. Your doctor interprets the evidence and makes treatment decisions.</span>
+  </div>
+</div>
+
+<p style="font-size: 10px; color: #484f58; margin-top: 16px; max-width: 920px;">
+  Side effect data comes from your symptom log. You optionally tag symptoms to medications you think are responsible.
+  Likelihood is computed by cross-referencing OpenFDA FAERS, DailyMed, SIDER, and PharmGKB against your medication timeline and genetic profile.
+  This is not a clinical diagnosis. It is an evidence-based discussion tool designed to help you have a more informed conversation with your doctor.
+</p>
+
+</body>
+</html>

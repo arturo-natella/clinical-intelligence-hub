@@ -226,6 +226,7 @@ a, button, input, textarea, select {
 
 .view { display: none; }
 .view.active { display: block; }
+#view-symptom-landscape.active { display: flex; flex-direction: column; height: 100%; }
 
 /* ── Cards (Amaru style — solid surfaces, inside borders) ── */
 
@@ -2769,6 +2770,11 @@ a, button, input, textarea, select {
     padding: 8px 0;
 }
 
+/* Prevent center-alignment from bleeding into form fields */
+.wizard-card .form-group {
+    text-align: left;
+}
+
 .wizard-card h3 {
     font-size: 18px;
     color: var(--text-primary);
@@ -2951,6 +2957,35 @@ a, button, input, textarea, select {
     color: var(--text-muted);
     margin-top: 4px;
     font-style: italic;
+}
+
+.form-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.form-checkbox-label input[type="checkbox"] {
+    accent-color: var(--accent-bluetron);
+}
+
+/* Skip-for-now link in wizard → episode transition */
+.skip-for-now-link {
+    display: block;
+    text-align: center;
+    margin-top: 16px;
+    color: var(--text-muted);
+    font-size: 13px;
+    text-decoration: none;
+    transition: color 0.15s;
+}
+.skip-for-now-link:hover {
+    color: var(--text-secondary);
+    text-decoration: underline;
 }
 
 /* Catch-up mode banner */
@@ -3983,14 +4018,16 @@ a, button, input, textarea, select {
     min-width: 0;
     background: var(--bg-primary);
     display: flex;
+    flex-direction: column;
     align-items: center;
-    justify-content: center;
-    overflow: hidden;
+    justify-content: flex-start;
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 
 .traj-chart-panel svg {
     width: 100%;
-    height: 100%;
+    flex-shrink: 0;
 }
 
 /* Detail panel */
@@ -4055,6 +4092,1067 @@ a, button, input, textarea, select {
     line-height: 1.6;
     max-width: 600px;
     margin: 0 auto;
+}
+
+/* ── Treatment Bars (Phase 1) ──────────────────────────── */
+
+.traj-treatments-section {
+    width: 100%;
+    padding: 8px 0 12px;
+    border-top: 1px solid var(--border-faint);
+    flex-shrink: 0;
+}
+
+.traj-treatments-label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--text-muted);
+    padding: 4px 24px 8px;
+}
+
+/* Each medication is a self-contained container (flex column).
+   Phase 2 adds a .side-effect-lane child below the bar row. */
+.med-group {
+    display: flex;
+    flex-direction: column;
+    padding: 0 0 0 0;
+    min-height: 36px;
+}
+
+.med-group + .med-group {
+    margin-top: 4px;
+}
+
+/* Horizontal row: label on left, treatment lane on right */
+.med-group-row {
+    display: flex;
+    align-items: center;
+    height: 36px;
+}
+
+.med-group-label {
+    width: 120px;
+    min-width: 120px;
+    padding: 0 12px 0 24px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Horizontal lane that holds the bar + event lines */
+.treatment-lane {
+    flex: 1;
+    position: relative;
+    height: 36px;
+    min-width: 0;
+}
+
+/* The colored medication bar */
+.treatment-bar {
+    position: absolute;
+    top: 4px;
+    height: 28px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
+    overflow: hidden;
+    opacity: 0.85;
+    transition: opacity 0.15s ease;
+}
+
+.treatment-bar:hover {
+    opacity: 1;
+}
+
+/* Dosage / notes text inside the bar */
+.treatment-bar-text {
+    font-size: 11px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.92);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+/* Dose change tick mark */
+.dose-tick {
+    position: absolute;
+    top: 0;
+    width: 2px;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.45);
+    pointer-events: none;
+}
+
+/* Label above dose tick */
+.dose-tick-label {
+    position: absolute;
+    top: -16px;
+    transform: translateX(-50%);
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+/* Dashed vertical event line (start/stop/dose change) */
+.event-line {
+    position: absolute;
+    top: 0;
+    width: 0;
+    height: 100%;
+    border-left: 1.5px dashed rgba(255, 255, 255, 0.18);
+    pointer-events: none;
+}
+
+/* Small flag label above event lines */
+.event-flag {
+    position: absolute;
+    top: -20px;
+    transform: translateX(-50%);
+    font-size: 9px;
+    font-weight: 500;
+    color: var(--text-muted);
+    background: var(--bg-raised);
+    border: 1px solid var(--border-faint);
+    border-radius: 4px;
+    padding: 1px 6px;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 2;
+}
+
+/* ── Side Effect Overlay (Phase 2) ─────────────────────── */
+
+/* Container below treatment bar row, inside .med-group */
+.side-effect-lane {
+    display: flex;
+    align-items: center;
+    height: 38px;
+    min-height: 38px;
+}
+
+/* "side effects" italic label on the left */
+.side-effect-label {
+    width: 120px;
+    min-width: 120px;
+    padding: 0 12px 0 24px;
+    font-size: 11px;
+    font-style: italic;
+    font-weight: 500;
+    color: #e06c8a;
+    text-align: right;
+    white-space: nowrap;
+}
+
+/* Dot container (relative positioning for absolute dots) */
+.side-effect-dot-container {
+    flex: 1;
+    position: relative;
+    height: 38px;
+    min-width: 0;
+}
+
+/* Wrapper for each dot + label pair */
+.se-dot-wrap {
+    position: absolute;
+    top: 4px;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    cursor: pointer;
+    z-index: 1;
+}
+
+/* The dot itself */
+.se-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.se-dot:hover {
+    transform: scale(1.5);
+    box-shadow: 0 0 6px rgba(248, 81, 73, 0.4);
+}
+
+/* Severity variants */
+.se-dot.se-low {
+    background: rgba(248, 81, 73, 0.3);
+}
+.se-dot.se-mid {
+    background: rgba(248, 81, 73, 0.55);
+}
+.se-dot.se-high {
+    background: rgba(248, 81, 73, 0.85);
+}
+
+/* Small text label below the dot */
+.se-dot-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    margin-top: 2px;
+    max-width: 80px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Tooltip — positioned absolute on body */
+.se-tooltip {
+    position: fixed;
+    z-index: 10000;
+    background: #1e1e1e;
+    border: 1px solid #3a3a3a;
+    border-radius: 10px;
+    padding: 14px 16px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    max-width: 320px;
+    min-width: 220px;
+    color: #f5f5f5;
+    font-size: 12px;
+    pointer-events: none;
+}
+
+/* "Discuss with your doctor" header */
+.se-tooltip-header {
+    font-size: 13px;
+    font-weight: 600;
+    color: #f5f5f5;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #3a3a3a;
+}
+
+/* Symptom detail section */
+.se-tooltip-detail {
+    margin-bottom: 8px;
+}
+
+/* Likelihood badges */
+.likelihood-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 3px 10px;
+    border-radius: 4px;
+    margin-bottom: 4px;
+}
+
+.lh-very-high {
+    background: rgba(220, 38, 38, 0.25);
+    color: #f87171;
+    border: 1px solid rgba(220, 38, 38, 0.4);
+}
+
+.lh-high {
+    background: rgba(249, 115, 22, 0.25);
+    color: #fb923c;
+    border: 1px solid rgba(249, 115, 22, 0.4);
+}
+
+.lh-moderate {
+    background: rgba(234, 179, 8, 0.20);
+    color: #facc15;
+    border: 1px solid rgba(234, 179, 8, 0.35);
+}
+
+.lh-low {
+    background: rgba(96, 165, 250, 0.15);
+    color: #93c5fd;
+    border: 1px solid rgba(96, 165, 250, 0.30);
+}
+
+/* Factor checklist rows */
+.factor-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    line-height: 1.7;
+    color: var(--text-secondary);
+}
+
+.factor-check {
+    color: #4ade80;
+    font-weight: 700;
+    font-size: 12px;
+    width: 14px;
+    text-align: center;
+}
+
+.factor-x {
+    color: #6b7280;
+    font-weight: 600;
+    font-size: 12px;
+    width: 14px;
+    text-align: center;
+}
+
+/* ── Anomaly Indicators (Phase 4) ──────────────────────── */
+
+.anomaly-point {
+    transition: stroke-width 0.15s ease;
+}
+
+.anomaly-point:hover {
+    stroke-width: 3.5;
+}
+
+.anomaly-label {
+    pointer-events: auto;
+    user-select: none;
+}
+
+.anomaly-label:hover {
+    opacity: 0.8;
+}
+
+/* ── Investigation Panel (Phase 4) ────────────────────── */
+
+.investigation-panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border-muted);
+    border-radius: var(--radius);
+    padding: 20px 24px;
+    margin: 12px 0;
+    box-shadow: var(--shadow);
+    animation: investigation-fadein 0.25s ease;
+}
+
+@keyframes investigation-fadein {
+    from { opacity: 0; transform: translateY(-8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.investigation-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.investigation-icon {
+    font-size: 22px;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.investigation-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.investigation-subtitle {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.investigation-window {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 16px;
+    padding: 6px 10px;
+    background: var(--bg-raised);
+    border-radius: var(--radius-sm);
+    border-left: 3px solid var(--accent-bluetron);
+}
+
+.event-source-group {
+    margin-bottom: 16px;
+}
+
+.event-source-header {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border-faint);
+}
+
+.event-row {
+    display: flex;
+    gap: 16px;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.event-row:last-child {
+    border-bottom: none;
+}
+
+.event-date {
+    width: 120px;
+    flex-shrink: 0;
+    font-size: 12px;
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.event-desc-col {
+    flex: 1;
+    min-width: 0;
+}
+
+.event-desc {
+    font-size: 13px;
+    color: var(--text-primary);
+    line-height: 1.5;
+}
+
+.event-source-tag {
+    font-size: 10px;
+    font-style: italic;
+    color: var(--text-muted);
+    margin-top: 3px;
+}
+
+.investigation-summary {
+    margin-top: 16px;
+    padding: 16px;
+    border: 1px solid rgba(92, 212, 127, 0.25);
+    border-radius: var(--radius-sm);
+    background: rgba(92, 212, 127, 0.04);
+}
+
+.investigation-summary-title {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--accent-forest);
+    margin-bottom: 10px;
+}
+
+.investigation-summary-text {
+    font-size: 13px;
+    color: var(--text-primary);
+    line-height: 1.6;
+    margin-bottom: 12px;
+}
+
+.investigation-conversation {
+    font-size: 13px;
+    font-style: italic;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    padding-left: 12px;
+    border-left: 3px solid var(--accent-forest);
+}
+
+.investigation-loading {
+    text-align: center;
+    padding: 24px 16px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+/* ── Symptom Landscape View ──────────────────────────────── */
+
+.sl-view {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+}
+
+.sl-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border-faint);
+    flex-shrink: 0;
+    background: var(--bg-secondary);
+}
+
+.sl-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--accent-bluetron);
+}
+
+.sl-subtitle {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+/* .sl-close removed — no longer an overlay, view switching handles navigation */
+
+/* Summary bar */
+.sl-summary-bar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 10px 24px;
+    background: var(--bg-raised);
+    border-bottom: 1px solid var(--border-faint);
+    flex-shrink: 0;
+}
+
+.sl-summary-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 10px;
+    border-radius: 10px;
+}
+
+.sl-badge-info {
+    background: rgba(90, 143, 252, 0.15);
+    color: #5a8ffc;
+}
+
+.sl-badge-systems {
+    background: rgba(160, 122, 255, 0.15);
+    color: #a07aff;
+}
+
+.sl-badge-unattributed {
+    background: rgba(249, 115, 22, 0.15);
+    color: #f97316;
+}
+
+.sl-badge-clusters {
+    background: rgba(99, 102, 241, 0.15);
+    color: #6366f1;
+}
+
+/* Content layout */
+.sl-content {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.sl-empty {
+    color: var(--text-muted);
+    text-align: center;
+    padding: 60px 40px;
+    font-size: 14px;
+    line-height: 1.6;
+    width: 100%;
+}
+
+/* Left panel: body system filter */
+.sl-left-panel {
+    width: 220px;
+    border-right: 1px solid var(--border-faint);
+    background: var(--bg-secondary);
+    overflow-y: auto;
+    flex-shrink: 0;
+    padding: 8px 0;
+}
+
+.sl-filter-heading {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    padding: 8px 16px 6px;
+}
+
+.sl-filter-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    cursor: pointer;
+    border-radius: 6px;
+    margin: 2px 8px;
+    transition: all 0.15s ease;
+    opacity: 0.5;
+}
+
+.sl-filter-item.active {
+    opacity: 1;
+    background: var(--bg-glass);
+}
+
+.sl-filter-item:hover {
+    background: var(--bg-glass);
+}
+
+.sl-filter-indicator {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.sl-filter-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    flex: 1;
+}
+
+.sl-filter-count {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.sl-filter-symptom {
+    font-size: 11px;
+    color: var(--text-muted);
+    padding: 2px 16px 2px 42px;
+}
+
+.sl-filter-empty {
+    padding: 24px 16px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+/* Chart panel */
+.sl-chart-panel {
+    flex: 1;
+    overflow: auto;
+    padding: 16px;
+    position: relative;
+}
+
+/* SVG elements */
+.sl-svg {
+    display: block;
+}
+
+.sl-section-label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    fill: var(--text-muted);
+}
+
+.sl-med-bar {
+    cursor: default;
+}
+
+.sl-med-label {
+    font-size: 11px;
+    fill: var(--text-secondary);
+    font-weight: 500;
+}
+
+/* Swim lane styles */
+.sl-lane-bg {
+    pointer-events: none;
+}
+
+.sl-lane-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+/* Episode dots */
+.sl-dot {
+    cursor: pointer;
+    transition: r 0.15s ease, opacity 0.15s ease;
+}
+
+.sl-dot:hover {
+    r: 10;
+    opacity: 1 !important;
+    fill-opacity: 1 !important;
+}
+
+.sl-dot-unattributed {
+    cursor: pointer;
+}
+
+.sl-dot-attributed {
+    cursor: pointer;
+}
+
+.sl-dot-question {
+    pointer-events: none;
+    font-weight: 700;
+}
+
+/* Cluster bands */
+.sl-cluster-band {
+    pointer-events: none;
+}
+
+.sl-cluster-label {
+    font-size: 9px;
+    fill: var(--text-muted);
+    font-weight: 500;
+}
+
+/* X Axis */
+.sl-x-axis text {
+    fill: var(--text-muted);
+    font-size: 10px;
+}
+
+.sl-x-axis line,
+.sl-x-axis path {
+    stroke: var(--border-faint);
+}
+
+/* Tooltip */
+.sl-tooltip {
+    position: fixed;
+    z-index: 1100;
+    background: var(--bg-card);
+    border: 1px solid var(--border-muted);
+    border-radius: 8px;
+    padding: 8px 12px;
+    pointer-events: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.sl-tooltip-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.sl-tooltip-date {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+.sl-tooltip-severity {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 2px;
+}
+
+/* Detail panel */
+.sl-detail-panel {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    width: 300px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-muted);
+    border-radius: 12px;
+    padding: 16px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    z-index: 10;
+}
+
+.sl-detail-close {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 18px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    transition: all 0.15s ease;
+}
+
+.sl-detail-close:hover {
+    background: var(--bg-glass);
+    color: var(--text-primary);
+}
+
+.sl-detail-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 12px;
+    padding-right: 24px;
+}
+
+.sl-detail-row {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+    line-height: 1.4;
+}
+
+.sl-detail-label {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.sl-detail-system {
+    font-weight: 600;
+}
+
+.sl-detail-attribution {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-faint);
+}
+
+.sl-attr-linked {
+    color: #5cd47f;
+}
+
+.sl-attr-unlinked {
+    color: #f97316;
+    font-style: italic;
+}
+
+/* Severity badges in detail */
+.sl-intensity-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 8px;
+}
+
+.sl-int-high {
+    background: rgba(239, 68, 68, 0.15);
+    color: #ef4444;
+}
+
+.sl-int-mid {
+    background: rgba(249, 115, 22, 0.15);
+    color: #f97316;
+}
+
+.sl-int-low {
+    background: rgba(92, 212, 127, 0.15);
+    color: #5cd47f;
+}
+
+/* Doctor discussion framing */
+.sl-detail-discuss {
+    margin-top: 12px;
+    padding: 10px;
+    background: rgba(90, 143, 252, 0.08);
+    border-radius: 8px;
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.5;
+    border-left: 3px solid var(--accent-bluetron);
+}
+
+/* Body system color utility classes */
+.sl-gi { color: #f97316; }
+.sl-musculoskeletal { color: #3b82f6; }
+.sl-neurological { color: #a07aff; }
+.sl-mood_energy { color: #e06c8a; }
+.sl-cardiovascular { color: #dc2626; }
+.sl-sleep { color: #6366f1; }
+.sl-skin { color: #f0c550; }
+.sl-other { color: #6b7280; }
+
+/* ── Treatment Response Summary ─────────────────────────── */
+
+.traj-treatment-panel {
+    max-height: 260px;
+    overflow-y: auto;
+    border-top: 1px solid var(--border-faint);
+    background: var(--bg-secondary);
+    padding: 12px 24px;
+    flex-shrink: 0;
+}
+
+.traj-treatment-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent-bluetron);
+    margin-bottom: 12px;
+    letter-spacing: 0.2px;
+}
+
+.med-group-heading {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 6px;
+}
+
+.response-summary {
+    background: var(--bg-card, #171717);
+    border: 1px solid var(--border-muted, #333);
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 8px;
+}
+
+.response-row {
+    display: flex;
+    gap: 24px;
+}
+
+.response-col {
+    flex: 1;
+}
+
+.response-label {
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: var(--text-primary, #fff);
+    margin-bottom: 8px;
+}
+
+.response-item {
+    font-size: 0.8rem;
+    color: var(--text-secondary, #a3a3a3);
+    margin-bottom: 4px;
+}
+
+.response-good {
+    color: #10b981;
+}
+
+.response-warn {
+    color: #f0c550;
+}
+
+.response-bad {
+    color: #f85149;
+}
+
+.response-guide {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-faint);
+}
+
+.response-guide-text {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    font-style: italic;
+    line-height: 1.5;
+}
+
+/* ── Drug-Drug Interaction Timeline ────────────────────── */
+
+.interaction-zone {
+    position: absolute;
+    pointer-events: all;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: opacity 0.15s;
+}
+.interaction-zone:hover {
+    opacity: 0.9;
+}
+.interaction-zone-critical {
+    background: rgba(239,68,68,0.2);
+    border: 1px solid rgba(239,68,68,0.4);
+}
+.interaction-zone-high {
+    background: rgba(249,115,22,0.2);
+    border: 1px solid rgba(249,115,22,0.4);
+}
+.interaction-zone-moderate {
+    background: rgba(234,179,8,0.2);
+    border: 1px solid rgba(234,179,8,0.4);
+}
+.interaction-zone-low {
+    background: rgba(107,114,128,0.15);
+    border: 1px solid rgba(107,114,128,0.3);
+}
+
+.interaction-detail-panel {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--bg-card, #171717);
+    border: 1px solid var(--border-primary, #333);
+    border-radius: 12px;
+    padding: 24px;
+    max-width: 550px;
+    width: 90vw;
+    max-height: 80vh;
+    overflow-y: auto;
+    z-index: 1000;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+.interaction-severity {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    margin-bottom: 12px;
+}
+.interaction-desc {
+    color: var(--text-secondary, #a3a3a3);
+    font-size: 0.85rem;
+    line-height: 1.5;
+    margin-bottom: 12px;
+}
+.interaction-overlap-info {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-bottom: 16px;
+}
+.interaction-symptom {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+}
+.interaction-source {
+    font-size: 0.75rem;
+    color: var(--text-tertiary, #6b7280);
+    margin-top: 12px;
+}
+.interaction-discuss {
+    margin-top: 12px;
+    padding: 12px;
+    background: rgba(16,185,129,0.08);
+    border-left: 3px solid #10b981;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.pgx-flag-bar {
+    height: 20px;
+    position: relative;
+    margin-top: 2px;
+}
+.pgx-flag-marker {
+    position: absolute;
+    height: 100%;
+    border: 1px dashed #f0c550;
+    border-radius: 3px;
+    background: rgba(240,197,80,0.08);
+}
+.pgx-flag-label {
+    font-size: 0.7rem;
+    color: #f0c550;
+    padding: 2px 6px;
+}
+
+.interaction-timeline-container {
+    min-height: 150px;
+}
+
+.interaction-zone-card:hover {
+    border-color: var(--border-loud, #404040) !important;
 }
 
 /* ── Responsive ─────────────────────────────────────────── */

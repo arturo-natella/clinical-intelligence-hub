@@ -11,7 +11,7 @@
 var Symptoms = {
 
     _data: [],          // array of symptom objects from API
-    _activeFilter: null, // severity filter: null | "high" | "mid" | "low"
+    _activeFilter: null, // intensity filter: null | "high" | "mid" | "low"
 
     // ── Load & Render ────────────────────────────────────
 
@@ -46,7 +46,7 @@ var Symptoms = {
             var f = this._activeFilter;
             filtered = active.filter(function(s) {
                 return s.episodes && s.episodes.some(function(ep) {
-                    return (ep.severity || "mid") === f;
+                    return (ep.intensity || "mid") === f;
                 });
             });
         }
@@ -104,18 +104,18 @@ var Symptoms = {
         }
     },
 
-    // ── Severity Filter ──────────────────────────────────
+    // ── Intensity Filter ──────────────────────────────────
 
-    filter: function(severity) {
-        if (severity === "all" || this._activeFilter === severity) {
+    filter: function(intensity) {
+        if (intensity === "all" || this._activeFilter === intensity) {
             this._activeFilter = null;
         } else {
-            this._activeFilter = severity;
+            this._activeFilter = intensity;
         }
 
         var btns = document.querySelectorAll(".symptom-filter");
         for (var i = 0; i < btns.length; i++) {
-            var sev = btns[i].dataset.severity;
+            var sev = btns[i].dataset.intensity;
             if (this._activeFilter === null) {
                 btns[i].classList.toggle("active", sev === "all");
             } else {
@@ -246,7 +246,7 @@ var Symptoms = {
 
             var thead = document.createElement("thead");
             var headRow = document.createElement("tr");
-            var headers = ["Date", "Time", "Severity", "Description", "Triggers", ""];
+            var headers = ["Date", "Time", "Intensity", "Ended", "Description", "What Helped", "Triggers", ""];
             for (var hi = 0; hi < headers.length; hi++) {
                 var th = document.createElement("th");
                 th.textContent = headers[hi];
@@ -275,31 +275,58 @@ var Symptoms = {
     _renderEpisodeRow: function(ep, symptomId) {
         var row = document.createElement("tr");
 
+        // Date column
         var dateCell = document.createElement("td");
         dateCell.textContent = formatDate(ep.episode_date);
         row.appendChild(dateCell);
 
+        // Time column
         var timeCell = document.createElement("td");
         timeCell.textContent = ep.time_of_day || "\u2014";
         row.appendChild(timeCell);
 
-        var sevCell = document.createElement("td");
-        var sevMap = {high: "badge-critical", mid: "badge-moderate", low: "badge-low"};
-        var sevSpan = document.createElement("span");
-        sevSpan.className = "badge " + (sevMap[ep.severity] || "badge-info");
-        sevSpan.textContent = (ep.severity || "mid").toUpperCase();
-        sevCell.appendChild(sevSpan);
-        row.appendChild(sevCell);
+        // Intensity column
+        var intCell = document.createElement("td");
+        var intMap = {high: "badge-critical", mid: "badge-moderate", low: "badge-low"};
+        var intSpan = document.createElement("span");
+        intSpan.className = "badge " + (intMap[ep.intensity] || "badge-info");
+        intSpan.textContent = (ep.intensity || "mid").toUpperCase();
+        intCell.appendChild(intSpan);
+        row.appendChild(intCell);
 
+        // Ended column — show date range or "Ongoing"
+        var endCell = document.createElement("td");
+        if (ep.end_date) {
+            endCell.textContent = formatDate(ep.end_date);
+        } else if (ep.episode_date) {
+            var ongoingSpan = document.createElement("span");
+            ongoingSpan.style.color = "var(--text-muted)";
+            ongoingSpan.style.fontStyle = "italic";
+            ongoingSpan.textContent = "Ongoing";
+            endCell.appendChild(ongoingSpan);
+        } else {
+            endCell.textContent = "\u2014";
+        }
+        row.appendChild(endCell);
+
+        // Description column
         var descCell = document.createElement("td");
         var desc = ep.description || "";
         descCell.textContent = desc.length > 80 ? desc.substring(0, 80) + "\u2026" : desc;
         row.appendChild(descCell);
 
+        // What Helped column
+        var helpedCell = document.createElement("td");
+        var notes = ep.resolution_notes || "";
+        helpedCell.textContent = notes.length > 60 ? notes.substring(0, 60) + "\u2026" : (notes || "\u2014");
+        row.appendChild(helpedCell);
+
+        // Triggers column
         var trigCell = document.createElement("td");
         trigCell.textContent = ep.triggers || "\u2014";
         row.appendChild(trigCell);
 
+        // Actions column
         var actCell = document.createElement("td");
         var delBtn = document.createElement("button");
         delBtn.className = "btn btn-sm btn-outline";
@@ -757,11 +784,31 @@ var Symptoms = {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(body),
             });
-            this.closeWizard();
+
             if (result && result.restored) {
                 alert("Restored archived symptom: " + result.restored_name);
+                this.closeWizard();
+                this.load();
+                return;
             }
+
+            // Refresh symptom list in background so the card appears
             this.load();
+
+            // Transition wizard → first episode logging
+            var newSymptom = result;
+            this._currentEpisodeSymptom = newSymptom;
+
+            var modal = $("symptom-wizard-modal");
+            if (modal) {
+                // Clear wizard content safely
+                while (modal.firstChild) modal.removeChild(modal.firstChild);
+                modal.style.maxWidth = "520px";  // Wider for episode form
+
+                this._buildEpisodeForm(modal, newSymptom, null, function() {
+                    Symptoms.closeWizard();
+                });
+            }
         } catch (e) {
             if (e.message && e.message.indexOf("already exists") !== -1) {
                 alert("That symptom already exists in your active list.");
@@ -799,7 +846,7 @@ var Symptoms = {
         modal.style.display = "flex";
     },
 
-    _buildEpisodeForm: function(container, symptom, overrideDate) {
+    _buildEpisodeForm: function(container, symptom, overrideDate, onClose) {
         var card = document.createElement("div");
         card.className = "wizard-card";
 
@@ -807,6 +854,19 @@ var Symptoms = {
         h3.className = "wizard-title";
         h3.textContent = "Log Episode: " + symptom.symptom_name;
         card.appendChild(h3);
+
+        // "Skip for now" link when coming from wizard flow
+        if (onClose) {
+            var skipLink = document.createElement("a");
+            skipLink.href = "#";
+            skipLink.className = "skip-for-now-link";
+            skipLink.textContent = "Skip for now \u2014 I\u2019ll log episodes later";
+            skipLink.onclick = function(e) {
+                e.preventDefault();
+                onClose();
+            };
+            card.appendChild(skipLink);
+        }
 
         var today = new Date().toISOString().split("T")[0];
         var dateValue = overrideDate || today;
@@ -825,11 +885,8 @@ var Symptoms = {
         grid.className = "form-grid";
 
         // Date — defaults to today with hint
-        var dateGroup = this._formGroup("Date", "date", "ep-date", dateValue);
-        var dateHint = document.createElement("span");
-        dateHint.className = "form-hint";
-        dateHint.textContent = "Defaults to today \u2014 change if logging a past episode";
-        dateGroup.appendChild(dateHint);
+        var dateGroup = this._formGroup("When did it start?", "date", "ep-date", dateValue, "",
+            "Helps your doctor spot patterns in when symptoms occur");
         grid.appendChild(dateGroup);
 
         // Time of day
@@ -850,17 +907,21 @@ var Symptoms = {
             timeSelect.appendChild(opt);
         }
         timeGroup.appendChild(timeSelect);
+        var timeHint = document.createElement("span");
+        timeHint.className = "form-hint";
+        timeHint.textContent = "Timing patterns can reveal triggers like meals, medication schedules, or sleep";
+        timeGroup.appendChild(timeHint);
         grid.appendChild(timeGroup);
 
-        // Severity
+        // Intensity
         var sevGroup = document.createElement("div");
         sevGroup.className = "form-group";
         var sevLbl = document.createElement("label");
         sevLbl.className = "form-label";
-        sevLbl.textContent = "Severity";
+        sevLbl.textContent = "Intensity";
         sevGroup.appendChild(sevLbl);
         var sevSelect = document.createElement("select");
-        sevSelect.id = "ep-severity";
+        sevSelect.id = "ep-intensity";
         sevSelect.className = "form-input";
         var sevOpts = [["high", "High"], ["mid", "Mid"], ["low", "Low"]];
         for (var si = 0; si < sevOpts.length; si++) {
@@ -871,11 +932,51 @@ var Symptoms = {
             sevSelect.appendChild(sopt);
         }
         sevGroup.appendChild(sevSelect);
+        var sevHint = document.createElement("span");
+        sevHint.className = "form-hint";
+        sevHint.textContent = "Tracking intensity over time shows whether a symptom is getting better or worse";
+        sevGroup.appendChild(sevHint);
         grid.appendChild(sevGroup);
 
         // Duration
-        var durGroup = this._formGroup("Duration", "text", "ep-duration", "", "e.g. 2 hours, all day");
+        var durGroup = this._formGroup("Duration", "text", "ep-duration", "", "e.g. 2 hours, all day",
+            "How long it lasted helps distinguish between different possible causes");
         grid.appendChild(durGroup);
+
+        // When did it end? — date + "Still ongoing" checkbox
+        var endGroup = document.createElement("div");
+        endGroup.className = "form-group";
+        var endLbl = document.createElement("label");
+        endLbl.className = "form-label";
+        endLbl.textContent = "When did it end?";
+        endGroup.appendChild(endLbl);
+        var endDateInput = document.createElement("input");
+        endDateInput.type = "date";
+        endDateInput.id = "ep-end-date";
+        endDateInput.className = "form-input";
+        endGroup.appendChild(endDateInput);
+        var ongoingWrap = document.createElement("label");
+        ongoingWrap.className = "form-checkbox-label";
+        ongoingWrap.style.cssText = "display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;";
+        var ongoingCheck = document.createElement("input");
+        ongoingCheck.type = "checkbox";
+        ongoingCheck.id = "ep-still-ongoing";
+        ongoingCheck.onchange = function() {
+            endDateInput.disabled = this.checked;
+            if (this.checked) endDateInput.value = "";
+        };
+        ongoingWrap.appendChild(ongoingCheck);
+        var ongoingText = document.createElement("span");
+        ongoingText.className = "form-hint";
+        ongoingText.style.margin = "0";
+        ongoingText.textContent = "Still ongoing";
+        ongoingWrap.appendChild(ongoingText);
+        endGroup.appendChild(ongoingWrap);
+        var endHint = document.createElement("span");
+        endHint.className = "form-hint";
+        endHint.textContent = "Helps your doctor understand how long episodes last";
+        endGroup.appendChild(endHint);
+        grid.appendChild(endGroup);
 
         card.appendChild(grid);
 
@@ -891,11 +992,79 @@ var Symptoms = {
         descArea.className = "form-input form-textarea";
         descArea.placeholder = "Describe what you experienced...";
         descGroup.appendChild(descArea);
+        var descHint = document.createElement("span");
+        descHint.className = "form-hint";
+        descHint.textContent = "The more detail you provide, the better your doctor can understand the symptom";
+        descGroup.appendChild(descHint);
         card.appendChild(descGroup);
 
+        // What helped? (resolution_notes)
+        var resolveGroup = document.createElement("div");
+        resolveGroup.className = "form-group";
+        var resolveLbl = document.createElement("label");
+        resolveLbl.className = "form-label";
+        resolveLbl.textContent = "What helped?";
+        resolveGroup.appendChild(resolveLbl);
+        var resolveArea = document.createElement("textarea");
+        resolveArea.id = "ep-resolution-notes";
+        resolveArea.className = "form-input form-textarea";
+        resolveArea.placeholder = "e.g. had tea and it settled, took ibuprofen, rested for an hour...";
+        resolveArea.rows = 2;
+        resolveGroup.appendChild(resolveArea);
+        var resolveHint = document.createElement("span");
+        resolveHint.className = "form-hint";
+        resolveHint.textContent = "Telling your doctor what relieved it helps narrow down possible causes";
+        resolveGroup.appendChild(resolveHint);
+        card.appendChild(resolveGroup);
+
         // Triggers
-        var trigGroup = this._formGroup("Triggers", "text", "ep-triggers", "", "e.g. after skipping lunch, stress at work");
+        var trigGroup = this._formGroup("Triggers", "text", "ep-triggers", "", "e.g. after skipping lunch, stress at work",
+            "Knowing what happened before can help identify causes");
         card.appendChild(trigGroup);
+
+        // Associate with medication (Phase 2 — side effect linking)
+        var medGroup = document.createElement("div");
+        medGroup.className = "form-group";
+        var medLbl = document.createElement("label");
+        medLbl.className = "form-label";
+        medLbl.textContent = "Associate with medication (optional)";
+        medGroup.appendChild(medLbl);
+
+        var medSelect = document.createElement("select");
+        medSelect.id = "ep-linked-medication";
+        medSelect.className = "form-input";
+
+        // Default "None" option
+        var noneOpt = document.createElement("option");
+        noneOpt.value = "";
+        noneOpt.textContent = "\u2014 None \u2014";
+        medSelect.appendChild(noneOpt);
+
+        medGroup.appendChild(medSelect);
+
+        var medHint = document.createElement("span");
+        medHint.className = "form-hint";
+        medHint.textContent = "If this might be a side effect, linking it helps track medication tolerability";
+        medGroup.appendChild(medHint);
+
+        card.appendChild(medGroup);
+
+        // Fetch active medications to populate dropdown
+        (function(selectEl) {
+            api("/api/medications/active")
+                .then(function(meds) {
+                    if (!meds || !meds.length) return;
+                    for (var mi = 0; mi < meds.length; mi++) {
+                        var opt = document.createElement("option");
+                        opt.value = meds[mi];
+                        opt.textContent = meds[mi];
+                        selectEl.appendChild(opt);
+                    }
+                })
+                .catch(function(err) {
+                    console.warn("Could not load active medications for dropdown:", err);
+                });
+        })(medSelect);
 
         // Counter prompts (prompted but skippable)
         var counters = (symptom.counter_definitions || []).filter(function(c) { return !c.archived; });
@@ -915,14 +1084,23 @@ var Symptoms = {
             card.appendChild(counterDiv);
         }
 
+        // Store onClose for _saveEpisode to use
+        if (onClose) {
+            this._episodeOnClose = onClose;
+        } else {
+            this._episodeOnClose = null;
+        }
+
         // Actions
         var actions = document.createElement("div");
         actions.className = "wizard-actions";
 
+        var closeFn = onClose || function() { Symptoms.closeEpisodeModal(); };
+
         var cancelBtn = document.createElement("button");
         cancelBtn.className = "btn btn-outline";
         cancelBtn.textContent = "Cancel";
-        cancelBtn.onclick = function() { Symptoms.closeEpisodeModal(); };
+        cancelBtn.onclick = closeFn;
 
         var saveAnotherBtn = document.createElement("button");
         saveAnotherBtn.className = "btn btn-secondary";
@@ -943,7 +1121,7 @@ var Symptoms = {
         container.appendChild(card);
     },
 
-    _formGroup: function(labelText, inputType, id, value, placeholder) {
+    _formGroup: function(labelText, inputType, id, value, placeholder, hintText) {
         var group = document.createElement("div");
         group.className = "form-group";
         var lbl = document.createElement("label");
@@ -957,6 +1135,12 @@ var Symptoms = {
         if (value) input.value = value;
         if (placeholder) input.placeholder = placeholder;
         group.appendChild(input);
+        if (hintText) {
+            var hint = document.createElement("span");
+            hint.className = "form-hint";
+            hint.textContent = hintText;
+            group.appendChild(hint);
+        }
         return group;
     },
 
@@ -1023,13 +1207,22 @@ var Symptoms = {
 
         var currentDate = ($("ep-date") || {}).value || null;
 
+        var linkedMed = ($("ep-linked-medication") || {}).value || null;
+
+        // End date: null if "Still ongoing" is checked or empty
+        var stillOngoing = ($("ep-still-ongoing") || {}).checked;
+        var endDateVal = stillOngoing ? null : (($("ep-end-date") || {}).value || null);
+
         var body = {
             episode_date: currentDate,
             time_of_day: ($("ep-time") || {}).value || null,
-            severity: ($("ep-severity") || {}).value || "mid",
+            intensity: ($("ep-intensity") || {}).value || "mid",
             description: ($("ep-description") || {}).value || null,
             duration: ($("ep-duration") || {}).value || null,
             triggers: ($("ep-triggers") || {}).value || null,
+            end_date: endDateVal,
+            resolution_notes: ($("ep-resolution-notes") || {}).value || null,
+            linked_medication_id: linkedMed || null,
             counter_values: {},
         };
 
@@ -1064,13 +1257,19 @@ var Symptoms = {
                 var nextDate = this._bumpDateBack(currentDate);
                 var content = $("episode-modal");
                 if (content) {
-                    content.innerHTML = "";
+                    while (content.firstChild) content.removeChild(content.firstChild);
                     this._buildEpisodeForm(content, symptom, nextDate);
                 }
                 // Refresh data in background so card updates
                 this.load();
             } else {
-                this.closeEpisodeModal();
+                // Close using the appropriate handler (wizard flow or regular modal)
+                if (this._episodeOnClose) {
+                    this._episodeOnClose();
+                    this._episodeOnClose = null;
+                } else {
+                    this.closeEpisodeModal();
+                }
                 this.load();
             }
         } catch (e) {
@@ -1496,7 +1695,7 @@ var Symptoms = {
 
     _generateInsight: function(sym) {
         var name = sym.name || "this symptom";
-        var sevDir = (sym.severity_trend || {}).direction || "";
+        var sevDir = (sym.intensity_trend || {}).direction || "";
         var freqDir = (sym.frequency || {}).direction || "";
         var perWeek = (sym.frequency || {}).per_week_4w || 0;
         var timePeak = (sym.time_patterns || {}).peak || "";
@@ -1504,7 +1703,7 @@ var Symptoms = {
         var medCorrs = sym.medication_correlations || [];
 
         // Friendly, conversational nudges — like a friend who's been paying attention
-        // Priority: severity rising + frequent > severity rising > high frequency >
+        // Priority: intensity rising + frequent > intensity rising > high frequency >
         //           increasing frequency > med correlation > time pattern
 
         var ln = name.toLowerCase();

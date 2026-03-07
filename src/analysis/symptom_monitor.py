@@ -37,7 +37,7 @@ class SymptomPatternMonitor:
                     "name": sym.get("symptom_name", "Unknown"),
                     "total_episodes": 0,
                     "frequency": None,
-                    "severity_trend": None,
+                    "intensity_trend": None,
                     "time_patterns": None,
                     "medication_correlations": [],
                     "alerts": [],
@@ -49,7 +49,7 @@ class SymptomPatternMonitor:
                 "name": sym.get("symptom_name", "Unknown"),
                 "total_episodes": len(episodes),
                 "frequency": self._frequency_analysis(episodes),
-                "severity_trend": self._severity_trend(episodes),
+                "intensity_trend": self._intensity_trend(episodes),
                 "time_patterns": self._time_of_day_patterns(episodes),
                 "medication_correlations": self._medication_correlations(
                     sym, medications
@@ -108,24 +108,24 @@ class SymptomPatternMonitor:
             "direction": direction,
         }
 
-    # ── Severity Trend ───────────────────────────────────
+    # ── Intensity Trend ──────────────────────────────────
 
-    def _severity_trend(self, episodes: list) -> dict:
-        """Severity trend: compare first half vs second half."""
+    def _intensity_trend(self, episodes: list) -> dict:
+        """Intensity trend: compare first half vs second half."""
         sev_map = {"high": 3, "mid": 2, "low": 1}
 
         dated = self._dated_episodes(episodes)
         if len(dated) < 2:
             return {
                 "current_avg": sev_map.get(
-                    episodes[0].get("severity", "mid"), 2
+                    episodes[0].get("intensity", "mid"), 2
                 ) if episodes else 2,
                 "direction": "insufficient_data",
             }
 
         # Sort chronologically
         dated.sort(key=lambda x: x[0])
-        scores = [sev_map.get(ep.get("severity", "mid"), 2) for _, ep in dated]
+        scores = [sev_map.get(ep.get("intensity", "mid"), 2) for _, ep in dated]
 
         mid = len(scores) // 2
         first_avg = sum(scores[:mid]) / mid
@@ -204,15 +204,15 @@ class SymptomPatternMonitor:
                     ),
                 })
 
-            # Check if severity worsened after medication start
+            # Check if intensity worsened after medication start
             if len(dated) >= 4:
                 sev_map = {"high": 3, "mid": 2, "low": 1}
                 before = [
-                    sev_map.get(ep.get("severity", "mid"), 2)
+                    sev_map.get(ep.get("intensity", "mid"), 2)
                     for d, ep in dated if d < med_start
                 ]
                 after = [
-                    sev_map.get(ep.get("severity", "mid"), 2)
+                    sev_map.get(ep.get("intensity", "mid"), 2)
                     for d, ep in dated if d >= med_start
                 ]
                 if before and after:
@@ -323,13 +323,13 @@ class SymptomPatternMonitor:
                 ),
             })
 
-        # Severity worsening
-        sev = analysis.get("severity_trend") or {}
+        # Intensity worsening
+        sev = analysis.get("intensity_trend") or {}
         if sev.get("direction") == "worsening":
             alerts.append({
                 "severity": "moderate",
-                "type": "severity_worsening",
-                "message": f"{name}: severity trending upward",
+                "type": "intensity_worsening",
+                "message": f"{name}: intensity trending upward",
             })
 
         # High frequency
@@ -361,7 +361,7 @@ class SymptomPatternMonitor:
         total_episodes = sum(s.get("total_episodes", 0) for s in per_symptom)
         worsening = [
             s["name"] for s in per_symptom
-            if (s.get("severity_trend") or {}).get("direction") == "worsening"
+            if (s.get("intensity_trend") or {}).get("direction") == "worsening"
         ]
         increasing = [
             s["name"] for s in per_symptom
