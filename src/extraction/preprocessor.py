@@ -118,6 +118,78 @@ class Preprocessor:
         logger.info(f"Registered: {file_path.name} ({file_type.value}, {file_size:,} bytes)")
         return processed
 
+    def process(self, file_path: Path) -> Optional[dict]:
+        """
+        Full preprocessing pipeline for a single file.
+
+        Classifies, deduplicates, extracts text (for PDFs), and returns
+        a result dict ready for downstream passes.
+
+        Returns None for duplicates/unsupported files.
+        Returns dict with keys: file_id, filename, filepath, file_type,
+            sha256, page_count, text, pages, images
+        """
+        registered = self.register_file(file_path)
+        if registered is None:
+            return None
+
+        result = {
+            "file_id": registered.file_id,
+            "filename": registered.filename,
+            "filepath": str(file_path),
+            "file_type": registered.file_type.value,
+            "sha256": registered.sha256_hash,
+            "page_count": registered.page_count,
+            "text": "",
+            "pages": [],
+            "images": [],
+        }
+
+        # Extract text from PDFs (the primary medical record format)
+        if registered.file_type == FileType.PDF_TEXT:
+            pages = self.extract_text_from_pdf(file_path)
+            result["pages"] = pages
+            result["text"] = "\n\n".join(p["text"] for p in pages)
+
+        elif registered.file_type == FileType.PDF_SCANNED:
+            pages = self.extract_text_with_ocr(file_path)
+            result["pages"] = pages
+            result["text"] = "\n\n".join(p["text"] for p in pages)
+            if not pages:
+                logger.warning(
+                    f"OCR returned no text for scanned PDF: {file_path.name}"
+                )
+
+        # Image files → pass path for vision analysis
+        elif registered.file_type in (FileType.IMAGE, FileType.DICOM):
+            result["images"] = [str(file_path)]
+
+        # FHIR JSON → read raw content for structured extraction
+        elif registered.file_type == FileType.FHIR_JSON:
+            try:
+                result["text"] = file_path.read_text(encoding="utf-8")
+            except Exception as e:
+                logger.error(f"Failed to read FHIR JSON {file_path.name}: {e}")
+
+        # Update DB status
+        self.db.upsert_file_state(
+            file_id=registered.file_id,
+            filename=registered.filename,
+            file_type=registered.file_type.value,
+            sha256_hash=registered.sha256_hash,
+            file_size_bytes=registered.file_size_bytes,
+            status=ProcessingStatus.EXTRACTING.value,
+            page_count=registered.page_count,
+        )
+
+        text_len = len(result["text"])
+        img_count = len(result["images"])
+        logger.info(
+            f"Processed: {file_path.name} → "
+            f"{text_len:,} chars text, {img_count} images"
+        )
+        return result
+
     def extract_text_from_pdf(self, pdf_path: Path) -> list[dict]:
         """
         Extract text from a digital PDF using PyMuPDF.

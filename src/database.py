@@ -131,6 +131,12 @@ class Database:
                           error_message: str = None, page_count: int = None):
         """Insert or update a file's processing state."""
         conn = self._get_conn()
+        # Delete any prior row with the same sha256 but different file_id
+        # (happens when re-uploading the same file after a failed run)
+        conn.execute(
+            "DELETE FROM processing_state WHERE sha256_hash = ? AND file_id != ?",
+            (sha256_hash, file_id),
+        )
         conn.execute("""
             INSERT INTO processing_state
                 (file_id, filename, file_type, sha256_hash, file_size_bytes,

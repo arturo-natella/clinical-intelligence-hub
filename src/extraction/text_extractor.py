@@ -33,7 +33,7 @@ from src.models import (
 logger = logging.getLogger("CIH-TextExtractor")
 
 # MedGemma 27B model (Q8 quantization for highest local quality)
-MODEL_NAME = "medgemma:27b-text-q8_0"
+MODEL_NAME = "jwang580/medgemma_27b_q8_0"
 
 # Maximum characters per chunk (approximate 8K token window)
 MAX_CHUNK_CHARS = 24000
@@ -42,8 +42,10 @@ MAX_CHUNK_CHARS = 24000
 class TextExtractor:
     """Pass 1a: Extracts structured clinical data from text using MedGemma 27B."""
 
-    def __init__(self):
+    def __init__(self, progress_callback=None, pause_event=None):
         self._available = self._check_ollama()
+        self._progress = progress_callback or (lambda *a: None)
+        self._pause_event = pause_event
 
     def extract(self, pages: list[dict], source_file: str) -> dict:
         """
@@ -78,9 +80,19 @@ class TextExtractor:
         chunks = self._build_chunks(pages)
         logger.info(f"Processing {len(pages)} pages in {len(chunks)} chunks for {source_file}")
 
-        for chunk_pages, chunk_text in chunks:
+        for i, (chunk_pages, chunk_text) in enumerate(chunks, 1):
+            # Pause check between chunks
+            if self._pause_event and not self._pause_event.is_set():
+                self._progress("log", f"  Paused at chunk {i}/{len(chunks)} — safe to close laptop", -1)
+                self._pause_event.wait()
+                self._progress("log", f"  Resumed at chunk {i}/{len(chunks)}", -1)
+
+            page_range = f"pp.{chunk_pages[0]['page']}-{chunk_pages[-1]['page']}"
+            self._progress("log", f"  Chunk {i}/{len(chunks)} ({page_range}) — sending to MedGemma...", -1)
+
             extracted = self._extract_chunk(chunk_text)
             if not extracted:
+                self._progress("log", f"  Chunk {i}/{len(chunks)} — no structured data returned", -1)
                 continue
 
             # Build provenance for this chunk
@@ -89,11 +101,18 @@ class TextExtractor:
 
             self._merge_results(results, extracted, source_file, first_page)
 
+            chunk_items = sum(len(v) for v in extracted.values() if isinstance(v, list))
+            self._progress("log",
+                           f"  Chunk {i}/{len(chunks)} — extracted {chunk_items} clinical items",
+                           -1)
+
         # Unload model from memory
         self._unload_model()
+        self._progress("log", "  MedGemma 27B unloaded from memory", -1)
 
         total = sum(len(v) for v in results.values())
         logger.info(f"Extracted {total} clinical items from {source_file}")
+        self._progress("log", f"  Total: {total} clinical items from {source_file}", -1)
         return results
 
     def _extract_chunk(self, text: str) -> Optional[dict]:

@@ -17,9 +17,11 @@ import logging
 import os
 import queue
 import shutil
+import sys
 import threading
 import time
 import uuid
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from flask import Flask, jsonify, request, Response, send_from_directory
@@ -28,7 +30,10 @@ logger = logging.getLogger("CIH-App")
 
 # ── App Configuration ─────────────────────────────────────────
 
-BASE_DIR = Path(__file__).parent.parent.parent
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
 DATA_DIR = BASE_DIR / "data"
 UPLOAD_DIR = DATA_DIR / "uploads"
 REPORTS_DIR = DATA_DIR / "reports"
@@ -42,6 +47,155 @@ _pipeline_thread: threading.Thread = None
 _progress_queue: queue.Queue = queue.Queue()
 _passphrase: str = None
 _profile_data: dict = None
+_environmental_sync_worker = None
+_pipeline_paused: threading.Event = threading.Event()
+_pipeline_paused.set()  # Not paused by default (set = running)
+
+_DEV_BYPASS_SENTINEL = "__medprep_local_dev_bypass__"
+
+
+def _passphrase_bypass_enabled() -> bool:
+    """Allow temporary local testing without the unlock modal."""
+    value = os.environ.get("MEDPREP_SKIP_PASSPHRASE", "1").strip().lower()
+    return value not in {"0", "false", "no"}
+
+
+def _activate_dev_passphrase_bypass() -> bool:
+    """Mark the session unlocked for local development runs."""
+    global _passphrase
+
+    if _passphrase is not None or not _passphrase_bypass_enabled():
+        return False
+
+    _passphrase = _DEV_BYPASS_SENTINEL
+    logger.warning(
+        "Passphrase gate bypassed for local development "
+        "(set MEDPREP_SKIP_PASSPHRASE=0 to re-enable it)"
+    )
+    return True
+
+
+def _pipeline_running() -> bool:
+    """Return True when an analysis thread is currently active."""
+    return _pipeline_thread is not None and _pipeline_thread.is_alive()
+
+
+def _purge_local_patient_data() -> dict:
+    """
+    Remove all local patient-data artifacts while preserving reusable app config.
+
+    Wipes:
+      - uploaded source files copied into MedPrep
+      - generated reports saved under data/reports
+      - encrypted patient profile
+      - SQLite patient-state database and WAL/SHM sidecars
+
+    Preserves:
+      - encrypted API key vault
+      - downloaded model assets bundled with the app
+    """
+    global _profile_data
+
+    from src.database import Database
+    from src.encryption import EncryptedVault
+
+    if _pipeline_running():
+        raise RuntimeError("Analysis is still running. Wait for it to finish before deleting local data.")
+
+    removed = []
+
+    vault = EncryptedVault(DATA_DIR, _passphrase)
+    if (DATA_DIR / "patient_profile.enc").exists():
+        vault.clear_patient_profile()
+        removed.append("patient_profile.enc")
+
+    for directory, label in (
+        (UPLOAD_DIR, "uploads"),
+        (REPORTS_DIR, "reports"),
+    ):
+        if directory.exists():
+            shutil.rmtree(directory)
+            removed.append(label)
+        directory.mkdir(parents=True, exist_ok=True)
+
+    db_files = [
+        DATA_DIR / "cih.db",
+        DATA_DIR / "cih.db-wal",
+        DATA_DIR / "cih.db-shm",
+    ]
+    db_removed = False
+    for db_path in db_files:
+        if db_path.exists():
+            db_path.unlink()
+            db_removed = True
+    if db_removed:
+        removed.append("cih.db")
+
+    environmental_dir = DATA_DIR / "environmental"
+    if environmental_dir.exists():
+        for subdir in ("raw", "normalized"):
+            target = environmental_dir / subdir
+            if target.exists():
+                shutil.rmtree(target)
+                removed.append(f"environmental/{subdir}")
+
+        manifest_path = environmental_dir / "source_manifest.json"
+        if manifest_path.exists():
+            manifest_path.write_text(
+                json.dumps({
+                    "schema_version": 1,
+                    "updated_at": "",
+                    "sources": {},
+                }, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+            removed.append("environmental/source_manifest.json")
+
+    # Recreate an empty database immediately so the app stays usable after purge.
+    Database(DATA_DIR / "cih.db").close()
+
+    _profile_data = None
+
+    return {"status": "cleared", "removed": removed}
+
+
+def _environmental_sync_ready() -> bool:
+    demographics = (_profile_data or {}).get("demographics", {}) if isinstance(_profile_data, dict) else {}
+    return bool(_passphrase and (demographics.get("location") or "").strip())
+
+
+def _load_environmental_api_keys() -> dict:
+    if not _passphrase:
+        return {}
+
+    try:
+        from src.encryption import EncryptedVault
+
+        vault = EncryptedVault(DATA_DIR, _passphrase)
+        return vault.load_api_keys() or {}
+    except Exception as exc:
+        logger.warning("Failed to load environmental API keys: %s", exc)
+        return {}
+
+
+def _get_environmental_profile() -> dict:
+    return _profile_data or {}
+
+
+def _start_environmental_sync_worker() -> None:
+    global _environmental_sync_worker
+    if _environmental_sync_worker is not None:
+        return
+
+    from src.analysis.environmental_sync import EnvironmentalAutoSyncWorker
+
+    _environmental_sync_worker = EnvironmentalAutoSyncWorker(
+        DATA_DIR,
+        get_profile_data=_get_environmental_profile,
+        get_api_keys=_load_environmental_api_keys,
+        is_ready=_environmental_sync_ready,
+    )
+    _environmental_sync_worker.start()
 
 
 # ── Static Files ──────────────────────────────────────────────
@@ -83,8 +237,16 @@ def unlock_vault():
     """Unlock the encrypted vault with a passphrase."""
     global _passphrase, _profile_data
 
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     passphrase = data.get("passphrase", "")
+
+    if _passphrase_bypass_enabled():
+        _passphrase = passphrase or _DEV_BYPASS_SENTINEL
+        return jsonify({
+            "status": "unlocked",
+            "has_profile": _profile_data is not None,
+            "bypassed": True,
+        })
 
     if not passphrase:
         return jsonify({"error": "Passphrase is required"}), 400
@@ -119,7 +281,7 @@ def reset_vault():
     """Delete encrypted vault files so the user can start fresh."""
     global _passphrase, _profile_data
 
-    _passphrase = None
+    _passphrase = _DEV_BYPASS_SENTINEL if _passphrase_bypass_enabled() else None
     _profile_data = None
 
     removed = []
@@ -135,29 +297,18 @@ def reset_vault():
 
 @app.route("/api/session/clear", methods=["POST"])
 def clear_session():
-    """Clear all patient data for a new session."""
-    global _profile_data
+    """Delete all local patient data copied or generated by MedPrep."""
 
     if not _passphrase:
         return jsonify({"error": "Vault not unlocked"}), 401
 
     try:
-        from src.ui.pipeline import Pipeline
-
-        pipeline = Pipeline(DATA_DIR, _passphrase)
-        pipeline.clear_session()
-        _profile_data = None
-
-        # Clear upload directory
-        if UPLOAD_DIR.exists():
-            shutil.rmtree(UPLOAD_DIR)
-        UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-
-        return jsonify({"status": "cleared"})
+        return jsonify(_purge_local_patient_data())
 
     except Exception as e:
         logger.error(f"Session clear failed: {e}")
-        return jsonify({"error": str(e)}), 500
+        status = 409 if "Analysis is still running" in str(e) else 500
+        return jsonify({"error": str(e)}), status
 
 
 @app.route("/api/session/status")
@@ -166,7 +317,7 @@ def session_status():
     return jsonify({
         "unlocked": _passphrase is not None,
         "has_profile": _profile_data is not None,
-        "pipeline_running": _pipeline_thread is not None and _pipeline_thread.is_alive(),
+        "pipeline_running": _pipeline_running(),
     })
 
 
@@ -718,7 +869,8 @@ def _run_pipeline(input_files: list[Path]):
                 "timestamp": time.time(),
             })
 
-        pipeline = Pipeline(DATA_DIR, _passphrase, progress_callback)
+        pipeline = Pipeline(DATA_DIR, _passphrase, progress_callback,
+                            pause_event=_pipeline_paused)
         profile = pipeline.run(input_files)
 
         _profile_data = profile.model_dump(mode="json")
@@ -757,6 +909,33 @@ def progress_stream():
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@app.route("/api/pipeline/pause", methods=["POST"])
+def toggle_pause():
+    """Toggle pipeline pause/resume. When paused, safe to close laptop."""
+    if _pipeline_paused.is_set():
+        # Currently running → pause
+        _pipeline_paused.clear()
+        _progress_queue.put({
+            "pass": "paused",
+            "message": "Pipeline paused — safe to close laptop",
+            "percent": -1,
+            "timestamp": time.time(),
+        })
+        logger.info("Pipeline paused by user")
+        return jsonify({"state": "paused"})
+    else:
+        # Currently paused → resume
+        _pipeline_paused.set()
+        _progress_queue.put({
+            "pass": "log",
+            "message": "Pipeline resumed",
+            "percent": -1,
+            "timestamp": time.time(),
+        })
+        logger.info("Pipeline resumed by user")
+        return jsonify({"state": "running"})
 
 
 # ── Profile Data API ──────────────────────────────────────────
@@ -806,8 +985,16 @@ def set_location():
     # Save to vault
     try:
         from src.encryption import EncryptedVault
+        from src.analysis.environmental_sources import update_environmental_sync_settings
         vault = EncryptedVault(DATA_DIR, _passphrase)
         vault.save_profile(_profile_data)
+        update_environmental_sync_settings(
+            DATA_DIR,
+            {
+                "next_run_at": "",
+                "last_error": "",
+            },
+        )
     except Exception as e:
         logger.error("Failed to save location: %s", e)
         return jsonify({"error": str(e)}), 500
@@ -818,16 +1005,145 @@ def set_location():
 @app.route("/api/environmental")
 def get_environmental():
     """Analyze environmental/geographic health risks for patient's location."""
-    if not _profile_data:
-        return jsonify({"location": None, "risks": [], "summary": {}})
-
     try:
         from src.analysis.environmental import EnvironmentalRiskEngine
-        engine = EnvironmentalRiskEngine()
-        result = engine.analyze(_profile_data)
+        from src.analysis.environmental_sources import load_environmental_sync_settings
+        engine = EnvironmentalRiskEngine(DATA_DIR)
+        result = engine.analyze(_profile_data or {})
+        result["sync_settings"] = load_environmental_sync_settings(DATA_DIR)
         return jsonify(result)
     except Exception as e:
         logger.error("Environmental analysis failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/environmental/settings", methods=["GET"])
+def get_environmental_settings():
+    """Return auto-sync settings and the full environmental source inventory."""
+    if not _passphrase:
+        return jsonify({"error": "Vault not unlocked"}), 401
+
+    try:
+        from src.analysis.environmental_sources import (
+            get_environmental_source_catalog,
+            load_environmental_sync_settings,
+        )
+        from src.analysis.environmental_sync import EnvironmentalDataSync
+
+        return jsonify({
+            "settings": load_environmental_sync_settings(DATA_DIR),
+            "source_catalog": get_environmental_source_catalog(DATA_DIR),
+            "automated_source_ids": list(EnvironmentalDataSync.AUTOMATED_SOURCE_IDS),
+        })
+    except Exception as e:
+        logger.error("Failed to load environmental settings: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/environmental/settings", methods=["POST"])
+def save_environmental_settings():
+    """Save environmental auto-sync settings."""
+    if not _passphrase:
+        return jsonify({"error": "Vault not unlocked"}), 401
+
+    data = request.get_json(silent=True) or {}
+    enabled = bool(data.get("enabled"))
+    interval_hours = data.get("interval_hours", 24)
+    source_ids = data.get("source_ids") or []
+
+    try:
+        interval_hours = max(1, int(interval_hours))
+    except (TypeError, ValueError):
+        return jsonify({"error": "interval_hours must be an integer"}), 400
+
+    try:
+        from src.analysis.environmental_sources import (
+            get_environmental_source_catalog,
+            update_environmental_sync_settings,
+        )
+        from src.analysis.environmental_sync import EnvironmentalDataSync
+
+        allowed_ids = {item["id"] for item in get_environmental_source_catalog(DATA_DIR)}
+        selected_ids = [
+            source_id for source_id in source_ids
+            if isinstance(source_id, str) and source_id in allowed_ids
+        ]
+        if not selected_ids:
+            selected_ids = list(EnvironmentalDataSync.AUTOMATED_SOURCE_IDS)
+
+        settings = update_environmental_sync_settings(
+            DATA_DIR,
+            {
+                "enabled": enabled,
+                "interval_hours": interval_hours,
+                "source_ids": selected_ids,
+                "next_run_at": "" if enabled else "",
+                "last_status": "idle" if not enabled else "queued",
+                "last_error": "",
+            },
+        )
+        return jsonify({"status": "saved", "settings": settings})
+    except Exception as e:
+        logger.error("Failed to save environmental settings: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/environmental/sync", methods=["POST"])
+def sync_environmental():
+    """Fetch and stage environmental source snapshots for the saved location."""
+    if not _passphrase:
+        return jsonify({"error": "Vault not unlocked"}), 401
+
+    data = request.get_json(silent=True) or {}
+    source_ids = data.get("sources")
+    force = bool(data.get("force", False))
+
+    try:
+        from src.analysis.environmental_sync import EnvironmentalDataSync
+        from src.analysis.environmental_sources import (
+            load_environmental_sync_settings,
+            update_environmental_sync_settings,
+        )
+        from src.encryption import EncryptedVault
+
+        vault = EncryptedVault(DATA_DIR, _passphrase)
+        keys = vault.load_api_keys() or {}
+        syncer = EnvironmentalDataSync(DATA_DIR, api_keys=keys)
+        result = syncer.sync_profile(_profile_data or {}, source_ids=source_ids, force=force)
+        settings = load_environmental_sync_settings(DATA_DIR)
+        update_environmental_sync_settings(
+            DATA_DIR,
+            {
+                "last_run_at": result.get("synced_at", ""),
+                "next_run_at": (
+                    (
+                        datetime.fromisoformat(result.get("synced_at", "").replace("Z", "+00:00"))
+                        + timedelta(hours=max(1, int(settings.get("interval_hours", 24) or 24)))
+                    ).isoformat()
+                    if result.get("synced_at")
+                    else settings.get("next_run_at", "")
+                ),
+                "last_status": "ok" if not result.get("summary", {}).get("errors") else "error",
+                "last_error": "",
+                "last_summary": result.get("summary", {}),
+            },
+        )
+        return jsonify(result)
+    except Exception as e:
+        logger.error("Environmental sync failed: %s", e)
+        try:
+            from src.analysis.environmental_sources import update_environmental_sync_settings
+
+            update_environmental_sync_settings(
+                DATA_DIR,
+                {
+                    "last_run_at": datetime.now().astimezone().isoformat(),
+                    "last_status": "error",
+                    "last_error": str(e),
+                },
+            )
+        except Exception:
+            pass
         return jsonify({"error": str(e)}), 500
 
 
@@ -1348,67 +1664,302 @@ def get_timeline():
 
     timeline = _profile_data.get("clinical_timeline", {})
     events = []
+    notes = []
+
+    def _first_value(*values):
+        for value in values:
+            if value is None:
+                continue
+            if isinstance(value, str):
+                stripped = value.strip()
+                if stripped:
+                    return stripped
+                continue
+            return value
+        return None
+
+    def _date_value(value):
+        if not value:
+            return None
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, date):
+            return value
+
+        text = str(value).strip()
+        if not text:
+            return None
+
+        try:
+            return date.fromisoformat(text[:10])
+        except ValueError:
+            try:
+                return datetime.fromisoformat(text).date()
+            except ValueError:
+                return None
+
+    def _iso_date(value):
+        parsed = _date_value(value)
+        return parsed.isoformat() if parsed else None
+
+    def _provenance_fields(item):
+        provenance = item.get("provenance") or {}
+        if not isinstance(provenance, dict):
+            return {}
+        return {
+            "source_file": provenance.get("source_file"),
+            "source_page": provenance.get("source_page"),
+            "confidence": provenance.get("confidence"),
+            "raw_text": provenance.get("raw_text"),
+        }
+
+    def _findings_text(findings):
+        if not findings:
+            return ""
+        if isinstance(findings, str):
+            return findings
+
+        parts = []
+        for finding in findings:
+            if isinstance(finding, dict):
+                text = _first_value(finding.get("description"), finding.get("summary"))
+            else:
+                text = str(finding).strip()
+            if text:
+                parts.append(text)
+        return "; ".join(parts)
+
+    def _event_provider(event):
+        provider = _first_value(event.get("provider"), event.get("prescriber"))
+        return provider.lower() if isinstance(provider, str) else ""
+
+    def _related_notes(event_date, provider_name):
+        if not event_date:
+            return []
+
+        ranked = []
+        for note in notes:
+            note_date = _date_value(note.get("date"))
+            if not note_date:
+                continue
+
+            day_gap = abs((note_date - event_date).days)
+            if day_gap > 7:
+                continue
+
+            note_provider = (note.get("provider") or "").strip().lower()
+            same_provider = bool(provider_name and note_provider and provider_name == note_provider)
+
+            score = day_gap * 10
+            if day_gap == 0:
+                score -= 20
+            if same_provider:
+                score -= 6
+
+            ranked.append((score, note))
+
+        ranked.sort(key=lambda pair: (pair[0], pair[1].get("date") or ""))
+        return [note for _, note in ranked[:4]]
+
+    def _related_events(current_index, allowed_types):
+        current = events[current_index]
+        event_date = _date_value(current.get("date"))
+        if not event_date:
+            return []
+
+        provider_name = _event_provider(current)
+        ranked = []
+
+        for idx, other in enumerate(events):
+            if idx == current_index or other.get("type") not in allowed_types:
+                continue
+
+            other_date = _date_value(other.get("date"))
+            if not other_date:
+                continue
+
+            day_gap = abs((other_date - event_date).days)
+            if day_gap > 7:
+                continue
+
+            other_provider = _event_provider(other)
+            same_provider = bool(provider_name and other_provider and provider_name == other_provider)
+
+            score = day_gap * 10
+            if day_gap == 0:
+                score -= 20
+            if same_provider:
+                score -= 6
+            if other.get("type") == current.get("type"):
+                score += 4
+
+            ranked.append((score, {
+                "date": other.get("date"),
+                "type": other.get("type"),
+                "title": other.get("title"),
+                "detail": other.get("detail"),
+            }))
+
+        ranked.sort(key=lambda pair: (pair[0], pair[1].get("date") or ""))
+
+        seen = set()
+        related = []
+        for _, item in ranked:
+            key = (item.get("date"), item.get("type"), item.get("title"))
+            if key in seen:
+                continue
+            seen.add(key)
+            related.append(item)
+            if len(related) >= 5:
+                break
+
+        return related
 
     for med in timeline.get("medications", []):
-        if med.get("start_date"):
+        med_date = _iso_date(med.get("start_date"))
+        if med_date:
+            dose_text = _first_value(med.get("dosage"), med.get("dose"))
+            provider = _first_value(med.get("prescriber"), med.get("provider"))
             events.append({
-                "date": med["start_date"],
+                "date": med_date,
                 "type": "medication",
-                "title": f"Started {med['name']}",
-                "detail": f"{med.get('dosage', '')} {med.get('frequency', '')}".strip(),
+                "title": f"Started {_first_value(med.get('name'), 'Medication')}",
+                "detail": " ".join(part for part in [dose_text or "", med.get("frequency", "")] if part).strip(),
+                "name": med.get("name"),
+                "dosage": dose_text,
+                "frequency": med.get("frequency"),
+                "route": med.get("route"),
+                "reason": med.get("reason"),
+                "prescriber": provider,
+                "provider": provider,
+                "status": med.get("status"),
+                **_provenance_fields(med),
             })
 
     for lab in timeline.get("labs", []):
-        if lab.get("test_date"):
+        lab_date = _iso_date(_first_value(lab.get("test_date"), lab.get("date")))
+        if lab_date:
+            value_text = str(_first_value(lab.get("value"), lab.get("value_text"), "")).strip()
+            unit_text = (lab.get("unit") or "").strip()
+            flag_text = (lab.get("flag") or "").strip()
+            provider = _first_value(lab.get("ordering_provider"), lab.get("provider"))
             events.append({
-                "date": lab["test_date"],
+                "date": lab_date,
                 "type": "lab",
-                "title": lab["name"],
-                "detail": f"{lab.get('value', lab.get('value_text', ''))} {lab.get('unit', '')} [{lab.get('flag', '')}]",
+                "title": _first_value(lab.get("name"), lab.get("test_name"), "Lab result"),
+                "detail": " ".join(part for part in [value_text, unit_text, flag_text] if part),
+                "name": _first_value(lab.get("name"), lab.get("test_name")),
+                "value": lab.get("value"),
+                "value_text": lab.get("value_text"),
+                "unit": lab.get("unit"),
+                "flag": lab.get("flag"),
+                "reference_low": lab.get("reference_low"),
+                "reference_high": lab.get("reference_high"),
+                "provider": provider,
+                "facility": _first_value(lab.get("lab_facility"), lab.get("facility")),
+                **_provenance_fields(lab),
             })
 
     for dx in timeline.get("diagnoses", []):
-        if dx.get("date_diagnosed"):
+        dx_date = _iso_date(_first_value(dx.get("date_diagnosed"), dx.get("date")))
+        if dx_date:
+            provider = _first_value(dx.get("diagnosing_provider"), dx.get("provider"))
             events.append({
-                "date": dx["date_diagnosed"],
+                "date": dx_date,
                 "type": "diagnosis",
-                "title": dx["name"],
+                "title": _first_value(dx.get("name"), dx.get("condition"), "Diagnosis"),
                 "detail": dx.get("status", ""),
+                "name": _first_value(dx.get("name"), dx.get("condition")),
+                "status": dx.get("status"),
+                "provider": provider,
+                "icd10": _first_value(dx.get("icd10"), dx.get("icd10_code")),
+                **_provenance_fields(dx),
             })
 
     for proc in timeline.get("procedures", []):
-        if proc.get("procedure_date"):
+        proc_date = _iso_date(proc.get("procedure_date"))
+        if proc_date:
+            provider = _first_value(proc.get("provider"), proc.get("ordering_provider"))
+            detail_text = _first_value(proc.get("notes"), proc.get("outcome"), provider, "")
             events.append({
-                "date": proc["procedure_date"],
+                "date": proc_date,
                 "type": "procedure",
-                "title": proc["name"],
-                "detail": proc.get("provider", ""),
+                "title": _first_value(proc.get("name"), "Procedure"),
+                "detail": detail_text,
+                "name": proc.get("name"),
+                "provider": provider,
+                "facility": proc.get("facility"),
+                "notes": proc.get("notes"),
+                "outcome": proc.get("outcome"),
+                **_provenance_fields(proc),
             })
 
     for img in timeline.get("imaging", []):
-        if img.get("study_date"):
+        img_date = _iso_date(img.get("study_date"))
+        if img_date:
+            provider = _first_value(img.get("ordering_provider"), img.get("provider"))
+            findings_text = _first_value(_findings_text(img.get("findings")), img.get("description"), "")
             events.append({
-                "date": img["study_date"],
+                "date": img_date,
                 "type": "imaging",
                 "title": f"{img.get('modality', 'Study')} — {img.get('body_region', '')}",
-                "detail": img.get("description", ""),
+                "detail": findings_text,
+                "modality": img.get("modality"),
+                "body_region": img.get("body_region"),
+                "description": img.get("description"),
+                "findings": findings_text,
+                "provider": provider,
+                "facility": img.get("facility"),
+                **_provenance_fields(img),
             })
 
     for symptom in timeline.get("symptoms", []):
         for ep in symptom.get("episodes", []):
-            if ep.get("episode_date"):
+            ep_date = _iso_date(ep.get("episode_date"))
+            if ep_date:
                 sev = (ep.get("severity") or "mid").upper()
                 tod = ep.get("time_of_day") or ""
                 tod_label = f" — {tod}" if tod else ""
                 detail = ep.get("description") or ""
                 events.append({
-                    "date": ep["episode_date"],
+                    "date": ep_date,
                     "type": "symptom",
                     "title": f"{symptom.get('symptom_name', 'Symptom')} ({sev}){tod_label}",
                     "detail": detail,
+                    "symptom_name": symptom.get("symptom_name"),
+                    "severity": ep.get("severity"),
+                    "time_of_day": ep.get("time_of_day"),
+                    "description": ep.get("description"),
+                    "triggers": ep.get("triggers"),
+                    "duration": ep.get("duration"),
                 })
 
-    events.sort(key=lambda e: e["date"], reverse=True)
+    for note in timeline.get("notes", []):
+        note_date = _iso_date(_first_value(note.get("note_date"), note.get("date")))
+        if not note_date:
+            continue
+
+        notes.append({
+            "date": note_date,
+            "provider": _first_value(note.get("provider")),
+            "facility": _first_value(note.get("facility")),
+            "note_type": _first_value(note.get("note_type"), "Clinical note"),
+            "summary": _first_value(note.get("summary"), note.get("detail"), ""),
+            **_provenance_fields(note),
+        })
+
+    for index, event in enumerate(events):
+        event_date = _date_value(event.get("date"))
+        provider_name = _event_provider(event)
+        event["event_key"] = f"{event.get('type', 'event')}:{event.get('date', '')}:{index}"
+        event["related_notes"] = _related_notes(event_date, provider_name)
+        event["related_labs"] = _related_events(index, {"lab"})
+        event["related_events"] = _related_events(
+            index,
+            {"medication", "diagnosis", "procedure", "imaging", "symptom"},
+        )
+
+    events.sort(key=lambda e: e.get("date") or "", reverse=True)
     return jsonify(events)
 
 
@@ -2675,6 +3226,13 @@ def run(host: str = "127.0.0.1", port: int = 5000, debug: bool = False):
                 logger.warning("VAULT_PASSPHRASE did not match existing vault")
         except Exception as e:
             logger.warning(f"Auto-unlock failed: {e}")
+
+    if _passphrase is None:
+        _activate_dev_passphrase_bypass()
+
+    should_start_worker = not debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true"
+    if should_start_worker:
+        _start_environmental_sync_worker()
 
     logger.info(f"Starting Clinical Intelligence Hub on http://{host}:{port}")
     app.run(host=host, port=port, debug=debug, threaded=True)
