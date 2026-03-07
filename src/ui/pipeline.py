@@ -22,6 +22,7 @@ Features:
 
 import hashlib
 import logging
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -47,22 +48,36 @@ class Pipeline:
     """
 
     def __init__(self, data_dir: Path, passphrase: str,
-                 progress_callback: Callable = None):
+                 progress_callback: Callable = None,
+                 pause_event=None):
         """
         Args:
             data_dir: Base directory for all data
             passphrase: Encryption passphrase for patient data
             progress_callback: Called with (pass_name, message, percent)
+            pause_event: threading.Event — cleared when paused, set when running
         """
         self.data_dir = data_dir
         self._passphrase = passphrase
         self._progress = progress_callback or (lambda *a: None)
+        self._pause_event = pause_event
         self._caffeinate_proc = None
 
         # Lazy-initialized components
         self._db = None
         self._vault = None
         self._profile = None
+
+    def _wait_if_paused(self):
+        """Block until resumed if pipeline is paused."""
+        if self._pause_event and not self._pause_event.is_set():
+            logger.info("Pipeline paused — waiting for resume...")
+            self._pause_event.wait()  # Blocks until set()
+            logger.info("Pipeline resumed")
+
+    def _log(self, message: str):
+        """Send a detailed log line to the terminal viewer."""
+        self._progress("log", message, -1)
 
     def run(self, input_files: list[Path]) -> PatientProfile:
         """
@@ -77,9 +92,16 @@ class Pipeline:
             self._progress("init", "Pipeline initialized", 0)
 
             # Load or create profile
-            self._profile = self._vault.load_profile()
-            if self._profile and isinstance(self._profile, dict):
-                self._profile = PatientProfile(**self._profile)
+            try:
+                self._profile = self._vault.load_profile()
+                if self._profile and isinstance(self._profile, dict):
+                    self._profile = PatientProfile(**self._profile)
+            except Exception as e:
+                logger.warning(
+                    f"Could not load existing profile ({e}). "
+                    "Starting fresh."
+                )
+                self._profile = None
             if not self._profile:
                 self._profile = PatientProfile()
 
@@ -93,42 +115,59 @@ class Pipeline:
             step += 1
             self._progress("pass_0", "Classifying and preprocessing files...",
                            int(step / total_steps * 100))
+            self._log(f"Pass 0: Processing {len(input_files)} file(s)...")
             preprocessed = self._pass_0_preprocess(input_files)
+            for item in preprocessed:
+                self._log(f"  \u2713 {item.get('filename', '?')}: "
+                          f"{len(item.get('text', '')):,} chars, "
+                          f"{len(item.get('pages', []))} pages")
 
             # ── Pass 1a: Text Extraction ──
+            self._wait_if_paused()
             step += 1
             self._progress("pass_1a", "Extracting clinical data from text...",
                            int(step / total_steps * 100))
+            self._log("Pass 1a: Loading MedGemma 27B for clinical extraction...")
             self._pass_1a_text_extraction(preprocessed)
 
             # ── Pass 1b: Vision Analysis ──
+            self._wait_if_paused()
             step += 1
             self._progress("pass_1b", "Analyzing medical images...",
                            int(step / total_steps * 100))
+            self._log("Pass 1b: Checking for medical images...")
             self._pass_1b_vision(preprocessed)
 
             # ── Pass 1c: MONAI Detection ──
+            self._wait_if_paused()
             step += 1
             self._progress("pass_1c", "Running clinical detection models...",
                            int(step / total_steps * 100))
+            self._log("Pass 1c: Checking for DICOM files...")
             self._pass_1c_monai(preprocessed)
 
             # ── Pass 1.5: PII Redaction ──
+            self._wait_if_paused()
             step += 1
             self._progress("pass_1_5", "Removing personal information...",
                            int(step / total_steps * 100))
+            self._log("Pass 1.5: PII redaction check...")
             self._pass_1_5_redaction()
 
             # ── Pass 2-4: Cloud Analysis ──
+            self._wait_if_paused()
             step += 1
             self._progress("pass_2_4", "Analyzing patterns across specialties...",
                            int(step / total_steps * 100))
+            self._log("Pass 2-4: Cloud analysis (requires Gemini API key)...")
             self._pass_2_4_cloud_analysis()
 
             # ── Pass 5: Clinical Validation ──
+            self._wait_if_paused()
             step += 1
             self._progress("pass_5", "Validating against clinical databases...",
                            int(step / total_steps * 100))
+            self._log("Pass 5: Validating against OpenFDA, DrugBank, PubMed...")
             self._pass_5_validation()
 
             # ── Pass 6: Report Generation ──
@@ -194,33 +233,76 @@ class Pipeline:
             except Exception as e:
                 logger.error(f"Preprocessing failed for {filepath.name}: {e}")
 
+        if not results and input_files:
+            logger.warning(
+                f"Pass 0: 0 of {len(input_files)} files produced results. "
+                f"All files were duplicates, unsupported, or failed preprocessing."
+            )
+            self._progress(
+                "pass_0",
+                f"Warning: Could not extract data from {len(input_files)} file(s). "
+                "Check file format and try again.",
+                int(1 / 8 * 100),
+            )
+        else:
+            logger.info(f"Pass 0: {len(results)} of {len(input_files)} files preprocessed")
+
         return results
 
     # ── Pass 1a: Text Extraction ──────────────────────────────
 
     def _pass_1a_text_extraction(self, preprocessed: list[dict]):
         """Extract clinical data from text using MedGemma 27B."""
+        # Cap pages for initial extraction — process the first N pages
+        # to get data on the dashboard quickly. Full extraction can run later.
+        MAX_PAGES_PER_FILE = int(os.environ.get("MEDPREP_MAX_PAGES", "50"))
+
         try:
             from src.extraction.text_extractor import TextExtractor
 
-            extractor = TextExtractor()
+            extractor = TextExtractor(
+                progress_callback=self._progress,
+                pause_event=self._pause_event,
+            )
 
             for item in preprocessed:
+                pages = item.get("pages", [])
                 text = item.get("text", "")
                 if not text or len(text.strip()) < 50:
                     continue
 
+                # TextExtractor expects pages list [{page, text}]
+                if not pages:
+                    pages = [{"page": 1, "text": text}]
+
+                # Cap pages for faster initial results
+                total_pages = len(pages)
+                if total_pages > MAX_PAGES_PER_FILE:
+                    logger.info(
+                        f"Capping extraction to first {MAX_PAGES_PER_FILE} of "
+                        f"{total_pages} pages for {item.get('filename')} "
+                        f"(set MEDPREP_MAX_PAGES to change)"
+                    )
+                    pages = pages[:MAX_PAGES_PER_FILE]
+
                 try:
                     results = extractor.extract(
-                        text=text,
+                        pages=pages,
                         source_file=item.get("filename", "unknown"),
                     )
                     self._merge_extraction_results(results, item)
                 except Exception as e:
                     logger.error(f"Text extraction failed for {item.get('filename')}: {e}")
+                    self._log(f"  Error: {e}")
+
+            # Summary of what was extracted
+            tl = self._profile.clinical_timeline
+            self._log(f"Pass 1a complete: {len(tl.medications)} meds, "
+                      f"{len(tl.labs)} labs, {len(tl.diagnoses)} diagnoses")
 
         except ImportError:
             logger.warning("TextExtractor not available — skipping Pass 1a")
+            self._log("TextExtractor not available — skipped")
 
     # ── Pass 1b: Vision Analysis ──────────────────────────────
 

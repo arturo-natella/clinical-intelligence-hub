@@ -52,6 +52,121 @@ function formatProvenance(prov) {
     return escapeHtml(parts.join(", "));
 }
 
+const LAB_GLOSSARY = {
+    "hba1c": {
+        fullName: "Hemoglobin A1c",
+        summary: "Estimates average blood sugar exposure over roughly the past 2 to 3 months.",
+    },
+    "fasting glucose": {
+        fullName: "Fasting Glucose",
+        summary: "Measures blood sugar after fasting and helps track day-to-day glucose control.",
+    },
+    "ldl cholesterol": {
+        fullName: "Low-Density Lipoprotein Cholesterol",
+        summary: "Often called LDL or 'bad' cholesterol. Higher levels are associated with plaque buildup in arteries.",
+    },
+    "hdl cholesterol": {
+        fullName: "High-Density Lipoprotein Cholesterol",
+        summary: "Often called HDL or 'good' cholesterol. It helps carry cholesterol away from the bloodstream.",
+    },
+    "total cholesterol": {
+        fullName: "Total Cholesterol",
+        summary: "Overall cholesterol measurement that includes multiple cholesterol fractions.",
+    },
+    "triglycerides": {
+        fullName: "Triglycerides",
+        summary: "A type of blood fat that often rises with insulin resistance, diet, and metabolic syndrome.",
+    },
+    "creatinine": {
+        fullName: "Creatinine",
+        summary: "A waste product used to help assess kidney filtration and overall kidney function.",
+    },
+    "bun": {
+        fullName: "Blood Urea Nitrogen",
+        summary: "A waste marker influenced by kidney function, hydration, and protein metabolism.",
+    },
+    "egfr": {
+        fullName: "Estimated Glomerular Filtration Rate",
+        summary: "An estimate of how well the kidneys are filtering blood.",
+    },
+    "tsh": {
+        fullName: "Thyroid-Stimulating Hormone",
+        summary: "A screening marker used to evaluate thyroid function.",
+    },
+    "alt": {
+        fullName: "Alanine Aminotransferase",
+        summary: "A liver enzyme that can rise when liver cells are irritated or injured.",
+    },
+    "ast": {
+        fullName: "Aspartate Aminotransferase",
+        summary: "An enzyme found in the liver and other tissues that can rise with cell injury.",
+    },
+    "wbc": {
+        fullName: "White Blood Cell Count",
+        summary: "Measures the cells involved in infection defense and inflammatory response.",
+    },
+    "white blood cell count": {
+        fullName: "White Blood Cell Count",
+        summary: "Measures the cells involved in infection defense and inflammatory response.",
+    },
+    "hemoglobin": {
+        fullName: "Hemoglobin",
+        summary: "The oxygen-carrying protein inside red blood cells.",
+    },
+    "platelets": {
+        fullName: "Platelets",
+        summary: "Cell fragments that help blood clot and stop bleeding.",
+    },
+    "vitamin d": {
+        fullName: "Vitamin D",
+        summary: "Helps reflect vitamin D status, which affects bone health and other body systems.",
+    },
+    "crp hs": {
+        fullName: "High-Sensitivity C-Reactive Protein",
+        summary: "A marker of low-grade inflammation often used in cardiovascular risk assessment.",
+    },
+    "crp": {
+        fullName: "C-Reactive Protein",
+        summary: "A marker of inflammation in the body.",
+    },
+    "blood pressure systolic": {
+        fullName: "Systolic Blood Pressure",
+        summary: "The top blood pressure number, showing pressure when the heart contracts.",
+    },
+};
+
+function normalizeLabGlossaryKey(name) {
+    return String(name || "")
+        .toLowerCase()
+        .replace(/[()]/g, " ")
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim();
+}
+
+function getLabGlossaryEntry(name) {
+    if (!name) return null;
+
+    var normalized = normalizeLabGlossaryKey(name);
+    if (LAB_GLOSSARY[normalized]) {
+        return LAB_GLOSSARY[normalized];
+    }
+
+    if (normalized.indexOf("crp") !== -1) return LAB_GLOSSARY["crp hs"];
+    if (normalized.indexOf("white blood cell") !== -1) return LAB_GLOSSARY["wbc"];
+    if (normalized.indexOf("blood pressure") !== -1 && normalized.indexOf("systolic") !== -1) {
+        return LAB_GLOSSARY["blood pressure systolic"];
+    }
+
+    return null;
+}
+
+function labelizeKey(key) {
+    return String(key || "")
+        .replace(/_/g, " ")
+        .replace(/([a-z])([A-Z])/g, "$1 $2")
+        .replace(/\b\w/g, function(ch) { return ch.toUpperCase(); });
+}
+
 async function api(path, options) {
     options = options || {};
     try {
@@ -75,6 +190,13 @@ async function api(path, options) {
 function safeSetHtml(element, html) {
     if (typeof element === "string") element = $(element);
     if (element) element.innerHTML = html;
+}
+
+function updateSettingStatus(elementId, configured, configuredLabel) {
+    var el = $(elementId);
+    if (!el) return;
+    el.textContent = configured ? (configuredLabel || "Configured") : "Not set";
+    el.style.color = configured ? "var(--accent-green)" : "var(--accent-amber)";
 }
 
 
@@ -323,36 +445,90 @@ var App = {
         }
     },
 
-    listenProgress: function() {
-        var evtSource = new EventSource("/api/progress");
+    _evtSource: null,
 
-        evtSource.onmessage = function(event) {
+    _appendTerminalLine: function(timeStr, message, color) {
+        var terminal = $("pipeline-terminal");
+        if (!terminal) return;
+        var line = document.createElement("div");
+        var tsSpan = document.createElement("span");
+        tsSpan.style.color = "#484f58";
+        tsSpan.textContent = timeStr + " ";
+        var msgSpan = document.createElement("span");
+        msgSpan.style.color = color;
+        msgSpan.textContent = message;
+        line.appendChild(tsSpan);
+        line.appendChild(msgSpan);
+        terminal.appendChild(line);
+        terminal.scrollTop = terminal.scrollHeight;
+    },
+
+    listenProgress: function() {
+        App._evtSource = new EventSource("/api/progress");
+        var terminal = $("pipeline-terminal");
+        if (terminal) terminal.textContent = "";
+
+        App._evtSource.onmessage = function(event) {
             var data = JSON.parse(event.data);
 
             if (data.pass === "heartbeat") return;
 
+            // Update progress bar
             if (data.percent >= 0) {
                 $("progress-fill").style.width = data.percent + "%";
                 $("progress-text").textContent = data.message;
             }
 
+            // Append to terminal
+            var ts = new Date(data.timestamp * 1000);
+            var timeStr = ts.toLocaleTimeString("en-US", {hour12:false, hour:"2-digit", minute:"2-digit", second:"2-digit"});
+            var color = "#8b949e";
+            if (data.pass === "error") color = "#f85149";
+            else if (data.pass === "complete") color = "#3fb950";
+            else if (data.pass === "log") color = "#7d8590";
+            else if (data.pass && data.pass.startsWith("pass_")) color = "#58a6ff";
+            App._appendTerminalLine(timeStr, data.message, color);
+
+            if (data.pass === "paused") {
+                $("pause-btn").textContent = "Resume";
+                $("pause-btn").style.background = "var(--accent-green, #3fb950)";
+                $("progress-text").textContent = "Paused \u2014 safe to close laptop";
+            }
+
             if (data.pass === "complete") {
-                evtSource.close();
+                App._evtSource.close();
                 $("progress-card").style.display = "none";
                 $("actions-card").style.display = "block";
                 App.loadAllData();
             }
 
             if (data.pass === "error") {
-                evtSource.close();
+                App._evtSource.close();
                 $("progress-text").textContent = data.message;
                 $("progress-fill").style.background = "var(--accent-red)";
             }
         };
 
-        evtSource.onerror = function() {
-            evtSource.close();
+        App._evtSource.onerror = function() {
+            App._evtSource.close();
         };
+    },
+
+    togglePause: async function() {
+        try {
+            var resp = await fetch("/api/pipeline/pause", {method: "POST"});
+            var data = await resp.json();
+            var btn = $("pause-btn");
+            if (data.state === "paused") {
+                btn.textContent = "Resume";
+                btn.style.background = "var(--accent-green, #3fb950)";
+            } else {
+                btn.textContent = "Pause";
+                btn.style.background = "var(--accent-amber, #f59e0b)";
+            }
+        } catch (e) {
+            console.error("Pause toggle failed:", e);
+        }
     },
 
     // ── Load All Data ─────────────────────────────────
@@ -653,47 +829,443 @@ var App = {
         try {
             var labs = await api("/api/labs");
             var tbody = $("labs-body");
+            while (tbody && tbody.firstChild) tbody.removeChild(tbody.firstChild);
 
             if (!labs.length) {
-                safeSetHtml(tbody, '<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">No lab results found</td></tr>');
+                var emptyRow = document.createElement("tr");
+                var emptyCell = document.createElement("td");
+                emptyCell.colSpan = 6;
+                emptyCell.style.textAlign = "center";
+                emptyCell.style.color = "var(--text-muted)";
+                emptyCell.textContent = "No lab results found";
+                emptyRow.appendChild(emptyCell);
+                tbody.appendChild(emptyRow);
                 return;
             }
 
+            var normalizedLabs = labs.map(function(lab, index) {
+                return App._normalizeLabRecord(lab, index);
+            });
+
             // Sort: flagged first, then by date
-            var sorted = labs.slice().sort(function(a, b) {
-                var aFlag = (a.flag && a.flag.toLowerCase() !== "normal") ? 0 : 1;
-                var bFlag = (b.flag && b.flag.toLowerCase() !== "normal") ? 0 : 1;
+            var sorted = normalizedLabs.slice().sort(function(a, b) {
+                var aFlag = App._isFlaggedLab(a.flag) ? 0 : 1;
+                var bFlag = App._isFlaggedLab(b.flag) ? 0 : 1;
                 if (aFlag !== bFlag) return aFlag - bFlag;
                 return (b.test_date || "").localeCompare(a.test_date || "");
             });
 
-            var html = "";
             for (var i = 0; i < sorted.length; i++) {
-                var l = sorted[i];
-                var flag = (l.flag || "").toLowerCase();
-                var flagBadge;
-                if (flag === "high" || flag === "critical high") {
-                    flagBadge = '<span class="badge badge-high">HIGH</span>';
-                } else if (flag === "low" || flag === "critical low") {
-                    flagBadge = '<span class="badge badge-moderate">LOW</span>';
-                } else if (flag && flag !== "normal") {
-                    flagBadge = '<span class="badge badge-warning">' + escapeHtml(l.flag) + "</span>";
-                } else {
-                    flagBadge = '<span class="badge badge-active">Normal</span>';
-                }
-
-                var value = l.value != null ? l.value : (l.value_text || "\u2014");
-                html += "<tr>"
-                    + "<td><strong>" + escapeHtml(l.name) + "</strong></td>"
-                    + "<td>" + escapeHtml(String(value)) + "</td>"
-                    + "<td>" + escapeHtml(l.unit || "") + "</td>"
-                    + "<td>" + flagBadge + "</td>"
-                    + "<td>" + formatDate(l.test_date) + "</td>"
-                    + '<td style="font-size:12px; color:var(--text-muted);">' + formatProvenance(l.provenance) + "</td>"
-                    + "</tr>";
+                App._appendLabRows(tbody, sorted[i], normalizedLabs);
             }
-            safeSetHtml(tbody, html);
         } catch (e) { /* no data */ }
+    },
+
+    _normalizeLabRecord: function(lab, index) {
+        var knownKeys = {
+            name: true,
+            test_name: true,
+            value: true,
+            value_text: true,
+            unit: true,
+            flag: true,
+            test_date: true,
+            date: true,
+            reference_low: true,
+            reference_high: true,
+            ordering_provider: true,
+            provider: true,
+            lab_facility: true,
+            facility: true,
+            loinc_code: true,
+            provenance: true,
+            panel_name: true,
+            description: true,
+            summary: true,
+            interpretation: true,
+            note: true,
+            notes: true,
+            raw_text: true,
+            source_file: true,
+            source_page: true,
+            confidence: true,
+        };
+
+        var normalized = {
+            _labKey: "lab:" + index,
+            _original: lab,
+            name: lab.name || lab.test_name || "Lab Result",
+            value: lab.value,
+            value_text: lab.value_text,
+            unit: lab.unit || "",
+            flag: lab.flag || "",
+            test_date: lab.test_date || lab.date || "",
+            reference_low: lab.reference_low,
+            reference_high: lab.reference_high,
+            provider: lab.ordering_provider || lab.provider || "",
+            facility: lab.lab_facility || lab.facility || "",
+            loinc_code: lab.loinc_code || "",
+            panel_name: lab.panel_name || "",
+            description: lab.description || lab.summary || "",
+            interpretation: lab.interpretation || lab.note || lab.notes || "",
+            provenance: lab.provenance || null,
+            extra_fields: [],
+        };
+
+        for (var key in lab) {
+            if (!Object.prototype.hasOwnProperty.call(lab, key) || knownKeys[key]) continue;
+            if (lab[key] == null || String(lab[key]).trim() === "") continue;
+            normalized.extra_fields.push({
+                key: key,
+                label: labelizeKey(key),
+                value: lab[key],
+            });
+        }
+
+        return normalized;
+    },
+
+    _appendLabRows: function(tbody, lab, allLabs) {
+        var mainRow = document.createElement("tr");
+        mainRow.className = "lab-row-main";
+        mainRow.tabIndex = 0;
+        mainRow.setAttribute("role", "button");
+        mainRow.setAttribute("aria-expanded", "false");
+
+        var detailRow = document.createElement("tr");
+        detailRow.className = "lab-row-detail";
+        detailRow.style.display = "none";
+
+        var detailCell = document.createElement("td");
+        detailCell.colSpan = 6;
+        detailRow.appendChild(detailCell);
+
+        var testCell = document.createElement("td");
+        var testWrap = document.createElement("div");
+        testWrap.className = "lab-test-cell";
+
+        var nameEl = document.createElement("strong");
+        nameEl.className = "lab-test-name";
+        nameEl.textContent = lab.name;
+        testWrap.appendChild(nameEl);
+
+        var glossary = getLabGlossaryEntry(lab.name);
+        if (glossary) {
+            var tooltip = document.createElement("span");
+            tooltip.className = "info-tooltip lab-info-tooltip";
+
+            var trigger = document.createElement("button");
+            trigger.type = "button";
+            trigger.className = "lab-info-trigger";
+            trigger.setAttribute("aria-label", "About " + lab.name);
+            trigger.textContent = "i";
+            trigger.addEventListener("click", function(event) {
+                event.stopPropagation();
+            });
+            tooltip.appendChild(trigger);
+
+            var tooltipText = document.createElement("span");
+            tooltipText.className = "tooltip-text";
+            tooltipText.textContent = glossary.fullName + ". " + glossary.summary;
+            tooltip.appendChild(tooltipText);
+
+            testWrap.appendChild(tooltip);
+        }
+        testCell.appendChild(testWrap);
+        mainRow.appendChild(testCell);
+
+        var valueCell = document.createElement("td");
+        var value = lab.value != null ? lab.value : (lab.value_text || "\u2014");
+        valueCell.textContent = String(value);
+        mainRow.appendChild(valueCell);
+
+        var unitCell = document.createElement("td");
+        unitCell.textContent = lab.unit || "";
+        mainRow.appendChild(unitCell);
+
+        var flagCell = document.createElement("td");
+        flagCell.appendChild(App._buildLabFlagBadge(lab.flag));
+        mainRow.appendChild(flagCell);
+
+        var dateCell = document.createElement("td");
+        dateCell.textContent = formatDate(lab.test_date);
+        mainRow.appendChild(dateCell);
+
+        var sourceCell = document.createElement("td");
+        sourceCell.className = "lab-source-cell";
+        sourceCell.textContent = App._labSourceText(lab);
+        mainRow.appendChild(sourceCell);
+
+        App._populateLabDetail(detailCell, lab, allLabs);
+
+        function toggleRow() {
+            var isOpen = detailRow.style.display !== "none";
+            detailRow.style.display = isOpen ? "none" : "";
+            mainRow.classList.toggle("is-open", !isOpen);
+            mainRow.setAttribute("aria-expanded", isOpen ? "false" : "true");
+        }
+
+        mainRow.addEventListener("click", toggleRow);
+        mainRow.addEventListener("keydown", function(event) {
+            if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                toggleRow();
+            }
+        });
+
+        tbody.appendChild(mainRow);
+        tbody.appendChild(detailRow);
+    },
+
+    _populateLabDetail: function(container, lab, allLabs) {
+        var panel = document.createElement("div");
+        panel.className = "lab-detail-panel";
+
+        var header = document.createElement("div");
+        header.className = "lab-detail-header";
+
+        var titleBlock = document.createElement("div");
+        var title = document.createElement("div");
+        title.className = "lab-detail-title";
+        title.textContent = lab.name;
+        titleBlock.appendChild(title);
+
+        var glossary = getLabGlossaryEntry(lab.name);
+        if (glossary) {
+            var subtitle = document.createElement("div");
+            subtitle.className = "lab-detail-subtitle";
+            subtitle.textContent = glossary.fullName + ". " + glossary.summary;
+            titleBlock.appendChild(subtitle);
+        }
+        header.appendChild(titleBlock);
+
+        var currentValue = document.createElement("div");
+        currentValue.className = "lab-detail-current";
+        currentValue.textContent = App._compactLabParts([
+            lab.value != null ? lab.value : lab.value_text,
+            lab.unit,
+            App._normalizedFlagLabel(lab.flag),
+        ]) || "No value available";
+        header.appendChild(currentValue);
+        panel.appendChild(header);
+
+        var grid = document.createElement("div");
+        grid.className = "lab-detail-grid";
+        App._appendLabDetailField(grid, "Date", formatDate(lab.test_date));
+        App._appendLabDetailField(grid, "Reference Range", App._formatLabReferenceRange(lab.reference_low, lab.reference_high, lab.unit));
+        App._appendLabDetailField(grid, "Provider", lab.provider);
+        App._appendLabDetailField(grid, "Facility", lab.facility);
+        App._appendLabDetailField(grid, "LOINC", lab.loinc_code);
+        App._appendLabDetailField(grid, "Panel", lab.panel_name);
+        if (grid.childNodes.length) {
+            panel.appendChild(grid);
+        }
+
+        App._appendLabDetailBody(panel, "Description", lab.description);
+        App._appendLabDetailBody(panel, "Interpretation", lab.interpretation);
+
+        if (lab.extra_fields && lab.extra_fields.length) {
+            var extraTitle = document.createElement("div");
+            extraTitle.className = "lab-detail-section-title";
+            extraTitle.textContent = "Additional Details";
+            panel.appendChild(extraTitle);
+
+            var extraGrid = document.createElement("div");
+            extraGrid.className = "lab-detail-grid";
+            for (var i = 0; i < lab.extra_fields.length; i++) {
+                App._appendLabDetailField(extraGrid, lab.extra_fields[i].label, lab.extra_fields[i].value);
+            }
+            if (extraGrid.childNodes.length) {
+                panel.appendChild(extraGrid);
+            }
+        }
+
+        var history = allLabs
+            .filter(function(other) { return normalizeLabGlossaryKey(other.name) === normalizeLabGlossaryKey(lab.name); })
+            .sort(function(a, b) { return (b.test_date || "").localeCompare(a.test_date || ""); });
+
+        if (history.length > 1) {
+            var historyTitle = document.createElement("div");
+            historyTitle.className = "lab-detail-section-title";
+            historyTitle.textContent = "Recent History";
+            panel.appendChild(historyTitle);
+
+            var historyWrap = document.createElement("div");
+            historyWrap.className = "lab-history-chips";
+
+            for (var hi = 0; hi < Math.min(history.length, 6); hi++) {
+                var chip = document.createElement("div");
+                chip.className = "lab-history-chip";
+
+                var chipValue = document.createElement("div");
+                chipValue.className = "lab-history-value";
+                chipValue.textContent = App._compactLabParts([
+                    history[hi].value != null ? history[hi].value : history[hi].value_text,
+                    history[hi].unit,
+                ]) || "No value";
+                chip.appendChild(chipValue);
+
+                var chipMeta = document.createElement("div");
+                chipMeta.className = "lab-history-meta";
+                chipMeta.textContent = formatDate(history[hi].test_date) + (
+                    App._normalizedFlagLabel(history[hi].flag) ? " • " + App._normalizedFlagLabel(history[hi].flag) : ""
+                );
+                chip.appendChild(chipMeta);
+
+                historyWrap.appendChild(chip);
+            }
+
+            panel.appendChild(historyWrap);
+        }
+
+        var sourceText = App._labSourceText(lab);
+        if (sourceText || (lab.provenance && lab.provenance.raw_text)) {
+            var sourceTitle = document.createElement("div");
+            sourceTitle.className = "lab-detail-section-title";
+            sourceTitle.textContent = "Source";
+            panel.appendChild(sourceTitle);
+
+            var sourceBox = document.createElement("div");
+            sourceBox.className = "lab-detail-source";
+            if (sourceText) {
+                var sourceMeta = document.createElement("div");
+                sourceMeta.className = "lab-detail-source-meta";
+                sourceMeta.textContent = sourceText;
+                sourceBox.appendChild(sourceMeta);
+            }
+
+            if (lab.provenance && lab.provenance.raw_text) {
+                var raw = document.createElement("div");
+                raw.className = "lab-detail-source-copy";
+                raw.textContent = lab.provenance.raw_text;
+                sourceBox.appendChild(raw);
+            }
+            panel.appendChild(sourceBox);
+        }
+
+        container.appendChild(panel);
+    },
+
+    _appendLabDetailField: function(container, label, value) {
+        if (!value && value !== 0) return;
+
+        var field = document.createElement("div");
+        field.className = "lab-detail-field";
+
+        var labelEl = document.createElement("div");
+        labelEl.className = "lab-detail-field-label";
+        labelEl.textContent = label;
+        field.appendChild(labelEl);
+
+        var valueEl = document.createElement("div");
+        valueEl.className = "lab-detail-field-value";
+        valueEl.textContent = App._labDisplayValue(value);
+        field.appendChild(valueEl);
+
+        container.appendChild(field);
+    },
+
+    _appendLabDetailBody: function(container, label, value) {
+        if (!value && value !== 0) return;
+
+        var block = document.createElement("div");
+        block.className = "lab-detail-body-block";
+
+        var labelEl = document.createElement("div");
+        labelEl.className = "lab-detail-field-label";
+        labelEl.textContent = label;
+        block.appendChild(labelEl);
+
+        var valueEl = document.createElement("div");
+        valueEl.className = "lab-detail-body-copy";
+        valueEl.textContent = App._labDisplayValue(value);
+        block.appendChild(valueEl);
+
+        container.appendChild(block);
+    },
+
+    _buildLabFlagBadge: function(flag) {
+        var wrapper = document.createElement("span");
+        var normalized = String(flag || "").trim().toLowerCase();
+
+        if (normalized === "high" || normalized === "critical high" || normalized === "h") {
+            wrapper.className = "badge badge-high";
+            wrapper.textContent = "HIGH";
+        } else if (normalized === "low" || normalized === "critical low" || normalized === "l") {
+            wrapper.className = "badge badge-moderate";
+            wrapper.textContent = "LOW";
+        } else if (normalized && normalized !== "normal") {
+            wrapper.className = "badge badge-warning";
+            wrapper.textContent = String(flag);
+        } else {
+            wrapper.className = "badge badge-active";
+            wrapper.textContent = "Normal";
+        }
+
+        return wrapper;
+    },
+
+    _normalizedFlagLabel: function(flag) {
+        var normalized = String(flag || "").trim().toLowerCase();
+        if (!normalized || normalized === "normal") return "";
+        if (normalized === "h" || normalized === "high" || normalized === "critical high") return "High";
+        if (normalized === "l" || normalized === "low" || normalized === "critical low") return "Low";
+        return String(flag);
+    },
+
+    _isFlaggedLab: function(flag) {
+        var normalized = String(flag || "").trim().toLowerCase();
+        return !!normalized && normalized !== "normal";
+    },
+
+    _formatLabReferenceRange: function(low, high, unit) {
+        if (low == null && high == null) return "";
+        var range = "";
+        if (low != null && high != null) {
+            range = low + " to " + high;
+        } else if (low != null) {
+            range = ">= " + low;
+        } else {
+            range = "<= " + high;
+        }
+        if (unit) range += " " + unit;
+        return range;
+    },
+
+    _compactLabParts: function(parts) {
+        return parts
+            .filter(function(part) {
+                return part !== null && part !== undefined && String(part).trim() !== "";
+            })
+            .join(" ");
+    },
+
+    _labSourceText: function(lab) {
+        var parts = [];
+        var provenance = lab.provenance || {};
+        if (provenance.source_file) parts.push(provenance.source_file);
+        if (provenance.source_page) parts.push("p." + provenance.source_page);
+        if (provenance.extraction_model) parts.push(provenance.extraction_model);
+        if (parts.length) return parts.join(", ");
+
+        return [lab.provider, lab.facility]
+            .filter(function(part) { return !!part; })
+            .join(", ");
+    },
+
+    _labDisplayValue: function(value) {
+        if (value == null) return "";
+        if (Array.isArray(value)) {
+            return value.map(function(item) { return App._labDisplayValue(item); }).join(", ");
+        }
+        if (typeof value === "object") {
+            try {
+                return JSON.stringify(value);
+            } catch (e) {
+                return String(value);
+            }
+        }
+        return String(value);
     },
 
     // ── Imaging ───────────────────────────────────────
@@ -899,9 +1471,48 @@ var App = {
             var emptyState = $("env-empty");
             var personalizedSection = $("env-personalized");
             var regionalSection = $("env-regional");
+            var focusBox = $("env-analysis-focus");
+            var focusText = $("env-analysis-focus-text");
+            var focusDomains = $("env-analysis-domains");
+            var sourceSummary = $("env-source-summary");
+            var sourceList = $("env-source-list");
+            var syncStatus = $("env-sync-status");
 
             while (personalizedList.firstChild) personalizedList.removeChild(personalizedList.firstChild);
             while (regionalList.firstChild) regionalList.removeChild(regionalList.firstChild);
+            while (focusDomains && focusDomains.firstChild) focusDomains.removeChild(focusDomains.firstChild);
+            while (sourceSummary && sourceSummary.firstChild) sourceSummary.removeChild(sourceSummary.firstChild);
+            while (sourceList && sourceList.firstChild) sourceList.removeChild(sourceList.firstChild);
+
+            if (focusBox) focusBox.style.display = data && data.analysis_focus ? "block" : "none";
+            if (focusText) {
+                focusText.textContent = data && data.analysis_focus
+                    ? (data.analysis_focus.goal || "")
+                    : "";
+            }
+            if (focusDomains && data && data.analysis_focus && data.analysis_focus.domains) {
+                for (var d = 0; d < data.analysis_focus.domains.length; d++) {
+                    var domainBadge = document.createElement("div");
+                    domainBadge.style.cssText = "font-size:12px; color:var(--text-primary); padding:6px 10px; border-radius:999px; border:1px solid var(--border-muted); background:rgba(255,255,255,0.03);";
+                    domainBadge.textContent = data.analysis_focus.domains[d];
+                    focusDomains.appendChild(domainBadge);
+                }
+            }
+
+            App._renderEnvironmentalSourceCoverage(sourceSummary, sourceList, data);
+
+            if (syncStatus) {
+                var syncSettings = data && data.sync_settings ? data.sync_settings : null;
+                var updatedAt = syncSettings && syncSettings.last_run_at ? syncSettings.last_run_at : "";
+                var nextRun = syncSettings && syncSettings.next_run_at ? syncSettings.next_run_at : "";
+                var statusBits = [];
+                if (updatedAt) statusBits.push("Last sync: " + formatDate(updatedAt));
+                if (syncSettings && syncSettings.enabled && nextRun) statusBits.push("Next auto-sync: " + formatDate(nextRun));
+                syncStatus.style.display = statusBits.length ? "block" : "none";
+                syncStatus.textContent = statusBits.join(" • ");
+            }
+
+            if (locBadge) locBadge.textContent = data && data.location ? data.location : "Location not set";
 
             if (!data || !data.risks || !data.risks.length) {
                 emptyState.style.display = "block";
@@ -919,17 +1530,42 @@ var App = {
             for (var i = 0; i < data.risks.length; i++) {
                 var risk = data.risks[i];
                 var card = document.createElement("div");
-                card.style.cssText = "background:var(--bg-raised); border-radius:12px; padding:16px; margin-bottom:12px; border-left:3px solid " + (risk.personalized ? "var(--heat)" : "var(--border-muted)") + ";";
+                var personalized = Boolean(risk.personalized || (risk.relevance_score && risk.relevance_score > 0));
+                card.style.cssText = "background:var(--bg-raised); border-radius:12px; padding:16px; margin-bottom:12px; border-left:3px solid " + (personalized ? "var(--heat)" : "var(--border-muted)") + ";";
+
+                var header = document.createElement("div");
+                header.style.cssText = "display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:4px;";
 
                 var title = document.createElement("div");
-                title.style.cssText = "font-weight:500; color:var(--text-primary); margin-bottom:4px;";
+                title.style.cssText = "font-weight:500; color:var(--text-primary);";
                 title.textContent = risk.name || risk.title || "Risk";
-                card.appendChild(title);
+                header.appendChild(title);
+
+                var badges = document.createElement("div");
+                badges.style.cssText = "display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end;";
+                badges.appendChild(App._buildEnvironmentalBadge(risk.severity || "info", "severity"));
+                if (risk.category) badges.appendChild(App._buildEnvironmentalBadge(risk.category, "category"));
+                header.appendChild(badges);
+                card.appendChild(header);
 
                 var desc = document.createElement("div");
                 desc.style.cssText = "font-size:14px; color:var(--text-secondary); margin-bottom:8px;";
                 desc.textContent = risk.description || "";
                 card.appendChild(desc);
+
+                if (risk.relevance_reasons && risk.relevance_reasons.length) {
+                    var reasons = document.createElement("div");
+                    reasons.style.cssText = "font-size:13px; color:var(--accent-amber); margin-bottom:8px;";
+                    reasons.textContent = "Why this may matter for you: " + risk.relevance_reasons.join(" ");
+                    card.appendChild(reasons);
+                }
+
+                if (risk.symptoms_to_watch && risk.symptoms_to_watch.length) {
+                    var symptoms = document.createElement("div");
+                    symptoms.style.cssText = "font-size:13px; color:var(--text-muted); margin-bottom:8px;";
+                    symptoms.textContent = "Symptoms to watch: " + risk.symptoms_to_watch.join(", ");
+                    card.appendChild(symptoms);
+                }
 
                 if (risk.action) {
                     var action = document.createElement("div");
@@ -938,7 +1574,7 @@ var App = {
                     card.appendChild(action);
                 }
 
-                if (risk.personalized) {
+                if (personalized) {
                     personalizedList.appendChild(card);
                     hasPersonalized = true;
                 } else {
@@ -952,6 +1588,322 @@ var App = {
             $("env-empty").style.display = "block";
             $("env-personalized").style.display = "none";
             $("env-regional").style.display = "none";
+        }
+    },
+
+    syncEnvironmentalData: async function() {
+        var btn = $("env-sync-btn");
+        var status = $("env-sync-status");
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = "Syncing…";
+        }
+        if (status) {
+            status.style.display = "block";
+            status.style.color = "var(--text-secondary)";
+            status.textContent = "Fetching environmental source snapshots for your saved location…";
+        }
+
+        try {
+            var result = await api("/api/environmental/sync", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: "{}",
+            });
+
+            if (status) {
+                status.style.display = "block";
+                status.style.color = "var(--accent-green)";
+                status.textContent =
+                    "Environmental sync complete. "
+                    + result.summary.downloaded + " downloaded, "
+                    + (result.summary.cached || 0) + " reused from cache, "
+                    + result.summary.skipped + " skipped, "
+                    + result.summary.errors + " errors.";
+            }
+            await App.loadEnvironmental();
+        } catch (e) {
+            if (status) {
+                status.style.display = "block";
+                status.style.color = "var(--accent-red)";
+                status.textContent = "Environmental sync failed: " + e.message;
+            }
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = "Sync Data";
+            }
+        }
+    },
+
+    _renderEnvironmentalSettings: function(payload) {
+        var settings = payload && payload.settings ? payload.settings : {};
+        var sources = payload && payload.source_catalog ? payload.source_catalog : [];
+        var automatedIds = payload && payload.automated_source_ids ? payload.automated_source_ids : [];
+
+        var enabledCheckbox = $("setting-environmental-auto-enabled");
+        var intervalSelect = $("setting-environmental-auto-interval");
+        var autoSources = $("settings-environmental-auto-sources");
+        var autoStatus = $("settings-environmental-auto-status");
+        var inventory = $("settings-environmental-sources");
+
+        if (enabledCheckbox) enabledCheckbox.checked = Boolean(settings.enabled);
+        if (intervalSelect) intervalSelect.value = String(settings.interval_hours || 24);
+        if (autoSources) while (autoSources.firstChild) autoSources.removeChild(autoSources.firstChild);
+        if (inventory) while (inventory.firstChild) inventory.removeChild(inventory.firstChild);
+
+        var selectedIds = settings.source_ids || automatedIds;
+        for (var i = 0; i < sources.length; i++) {
+            var source = sources[i];
+            if (automatedIds.indexOf(source.id) !== -1 && autoSources) {
+                var option = document.createElement("label");
+                option.style.cssText = "display:flex; align-items:flex-start; gap:10px; padding:10px 12px; border-radius:10px; border:1px solid var(--border-faint); background:rgba(255,255,255,0.02);";
+
+                var input = document.createElement("input");
+                input.type = "checkbox";
+                input.value = source.id;
+                input.checked = selectedIds.indexOf(source.id) !== -1;
+                input.setAttribute("data-environmental-source-check", "1");
+                option.appendChild(input);
+
+                var text = document.createElement("div");
+                text.innerHTML =
+                    '<div style="font-size:13px; color:var(--text-primary); margin-bottom:3px;">' + escapeHtml(source.name || source.id) + "</div>"
+                    + '<div style="font-size:12px; color:var(--text-muted); line-height:1.4;">' + escapeHtml(source.purpose || "") + "</div>";
+                option.appendChild(text);
+                autoSources.appendChild(option);
+            }
+
+            if (!inventory) continue;
+
+            var card = document.createElement("div");
+            card.style.cssText = "padding:12px 14px; border-radius:12px; border:1px solid var(--border-faint); background:rgba(255,255,255,0.02);";
+
+            var header = document.createElement("div");
+            header.style.cssText = "display:flex; justify-content:space-between; gap:12px; align-items:flex-start; margin-bottom:6px;";
+            header.innerHTML =
+                '<div>'
+                + '<div style="font-size:14px; color:var(--text-primary); margin-bottom:2px;">' + escapeHtml(source.name || source.id) + "</div>"
+                + '<div style="font-size:12px; color:var(--text-muted);">' + escapeHtml((source.provider || "") + " • " + (source.category || "")) + "</div>"
+                + "</div>";
+
+            var right = document.createElement("div");
+            right.style.cssText = "text-align:right; font-size:11px; color:var(--text-muted);";
+            right.innerHTML =
+                '<div style="margin-bottom:4px;">' + escapeHtml(source.auth || "") + "</div>"
+                + '<div>' + escapeHtml(source.status || "") + "</div>";
+            header.appendChild(right);
+            card.appendChild(header);
+
+            var details = document.createElement("div");
+            details.style.cssText = "display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:8px; font-size:12px;";
+            var detailFields = [
+                { label: "Layer", value: source.layer },
+                { label: "Cadence", value: source.cadence },
+                { label: "Endpoint", value: source.endpoint },
+                { label: "Last Updated", value: source.last_updated || "Not synced yet" },
+                { label: "Local Data", value: source.local_path || "Not staged yet" },
+            ];
+            for (var d = 0; d < detailFields.length; d++) {
+                var field = document.createElement("div");
+                field.style.cssText = "padding:8px 10px; border-radius:10px; background:rgba(0,0,0,0.18);";
+                field.innerHTML =
+                    '<div style="font-size:10px; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted); margin-bottom:4px;">'
+                    + escapeHtml(detailFields[d].label)
+                    + "</div>"
+                    + '<div style="color:var(--text-secondary); line-height:1.5; word-break:break-word;">'
+                    + escapeHtml(detailFields[d].value || "\u2014")
+                    + "</div>";
+                details.appendChild(field);
+            }
+            card.appendChild(details);
+
+            if (source.purpose) {
+                var purpose = document.createElement("div");
+                purpose.style.cssText = "font-size:12px; color:var(--text-secondary); line-height:1.6; margin-top:8px;";
+                purpose.textContent = source.purpose;
+                card.appendChild(purpose);
+            }
+
+            if (source.coverage_notes) {
+                var notes = document.createElement("div");
+                notes.style.cssText = "margin-top:8px; font-size:12px; color:var(--accent-teal);";
+                notes.textContent = source.coverage_notes;
+                card.appendChild(notes);
+            }
+
+            inventory.appendChild(card);
+        }
+
+        if (autoStatus) {
+            var statusText = [];
+            statusText.push(settings.enabled ? "Automatic sync is enabled." : "Automatic sync is off.");
+            if (settings.last_run_at) statusText.push("Last run: " + formatDate(settings.last_run_at));
+            if (settings.next_run_at && settings.enabled) statusText.push("Next run: " + formatDate(settings.next_run_at));
+            if (settings.last_error) statusText.push("Last error: " + settings.last_error);
+            autoStatus.textContent = statusText.join(" ");
+        }
+    },
+
+    _buildEnvironmentalBadge: function(text, kind) {
+        var badge = document.createElement("div");
+        var normalizedKind = String(kind || "").toLowerCase();
+        var color = "var(--text-muted)";
+        var border = "var(--border-muted)";
+
+        if (normalizedKind === "severity") {
+            var severity = String(text || "").toLowerCase();
+            if (severity === "high") {
+                color = "var(--accent-red)";
+                border = "rgba(255,79,79,0.35)";
+            } else if (severity === "moderate") {
+                color = "var(--accent-amber)";
+                border = "rgba(248,181,52,0.35)";
+            } else if (severity === "low") {
+                color = "var(--accent-green)";
+                border = "rgba(52,211,153,0.35)";
+            }
+        } else if (normalizedKind === "status") {
+            var status = String(text || "").toLowerCase();
+            if (status.indexOf("active") !== -1) {
+                color = "var(--accent-green)";
+                border = "rgba(52,211,153,0.35)";
+            } else if (status.indexOf("planned") !== -1) {
+                color = "var(--accent-bluetron)";
+                border = "rgba(80,128,176,0.35)";
+            } else if (status.indexOf("candidate") !== -1) {
+                color = "var(--accent-amber)";
+                border = "rgba(248,181,52,0.35)";
+            } else if (status.indexOf("reference") !== -1) {
+                color = "var(--accent-teal)";
+                border = "rgba(56,189,248,0.35)";
+            }
+        } else if (normalizedKind === "download") {
+            var downloaded = String(text || "").toLowerCase().indexOf("downloaded") !== -1
+                && String(text || "").toLowerCase().indexOf("not") === -1;
+            color = downloaded ? "var(--accent-green)" : "var(--text-muted)";
+            border = downloaded ? "rgba(52,211,153,0.35)" : "var(--border-muted)";
+        }
+
+        badge.style.cssText = "font-size:11px; color:" + color + "; padding:4px 8px; border-radius:999px; border:1px solid " + border + "; background:rgba(255,255,255,0.02);";
+        badge.textContent = text;
+        return badge;
+    },
+
+    _renderEnvironmentalSourceCoverage: function(summaryContainer, listContainer, data) {
+        if (!summaryContainer || !listContainer || !data) return;
+
+        var summary = data.source_summary || {};
+        var cards = [
+            {
+                label: "Total Sources",
+                value: summary.total_sources != null ? String(summary.total_sources) : "\u2014",
+            },
+            {
+                label: "Downloaded Locally",
+                value: summary.downloaded_sources != null ? String(summary.downloaded_sources) : "0",
+            },
+            {
+                label: "Active Now",
+                value: String((summary.status_counts || {})["active-now"] || 0),
+            },
+            {
+                label: "Planned / Candidate",
+                value: String(((summary.status_counts || {}).planned || 0) + ((summary.status_counts || {}).candidate || 0) + ((summary.status_counts || {}).reference || 0)),
+            },
+        ];
+
+        for (var i = 0; i < cards.length; i++) {
+            var card = document.createElement("div");
+            card.style.cssText = "padding:12px 14px; border-radius:12px; border:1px solid var(--border-faint); background:rgba(255,255,255,0.02);";
+
+            var label = document.createElement("div");
+            label.style.cssText = "font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted); margin-bottom:6px;";
+            label.textContent = cards[i].label;
+            card.appendChild(label);
+
+            var value = document.createElement("div");
+            value.style.cssText = "font-size:22px; font-weight:600; color:var(--text-primary);";
+            value.textContent = cards[i].value;
+            card.appendChild(value);
+
+            summaryContainer.appendChild(card);
+        }
+
+        var sources = data.source_catalog || [];
+        for (var j = 0; j < sources.length; j++) {
+            var source = sources[j];
+            var sourceCard = document.createElement("div");
+            sourceCard.style.cssText = "padding:14px 16px; border-radius:12px; border:1px solid var(--border-faint); background:rgba(255,255,255,0.02); margin-bottom:10px;";
+
+            var header = document.createElement("div");
+            header.style.cssText = "display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:6px;";
+
+            var titleWrap = document.createElement("div");
+            var title = document.createElement("div");
+            title.style.cssText = "font-size:15px; font-weight:500; color:var(--text-primary); margin-bottom:2px;";
+            title.textContent = source.name;
+            titleWrap.appendChild(title);
+
+            var provider = document.createElement("div");
+            provider.style.cssText = "font-size:12px; color:var(--text-muted);";
+            provider.textContent = source.provider + " • " + source.category;
+            titleWrap.appendChild(provider);
+            header.appendChild(titleWrap);
+
+            var badgeRow = document.createElement("div");
+            badgeRow.style.cssText = "display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end;";
+            badgeRow.appendChild(App._buildEnvironmentalBadge(source.status || "planned", "status"));
+            badgeRow.appendChild(App._buildEnvironmentalBadge(source.layer || "", "category"));
+            badgeRow.appendChild(App._buildEnvironmentalBadge(source.downloaded ? "Downloaded" : "Not downloaded", "download"));
+            header.appendChild(badgeRow);
+            sourceCard.appendChild(header);
+
+            var purpose = document.createElement("div");
+            purpose.style.cssText = "font-size:13px; color:var(--text-secondary); line-height:1.6; margin-bottom:8px;";
+            purpose.textContent = source.purpose || "";
+            sourceCard.appendChild(purpose);
+
+            var meta = document.createElement("div");
+            meta.style.cssText = "display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:8px; font-size:12px; color:var(--text-muted);";
+
+            var metaFields = [
+                { label: "Horizon", value: source.time_horizon },
+                { label: "Geography", value: source.geography },
+                { label: "Cadence", value: source.cadence },
+                { label: "Auth", value: source.auth },
+                { label: "Last Updated", value: source.last_updated || "Not synced yet" },
+                { label: "Endpoint", value: source.endpoint },
+                { label: "Local Data", value: source.local_path || "Not staged yet" },
+                { label: "Snapshot Count", value: source.snapshot_count != null ? String(source.snapshot_count) : "0" },
+            ];
+
+            for (var m = 0; m < metaFields.length; m++) {
+                var field = document.createElement("div");
+                field.style.cssText = "padding:8px 10px; border-radius:10px; background:rgba(0,0,0,0.18);";
+
+                var fieldLabel = document.createElement("div");
+                fieldLabel.style.cssText = "font-size:10px; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted); margin-bottom:4px;";
+                fieldLabel.textContent = metaFields[m].label;
+                field.appendChild(fieldLabel);
+
+                var fieldValue = document.createElement("div");
+                fieldValue.style.cssText = "color:var(--text-secondary); line-height:1.5; word-break:break-word;";
+                fieldValue.textContent = metaFields[m].value || "\u2014";
+                field.appendChild(fieldValue);
+
+                meta.appendChild(field);
+            }
+
+            if (source.coverage_notes) {
+                var notes = document.createElement("div");
+                notes.style.cssText = "margin-top:8px; font-size:12px; color:var(--accent-teal);";
+                notes.textContent = source.coverage_notes;
+                sourceCard.appendChild(notes);
+            }
+
+            sourceCard.appendChild(meta);
+            listContainer.appendChild(sourceCard);
         }
     },
 
@@ -1158,7 +2110,11 @@ var App = {
     // ── Session ───────────────────────────────────────
 
     clearSession: async function() {
-        if (!confirm("Start a new session? This will clear all patient data. API keys and model downloads are kept.")) {
+        if (!confirm(
+            "Delete all local patient data from MedPrep?\n\n"
+            + "This removes uploaded files, derived findings, the encrypted patient profile, the local SQLite database, and generated reports from this Mac.\n\n"
+            + "API keys and downloaded anatomy/model assets are kept."
+        )) {
             return;
         }
 
@@ -1167,26 +2123,17 @@ var App = {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
             });
-
-            // Reset UI
             App.uploadedFiles = [];
-            $("stat-conditions").textContent = "\u2014";
-            $("stat-meds").textContent = "\u2014";
-            $("stat-labs").textContent = "\u2014";
-            $("stat-flags").textContent = "\u2014";
-            safeSetHtml("file-list", "");
-            $("upload-card").style.display = "block";
-            $("files-card").style.display = "none";
-            $("progress-card").style.display = "none";
-            $("actions-card").style.display = "none";
-            $("interactions-card").style.display = "none";
-            $("questions-card").style.display = "none";
-            $("report-download-btn").style.display = "none";
-            $("report-status").textContent = "No report generated yet.";
-            App.navigateTo("dashboard");
+            App.hideSettings();
+            alert("Local patient data deleted from MedPrep. API keys and downloaded models were kept.");
+            window.location.reload();
         } catch (e) {
-            alert("Failed to clear session: " + e.message);
+            alert("Failed to delete local patient data: " + e.message);
         }
+    },
+
+    deleteLocalPatientData: async function() {
+        await App.clearSession();
     },
 
     // ── Settings ──────────────────────────────────────
@@ -1197,9 +2144,11 @@ var App = {
         // Load current key status
         try {
             var status = await api("/api/keys/status");
-            var geminiStatus = $("gemini-key-status");
-            geminiStatus.textContent = status.gemini ? "Configured" : "Not set";
-            geminiStatus.style.color = status.gemini ? "var(--accent-green)" : "var(--accent-amber)";
+            updateSettingStatus("gemini-key-status", Boolean(status.gemini));
+            updateSettingStatus("ncbi-key-status", Boolean(status.ncbi));
+            updateSettingStatus("openfda-key-status", Boolean(status.openfda));
+            updateSettingStatus("airnow-key-status", Boolean(status.airnow));
+            updateSettingStatus("nws-contact-status", Boolean(status.nws_contact), "Saved");
         } catch (e) { /* ignore */ }
 
         // Load current location
@@ -1209,6 +2158,11 @@ var App = {
             if (locInput && locData.location) {
                 locInput.value = locData.location;
             }
+        } catch (e) { /* ignore */ }
+
+        try {
+            var environmentalSettings = await api("/api/environmental/settings");
+            App._renderEnvironmentalSettings(environmentalSettings);
         } catch (e) { /* ignore */ }
     },
 
@@ -1221,6 +2175,8 @@ var App = {
             { id: "setting-gemini-key", service: "gemini" },
             { id: "setting-ncbi-key", service: "ncbi" },
             { id: "setting-openfda-key", service: "openfda" },
+            { id: "setting-airnow-key", service: "airnow" },
+            { id: "setting-nws-contact", service: "nws_contact" },
         ];
 
         for (var i = 0; i < keys.length; i++) {
@@ -1249,6 +2205,37 @@ var App = {
             });
         } catch (e) {
             alert("Failed to save location: " + e.message);
+            return;
+        }
+
+        try {
+            updateSettingStatus("gemini-key-status", Boolean($("setting-gemini-key").value.trim()));
+            updateSettingStatus("ncbi-key-status", Boolean($("setting-ncbi-key").value.trim()));
+            updateSettingStatus("openfda-key-status", Boolean($("setting-openfda-key").value.trim()));
+            updateSettingStatus("airnow-key-status", Boolean($("setting-airnow-key").value.trim()));
+            updateSettingStatus("nws-contact-status", Boolean($("setting-nws-contact").value.trim()), "Saved");
+        } catch (e) { /* ignore */ }
+
+        try {
+            var selectedSourceIds = [];
+            var sourceChecks = document.querySelectorAll("[data-environmental-source-check='1']");
+            for (var s = 0; s < sourceChecks.length; s++) {
+                if (sourceChecks[s].checked) {
+                    selectedSourceIds.push(sourceChecks[s].value);
+                }
+            }
+
+            await api("/api/environmental/settings", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    enabled: Boolean($("setting-environmental-auto-enabled") && $("setting-environmental-auto-enabled").checked),
+                    interval_hours: parseInt(($("setting-environmental-auto-interval") || {}).value || "24", 10),
+                    source_ids: selectedSourceIds,
+                }),
+            });
+        } catch (e) {
+            alert("Failed to save environmental sync settings: " + e.message);
             return;
         }
 
@@ -1875,6 +2862,11 @@ var Timeline = {
     load: async function() {
         try {
             Timeline.events = await api("/api/timeline");
+            for (var i = 0; i < Timeline.events.length; i++) {
+                Timeline.events[i]._timelineKey = Timeline.events[i].event_key || (
+                    (Timeline.events[i].type || "event") + ":" + (Timeline.events[i].date || "") + ":" + i
+                );
+            }
             Timeline.render();
         } catch (e) { /* no data */ }
     },
@@ -1894,8 +2886,10 @@ var Timeline = {
 
         // Toggle container visibility
         var flowEl = $("timeline-flow-container");
+        var detailEl = $("timeline-detail-panel");
         var listEl = $("timeline-list");
         if (flowEl) flowEl.style.display = view === "flow" ? "" : "none";
+        if (detailEl) detailEl.style.display = view === "flow" ? "" : "none";
         if (listEl) listEl.style.display = view === "list" ? "" : "none";
 
         Timeline.render();
@@ -1933,33 +2927,356 @@ var Timeline = {
 
     _renderList: function() {
         var container = $("timeline-list");
-        var events = Timeline.events;
+        var events = Timeline._getFilteredEvents();
+        while (container && container.firstChild) container.removeChild(container.firstChild);
 
-        if (Timeline.currentFilter !== "all") {
-            events = events.filter(function(e) {
-                return e.type === Timeline.currentFilter;
-            });
-        }
-
-        if (!events.length) {
-            safeSetHtml(container, '<div style="color:var(--text-muted); text-align:center; padding:40px;">No events to display.</div>');
+        if (!container) {
             return;
         }
 
-        var html = "";
-        for (var i = 0; i < events.length; i++) {
-            var e = events[i];
-            html += '<div class="timeline-item">'
-                + '<div class="timeline-dot ' + escapeHtml(e.type) + '"></div>'
-                + '<div class="timeline-date">' + formatDate(e.date) + "</div>"
-                + '<div style="flex:1;">'
-                + '<div class="timeline-title">' + escapeHtml(e.title) + "</div>"
-                + '<div class="timeline-detail">' + escapeHtml(e.detail || "") + "</div>"
-                + "</div>"
-                + '<span class="badge badge-info" style="align-self:flex-start;">' + escapeHtml(e.type) + "</span>"
-                + "</div>";
+        if (!events.length) {
+            var empty = document.createElement("div");
+            empty.style.cssText = "color:var(--text-muted); text-align:center; padding:40px;";
+            empty.textContent = "No events to display.";
+            container.appendChild(empty);
+            return;
         }
-        safeSetHtml(container, html);
+
+        var list = document.createElement("div");
+        list.className = "timeline-list-view";
+
+        for (var i = 0; i < events.length; i++) {
+            list.appendChild(Timeline._buildListItem(events[i]));
+        }
+        container.appendChild(list);
+    },
+
+    _getFilteredEvents: function() {
+        if (Timeline.currentFilter === "all") {
+            return Timeline.events.slice();
+        }
+
+        return Timeline.events.filter(function(e) {
+            return e.type === Timeline.currentFilter;
+        });
+    },
+
+    _buildListItem: function(event) {
+        var item = document.createElement("details");
+        item.className = "timeline-item timeline-item--expandable";
+
+        var summary = document.createElement("summary");
+        summary.className = "timeline-item-summary";
+
+        var dot = document.createElement("div");
+        dot.className = "timeline-dot " + (event.type || "");
+        summary.appendChild(dot);
+
+        var dateEl = document.createElement("div");
+        dateEl.className = "timeline-date";
+        dateEl.textContent = formatDate(event.date);
+        summary.appendChild(dateEl);
+
+        var body = document.createElement("div");
+        body.className = "timeline-item-main";
+
+        var title = document.createElement("div");
+        title.className = "timeline-title";
+        title.textContent = event.title || "Timeline event";
+        body.appendChild(title);
+
+        var detail = document.createElement("div");
+        detail.className = "timeline-detail";
+        detail.textContent = event.detail || "Open for more context.";
+        body.appendChild(detail);
+
+        summary.appendChild(body);
+
+        var badge = document.createElement("span");
+        badge.className = "badge badge-info timeline-item-badge";
+        badge.textContent = (event.type || "event").toUpperCase();
+        summary.appendChild(badge);
+
+        item.appendChild(summary);
+
+        var content = document.createElement("div");
+        content.className = "timeline-item-content";
+        Timeline._appendListEventDetails(content, event);
+        item.appendChild(content);
+
+        return item;
+    },
+
+    _appendListEventDetails: function(container, event) {
+        var hasContent = false;
+        var grid = document.createElement("div");
+        grid.className = "timeline-item-grid";
+
+        if (event.type === "medication") {
+            Timeline._appendListField(grid, "Dose", event.dosage);
+            Timeline._appendListField(grid, "Frequency", event.frequency);
+            Timeline._appendListField(grid, "Route", event.route);
+            Timeline._appendListField(grid, "Prescriber", event.prescriber || event.provider);
+            Timeline._appendListField(grid, "Status", event.status);
+        } else if (event.type === "lab") {
+            Timeline._appendListField(grid, "Result", Timeline._compactParts([event.value, event.value_text, event.unit]));
+            Timeline._appendListField(grid, "Flag", event.flag);
+            Timeline._appendListField(grid, "Reference Range", Timeline._formatReferenceRange(event.reference_low, event.reference_high, event.unit));
+            Timeline._appendListField(grid, "Provider", event.provider);
+            Timeline._appendListField(grid, "Facility", event.facility);
+        } else if (event.type === "diagnosis") {
+            Timeline._appendListField(grid, "Status", event.status);
+            Timeline._appendListField(grid, "ICD-10", event.icd10);
+            Timeline._appendListField(grid, "Provider", event.provider);
+        } else if (event.type === "procedure") {
+            Timeline._appendListField(grid, "Provider", event.provider);
+            Timeline._appendListField(grid, "Facility", event.facility);
+            Timeline._appendListField(grid, "Outcome", event.outcome);
+        } else if (event.type === "imaging") {
+            Timeline._appendListField(grid, "Modality", event.modality);
+            Timeline._appendListField(grid, "Region", event.body_region);
+            Timeline._appendListField(grid, "Provider", event.provider);
+            Timeline._appendListField(grid, "Facility", event.facility);
+        } else if (event.type === "symptom") {
+            Timeline._appendListField(grid, "Severity", event.severity);
+            Timeline._appendListField(grid, "Time of Day", event.time_of_day);
+            Timeline._appendListField(grid, "Duration", event.duration);
+            Timeline._appendListField(grid, "Triggers", event.triggers);
+        }
+
+        if (grid.childNodes.length) {
+            container.appendChild(Timeline._buildListSectionTitle("Entry Details"));
+            container.appendChild(grid);
+            hasContent = true;
+        }
+
+        if (event.type === "medication") {
+            hasContent = Timeline._appendListBody(container, "Reason", event.reason) || hasContent;
+        } else if (event.type === "procedure") {
+            hasContent = Timeline._appendListBody(container, "Procedure Notes", event.notes || event.detail) || hasContent;
+        } else if (event.type === "imaging") {
+            hasContent = Timeline._appendListBody(container, "Study Summary", event.description) || hasContent;
+            hasContent = Timeline._appendListBody(container, "Findings", event.findings || event.detail) || hasContent;
+        } else if (event.type === "symptom") {
+            hasContent = Timeline._appendListBody(container, "Episode Description", event.description || event.detail) || hasContent;
+        } else if (event.detail) {
+            hasContent = Timeline._appendListBody(container, "Details", event.detail) || hasContent;
+        }
+
+        if (event.related_notes && event.related_notes.length) {
+            container.appendChild(Timeline._buildListSectionTitle("Doctor Notes"));
+            container.appendChild(Timeline._buildTimelineNotes(event.related_notes));
+            hasContent = true;
+        }
+
+        if (event.related_labs && event.related_labs.length) {
+            container.appendChild(Timeline._buildListSectionTitle("Related Labs"));
+            container.appendChild(Timeline._buildTimelineContextList(event.related_labs));
+            hasContent = true;
+        }
+
+        if (event.related_events && event.related_events.length) {
+            container.appendChild(Timeline._buildListSectionTitle("Nearby Context"));
+            container.appendChild(Timeline._buildTimelineContextList(event.related_events));
+            hasContent = true;
+        }
+
+        if (event.source_file || event.source_page || event.confidence || event.raw_text) {
+            container.appendChild(Timeline._buildListSectionTitle("Source"));
+            container.appendChild(Timeline._buildTimelineSource(event));
+            hasContent = true;
+        }
+
+        if (!hasContent) {
+            var empty = document.createElement("div");
+            empty.className = "timeline-item-empty";
+            empty.textContent = "No additional context was attached to this entry.";
+            container.appendChild(empty);
+        }
+    },
+
+    _appendListField: function(container, label, value) {
+        if (!value && value !== 0) return;
+
+        var field = document.createElement("div");
+        field.className = "timeline-item-field";
+
+        var labelEl = document.createElement("div");
+        labelEl.className = "timeline-item-field-label";
+        labelEl.textContent = label;
+        field.appendChild(labelEl);
+
+        var valueEl = document.createElement("div");
+        valueEl.className = "timeline-item-field-value";
+        valueEl.textContent = String(value);
+        field.appendChild(valueEl);
+
+        container.appendChild(field);
+    },
+
+    _appendListBody: function(container, label, value) {
+        if (!value && value !== 0) return false;
+
+        var block = document.createElement("div");
+        block.className = "timeline-item-body-block";
+
+        var labelEl = document.createElement("div");
+        labelEl.className = "timeline-item-field-label";
+        labelEl.textContent = label;
+        block.appendChild(labelEl);
+
+        var valueEl = document.createElement("div");
+        valueEl.className = "timeline-item-body-copy";
+        valueEl.textContent = String(value);
+        block.appendChild(valueEl);
+
+        container.appendChild(block);
+        return true;
+    },
+
+    _buildListSectionTitle: function(text) {
+        var title = document.createElement("div");
+        title.className = "timeline-item-section-title";
+        title.textContent = text;
+        return title;
+    },
+
+    _buildTimelineNotes: function(notes) {
+        var list = document.createElement("div");
+        list.className = "timeline-context-list";
+
+        for (var i = 0; i < notes.length; i++) {
+            var note = notes[i];
+            var card = document.createElement("div");
+            card.className = "timeline-context-card";
+
+            var top = document.createElement("div");
+            top.className = "timeline-context-top";
+
+            var title = document.createElement("div");
+            title.className = "timeline-context-title";
+            title.textContent = note.note_type || "Clinical note";
+            top.appendChild(title);
+
+            var meta = document.createElement("div");
+            meta.className = "timeline-context-date";
+            meta.textContent = formatDate(note.date);
+            top.appendChild(meta);
+            card.appendChild(top);
+
+            var providerParts = [];
+            if (note.provider) providerParts.push(note.provider);
+            if (note.facility) providerParts.push(note.facility);
+            if (providerParts.length) {
+                var provider = document.createElement("div");
+                provider.className = "timeline-context-meta";
+                provider.textContent = providerParts.join(" • ");
+                card.appendChild(provider);
+            }
+
+            var summary = document.createElement("div");
+            summary.className = "timeline-context-body";
+            summary.textContent = note.summary || "Clinical note attached to this time period.";
+            card.appendChild(summary);
+
+            list.appendChild(card);
+        }
+
+        return list;
+    },
+
+    _buildTimelineContextList: function(items) {
+        var list = document.createElement("div");
+        list.className = "timeline-context-list";
+
+        for (var i = 0; i < items.length; i++) {
+            var item = items[i];
+            var card = document.createElement("div");
+            card.className = "timeline-context-card";
+
+            var top = document.createElement("div");
+            top.className = "timeline-context-top";
+
+            var title = document.createElement("div");
+            title.className = "timeline-context-title";
+            title.textContent = item.title || "Related entry";
+            top.appendChild(title);
+
+            var date = document.createElement("div");
+            date.className = "timeline-context-date";
+            date.textContent = formatDate(item.date);
+            top.appendChild(date);
+            card.appendChild(top);
+
+            var type = document.createElement("div");
+            type.className = "timeline-context-meta";
+            type.textContent = (item.type || "event").toUpperCase();
+            card.appendChild(type);
+
+            if (item.detail) {
+                var body = document.createElement("div");
+                body.className = "timeline-context-body";
+                body.textContent = item.detail;
+                card.appendChild(body);
+            }
+
+            list.appendChild(card);
+        }
+
+        return list;
+    },
+
+    _buildTimelineSource: function(event) {
+        var box = document.createElement("div");
+        box.className = "timeline-source-box";
+
+        var metaParts = [];
+        var confidence = Number(event.confidence);
+        if (event.source_file) metaParts.push(event.source_file);
+        if (event.source_page) metaParts.push("Page " + event.source_page);
+        if (event.confidence != null && !isNaN(confidence)) {
+            metaParts.push("Confidence " + Math.round(confidence * 100) + "%");
+        }
+
+        if (metaParts.length) {
+            var meta = document.createElement("div");
+            meta.className = "timeline-context-meta";
+            meta.textContent = metaParts.join(" • ");
+            box.appendChild(meta);
+        }
+
+        if (event.raw_text) {
+            var raw = document.createElement("div");
+            raw.className = "timeline-context-body";
+            raw.textContent = event.raw_text;
+            box.appendChild(raw);
+        }
+
+        return box;
+    },
+
+    _compactParts: function(parts) {
+        return parts
+            .filter(function(part) {
+                return part !== null && part !== undefined && String(part).trim() !== "";
+            })
+            .join(" ");
+    },
+
+    _formatReferenceRange: function(low, high, unit) {
+        if (low == null && high == null) return "";
+
+        var range = "";
+        if (low != null && high != null) {
+            range = low + " to " + high;
+        } else if (low != null) {
+            range = ">= " + low;
+        } else {
+            range = "<= " + high;
+        }
+
+        if (unit) range += " " + unit;
+        return range;
     },
 };
 
