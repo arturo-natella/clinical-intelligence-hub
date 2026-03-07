@@ -699,7 +699,7 @@ def _build_demo_profile():
                      "Inflammation marker (hs-CRP) elevated at 3.8",
                      "Blood pressure needs two medications to control",
                  ],
-                 "question_for_doctor": "My records show my diabetes, kidneys, and heart are all being affected together. Could a medication like empagliflozin help protect all three? I\u2019ve read it can help with blood sugar, kidney function, and heart health at the same time.",
+                 "question_for_doctor": "My records show my diabetes, kidneys, and heart are all being affected together. Are there treatment approaches that could help protect all three at the same time?",
                  "evidence_source": "ADA Standards of Care 2025, ACC/AHA Heart Failure Guidelines, KDIGO CKD Guidelines",
                  "diagnostic_source": "ADA Standards of Medical Care in Diabetes (Diabetes Care 2025); ACC/AHA Guideline for Management of Heart Failure (Circulation 2022); KDIGO Clinical Practice Guideline for CKD (Kidney Int 2024)"},
                 {"title": "Metabolic syndrome cluster", "severity": "moderate",
@@ -756,8 +756,8 @@ def _build_demo_profile():
                  "year": 2025, "relevance": "Patient has obesity + T2DM — GLP-1 RA may address both conditions"},
             ],
             "questions_for_doctor": [
-                {"question": "Should we add an SGLT2 inhibitor (empagliflozin/dapagliflozin) given my declining kidney function and cardiovascular risk?",
-                 "context": "eGFR dropped from 92 to 78 in 18 months. SGLT2i have strong evidence for slowing CKD progression in T2DM.",
+                {"question": "Given my declining kidney function and cardiovascular risk, are there medication classes that could address both?",
+                 "context": "eGFR dropped from 92 to 78 in 18 months. Multiple drug classes have evidence for slowing CKD progression in T2DM.",
                  "priority": "high"},
                 {"question": "My SLCO1B1 genetic variant increases statin side effect risk. Should we switch from atorvastatin to a different statin?",
                  "context": "SLCO1B1 rs4149056 T/C — CPIC recommends considering rosuvastatin or pravastatin as alternatives.",
@@ -2241,8 +2241,8 @@ def download_report():
 @app.route("/api/report/generate", methods=["POST"])
 def generate_report():
     """Generate a new report from current profile."""
-    if not _profile_data or not _passphrase:
-        return jsonify({"error": "No profile or vault not unlocked"}), 400
+    if not _profile_data:
+        return jsonify({"error": "No profile loaded"}), 400
 
     try:
         from src.models import PatientProfile
