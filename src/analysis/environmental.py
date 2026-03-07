@@ -10,7 +10,13 @@ matches AZ, NM, NV, UT, CO).
 """
 
 import logging
+from pathlib import Path
 from typing import Optional
+
+from src.analysis.environmental_sources import (
+    get_environmental_source_catalog,
+    summarize_environmental_sources,
+)
 
 logger = logging.getLogger("CIH-Environmental")
 
@@ -572,6 +578,9 @@ GEOGRAPHIC_RISKS = [
 class EnvironmentalRiskEngine:
     """Analyzes geographic health risks for a patient's location."""
 
+    def __init__(self, data_dir: Path | str | None = None):
+        self._data_dir = Path(data_dir) if data_dir else None
+
     def analyze(self, profile_data: dict) -> dict:
         """
         Identify environmental risks for the patient's location,
@@ -590,12 +599,32 @@ class EnvironmentalRiskEngine:
                             personalized_count}
             }
         """
+        source_catalog = get_environmental_source_catalog(self._data_dir)
+        source_summary = summarize_environmental_sources(source_catalog)
+        analysis_focus = {
+            "goal": (
+                "Look for environmental factors that may have influenced health "
+                "over time, not just current alerts."
+            ),
+            "domains": [
+                "air quality and smoke",
+                "weather and disaster disruption",
+                "water and infrastructure",
+                "facility and compliance burden",
+                "chemical and industrial history",
+                "community-level cumulative burden",
+            ],
+        }
+
         location = self._get_location(profile_data)
         if not location:
             return {
                 "location": None,
                 "region": None,
                 "risks": [],
+                "analysis_focus": analysis_focus,
+                "source_catalog": source_catalog,
+                "source_summary": source_summary,
                 "summary": {
                     "total_risks": 0, "high": 0, "moderate": 0,
                     "low": 0, "personalized_count": 0,
@@ -628,6 +657,7 @@ class EnvironmentalRiskEngine:
                 "description": risk["description"],
                 "action": risk["action"],
                 "symptoms_to_watch": risk["symptoms_to_watch"],
+                "personalized": score > 0,
                 "relevance_score": score,
                 "relevance_reasons": reasons,
             })
@@ -658,6 +688,9 @@ class EnvironmentalRiskEngine:
             "location": location,
             "region": region,
             "risks": scored_risks,
+            "analysis_focus": analysis_focus,
+            "source_catalog": source_catalog,
+            "source_summary": source_summary,
             "summary": summary,
         }
 

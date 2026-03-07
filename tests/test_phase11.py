@@ -146,6 +146,192 @@ def test_bodymap3d_js_structure():
     print(f"✓ bodymap3d.js has all {len(required_methods)} required methods + damage visualization")
 
 
+def test_bodymap3d_gates_muscle_until_supplementary_ready():
+    """Muscle/fascia layers wait for supplementary meshes before rendering."""
+    js = (STATIC_DIR / "js" / "bodymap3d.js").read_text()
+
+    required = [
+        "supplementaryMusclesLoading",
+        "supplementaryMusclesReady",
+        "pendingLayerAfterSupplementaryMuscles",
+        "_showBodyMapLoading",
+        "_hideBodyMapLoading",
+        "Loading full muscle layer...",
+        "Loading full fascia layer...",
+        '"/models/z-anatomy-hq/male-anatomy-full-pbr.glb"',
+        'source: "atlas"',
+    ]
+    for item in required:
+        assert item in js, f"Missing supplementary muscle loading guard: {item}"
+
+    assert "this.supplementaryMusclesLoading && !this.supplementaryMusclesReady" in js
+    assert "self.pendingLayerAfterSupplementaryMuscles || self.currentLayer" in js
+
+    print("✓ bodymap3d.js gates muscle/fascia until supplementary meshes finish loading")
+
+
+def test_bodymap3d_mirrors_supplementary_muscles_in_world_space():
+    """Supplementary chest muscles use world-space reflection, not local x flips."""
+    js = (STATIC_DIR / "js" / "bodymap3d.js").read_text()
+
+    assert 'm.userData && m.userData._supplementaryMuscleSource === "system"' in js
+    assert "var mirrorPlaneMatrix = new THREE.Matrix4().set(" in js
+    assert "var mirroredWorldMatrix = worldMatrix.clone().premultiply(mirrorPlaneMatrix);" in js
+    assert "var localMirrorMatrix = parentWorldInverse.clone().multiply(mirroredWorldMatrix);" in js
+
+    print("✓ bodymap3d.js mirrors supplementary muscles in world space")
+
+
+def test_bodymap3d_keeps_deep_muscles_visible_when_they_are_real_surfaces():
+    """Deep muscles are no longer blanket-hidden if they are actual muscle surfaces."""
+    js = (STATIC_DIR / "js" / "bodymap3d.js").read_text()
+
+    assert "if (!mesh.userData._isMuscleDetail) {" in js
+    assert "mesh.userData._isFascia || mesh.userData._isMuscleDetail" in js
+
+    print("✓ bodymap3d.js keeps deep muscle surfaces visible instead of hiding them wholesale")
+
+
+def test_bodymap3d_normalizes_space_and_dot_muscle_names():
+    """Supplementary atlas muscle names normalize to the same canonical form as the base model."""
+    js = (STATIC_DIR / "js" / "bodymap3d.js").read_text()
+
+    assert 'n = n.replace(/[()]/g, "");' in js
+    assert 'n = n.replace(/[\\s.\\/-]+/g, "_");' in js
+    assert "epicranial_aponeurosis" in js
+    assert 'source === "system" || source === "system-mirror" || source === "atlas"' in js
+
+    print("✓ bodymap3d.js canonicalizes supplementary muscle atlas names")
+
+
+def test_bodymap3d_prefers_free_detailed_organs():
+    """Organs layer uses bundled detailed GLBs and NIH HRA drill-downs."""
+    js = (STATIC_DIR / "js" / "bodymap3d.js").read_text()
+
+    required = [
+        "detailedOrgansLoading",
+        '"/models/z-anatomy-hq/visceral-systems.glb"',
+        '"/models/z-anatomy-hq/cardiovascular-system.glb"',
+        "_loadDetailedOrgans();",
+        "_showDetailedOrgansCategory",
+        "_hideDetailedOrgans",
+        "_applyOrganMaterialToMeshes",
+        'child.userData._organDetailSource = "detailed"',
+        'mesh.userData._organDetailSource = "nih"',
+    ]
+    for item in required:
+        assert item in js, f"Missing detailed organ pipeline piece: {item}"
+
+    print("✓ bodymap3d.js prefers free bundled detailed organs and NIH drill-downs")
+
+
+def test_bodymap3d_attaches_organ_overlays_to_wrapper():
+    """Detailed and NIH organ overlays mount on the wrapper, not the base scene child."""
+    js = (STATIC_DIR / "js" / "bodymap3d.js").read_text()
+
+    assert "this.currentModel.add(this.detailedOrgansModel);" in js
+    assert "this.detailedOrgansModel.add(organsScene);" in js
+    assert "this.currentModel.add(group);" in js
+    assert "this.setOrganCategory(category);" in js
+
+    print("✓ organ overlays attach to the wrapper group and re-run category visibility")
+
+
+def test_bodymap3d_never_blanks_organs_while_nih_is_loading():
+    """Specific organ drill-downs keep a fallback visible until NIH meshes are ready."""
+    js = (STATIC_DIR / "js" / "bodymap3d.js").read_text()
+
+    assert "var seenOrganMeshes = {};" in js
+    assert "shouldShow = detailSource === \"base\" && meshCat === category;" in js
+    assert "keep the base category visible until the NIH" in js
+
+    print("✓ organ drill-downs keep a visible fallback while NIH models load")
+
+
+def test_bodymap3d_uses_unified_nih_atlas_for_lungs_and_gi():
+    """Lungs and GI drill-downs prefer the local unified NIH atlas over fragmented files."""
+    js = (STATIC_DIR / "js" / "bodymap3d.js").read_text()
+
+    required = [
+        "unifiedAtlasSources",
+        '"/models/nih_hra/3d-vh-m-united.glb"',
+        '"/models/nih_hra/3d-vh-f-united.glb"',
+        "unifiedAtlasPreferredCategories",
+        "lungs: true",
+        "gi_tract: true",
+        "_loadUnifiedAtlas",
+        "_onUnifiedAtlasReady",
+        'child.userData._organDetailSource = "unified"',
+    ]
+    for item in required:
+        assert item in js, f"Missing unified atlas wiring: {item}"
+
+    print("✓ bodymap3d.js prefers the unified NIH atlas for lungs and GI drill-downs")
+
+
+def test_bodymap3d_gi_drilldown_hides_covering_tissues():
+    """GI tract view suppresses peritoneal coverings that block the intestines."""
+    js = (STATIC_DIR / "js" / "bodymap3d.js").read_text()
+
+    assert "_shouldHideOrganMeshForCategory" in js
+    for blocker in ["omentum", "peritone", "mesocol", "meso-appendix", "mouth"]:
+        assert blocker in js
+
+    print("✓ GI tract drill-down hides covering tissues that block intestinal visibility")
+
+
+def test_bodymap3d_filters_vessels_and_nerves_to_display_structures():
+    """System layers filter out broad organ regions and keep true vessels/nerves."""
+    js = (STATIC_DIR / "js" / "bodymap3d.js").read_text()
+
+    required = [
+        "vasculatureDisplayKeywords",
+        "vasculatureExcludeKeywords",
+        "nervousDisplayKeywords",
+        "nervousExcludeKeywords",
+        "_shouldHideMeshInSystemLayer",
+        "layerSelf._shouldHideMeshInSystemLayer(child, layer)",
+    ]
+    for item in required:
+        assert item in js, f"Missing system-layer display filter: {item}"
+
+    print("✓ vessels/nerves layer visibility is filtered to display structures")
+
+
+def test_bodymap3d_companions_clone_real_materials_not_hidden_placeholders():
+    """Companion layers should ghost the anatomical material, not clone hidden mats."""
+    js = (STATIC_DIR / "js" / "bodymap3d.js").read_text()
+
+    assert "var baseMat = child.userData._origLayerMat || child.userData._origMat || child.material;" in js
+    assert "if (baseMat === child.userData._hiddenMat && child.userData._origMat) {" in js
+    assert "vasculature:  []" in js
+    assert "nervous:      []" in js
+
+    print("✓ companion layers restore from anatomical materials, not hidden placeholders")
+
+
+def test_bodymap3d_has_visual_state_pipeline():
+    """Healthy/current state uses a reusable visual-state pipeline."""
+    js = (STATIC_DIR / "js" / "bodymap3d.js").read_text()
+
+    required = [
+        "_buildVisualFindings",
+        "_applyCurrentState",
+        "_applyRegionDamage",
+        "_severityVisualState",
+        "_isNegativeFindingText",
+        "_updateComparisonStatus",
+        "_captureOriginalMaterialState",
+        "statePulseMeshes",
+        "visualFindingSummary",
+        "img[b].findings",
+    ]
+    for item in required:
+        assert item in js, f"Missing visual-state pipeline piece: {item}"
+
+    print("✓ bodymap3d.js has healthy/current visual-state pipeline")
+
+
 def test_bodymap3d_js_has_placeholder():
     """bodymap3d.js includes placeholder model for immediate use."""
     js = (STATIC_DIR / "js" / "bodymap3d.js").read_text()
@@ -161,6 +347,8 @@ def test_bodymap3d_js_gender_support():
 
     assert "male" in js
     assert "female" in js
+    assert "_skinSource = \"unified\"" in js
+    assert "preferUnifiedFemaleSkin" in js
     assert "uterus" in js
     assert "prostate" in js
     assert "ovary" in js or "ovaries" in js
@@ -184,6 +372,8 @@ def test_index_html_has_3d_canvas():
     assert "bodymap-canvas" in html
     assert "bodymap-tooltip" in html
     assert "bodymap-loading" in html
+    assert "bodymap-state-chip" in html
+    assert "bodymap-state-text" in html
     print("✓ index.html has 3D canvas container, canvas, tooltip, loading")
 
 
@@ -406,6 +596,9 @@ if __name__ == "__main__":
     # Static Files
     test_bodymap3d_js_exists()
     test_bodymap3d_js_structure()
+    test_bodymap3d_gates_muscle_until_supplementary_ready()
+    test_bodymap3d_mirrors_supplementary_muscles_in_world_space()
+    test_bodymap3d_has_visual_state_pipeline()
     test_bodymap3d_js_has_placeholder()
     test_bodymap3d_js_gender_support()
     test_models_directory_exists()

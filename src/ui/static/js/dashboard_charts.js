@@ -83,24 +83,17 @@ var DashboardCharts = {
 
         opts = opts || {};
         var margin = { top: 16, right: 12, bottom: 36, left: 42 };
-        var W = opts.width || el.clientWidth || 320;
-        var H = opts.height || 180;
-        var w = W - margin.left - margin.right;
-        var h = H - margin.top - margin.bottom;
         var self = this;
+        series = series || [];
 
-        var svg = d3.select(el).append("svg")
-            .attr("width", W).attr("height", H)
-            .attr("viewBox", "0 0 " + W + " " + H);
-        var defs = svg.append("defs");
-        var g = svg.append("g")
-            .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+        if (!series.length) return;
 
         if (series.length && series[0].date !== undefined) {
             series = [{ name: opts.label || "", color: self.palette[0], points: series }];
         }
 
-        series.forEach(function(s) {
+        series.forEach(function(s, i) {
+            s._seriesIndex = i;
             s.points.forEach(function(p) {
                 if (!(p.date instanceof Date)) p.date = new Date(p.date);
             });
@@ -109,70 +102,142 @@ var DashboardCharts = {
 
         var allPoints = [];
         series.forEach(function(s) { allPoints = allPoints.concat(s.points); });
-        var x = d3.scaleTime()
-            .domain(d3.extent(allPoints, function(p) { return p.date; }))
-            .range([0, w]);
-        var yMax = d3.max(allPoints, function(p) { return p.value; }) || 1;
-        var y = d3.scaleLinear().domain([0, yMax * 1.1]).range([h, 0]);
+        if (!allPoints.length) return;
+        var selectedSeriesIndex = -1;
+        var chartHost = document.createElement("div");
+        chartHost.className = "dash-line-chart";
+        el.appendChild(chartHost);
 
-        // Gridlines
-        g.selectAll(".grid-line").data(y.ticks(4)).enter().append("line")
-            .attr("x1", 0).attr("x2", w)
-            .attr("y1", function(d) { return y(d); })
-            .attr("y2", function(d) { return y(d); })
-            .attr("stroke", self.colors.grid).attr("stroke-dasharray", "3,3");
-
-        // X axis
-        g.append("g").attr("transform", "translate(0," + h + ")")
-            .call(d3.axisBottom(x).ticks(Math.min(allPoints.length, 6)).tickFormat(d3.timeFormat("%b %d")))
-            .selectAll("text").attr("fill", self.colors.text).attr("font-size", "10px");
-        g.selectAll(".domain, .tick line").attr("stroke", self.colors.grid);
-
-        // Y axis
-        g.append("g").call(d3.axisLeft(y).ticks(4).tickFormat(function(d) {
-            return d >= 1000 ? (d / 1000).toFixed(1) + "K" : d;
-        })).selectAll("text").attr("fill", self.colors.text).attr("font-size", "10px");
-        g.selectAll(".domain, .tick line").attr("stroke", self.colors.grid);
-
-        // Draw series with gradient area fills
-        series.forEach(function(s, si) {
-            var gp = self.gradients[si % self.gradients.length];
-            var color = s.color || self.palette[si % self.palette.length];
-            var fillRef = self._grad(defs, "line-area-" + si, gp[0], gp[1], true);
-
-            var area = d3.area()
-                .x(function(p) { return x(p.date); }).y0(h)
-                .y1(function(p) { return y(p.value); }).curve(d3.curveMonotoneX);
-            g.append("path").datum(s.points)
-                .attr("fill", fillRef).attr("fill-opacity", 0.15).attr("d", area);
-
-            var line = d3.line()
-                .x(function(p) { return x(p.date); })
-                .y(function(p) { return y(p.value); }).curve(d3.curveMonotoneX);
-            g.append("path").datum(s.points)
-                .attr("fill", "none").attr("stroke", color).attr("stroke-width", 2).attr("d", line);
-
-            g.selectAll(".dot-" + si).data(s.points).enter().append("circle")
-                .attr("cx", function(p) { return x(p.date); })
-                .attr("cy", function(p) { return y(p.value); })
-                .attr("r", s.points.length > 20 ? 2 : 3.5)
-                .attr("fill", color).attr("stroke", self.colors.bg).attr("stroke-width", 1);
-        });
-
-        // Legend
+        var controlsEl = null;
         if (series.length > 1) {
-            var legend = svg.append("g").attr("transform", "translate(" + margin.left + ",4)");
-            var lx = 0;
+            controlsEl = document.createElement("div");
+            controlsEl.className = "dash-line-controls";
+            chartHost.appendChild(controlsEl);
+        }
+
+        var chartEl = document.createElement("div");
+        chartEl.className = "dash-line-plot";
+        chartHost.appendChild(chartEl);
+
+        function getVisibleSeries() {
+            if (selectedSeriesIndex < 0 || selectedSeriesIndex >= series.length) {
+                return series;
+            }
+            return [series[selectedSeriesIndex]];
+        }
+
+        function updateControls() {
+            if (!controlsEl) return;
+            while (controlsEl.firstChild) controlsEl.removeChild(controlsEl.firstChild);
+
+            function addControl(label, color, index) {
+                var isActive = index === -1 ? selectedSeriesIndex === -1 : selectedSeriesIndex === index;
+                var btn = document.createElement("button");
+                btn.type = "button";
+                btn.className = "dash-line-control" + (isActive ? " active" : "");
+                btn.setAttribute("aria-pressed", isActive ? "true" : "false");
+
+                if (color) {
+                    var dot = document.createElement("span");
+                    dot.className = "dash-line-control-dot";
+                    dot.style.background = color;
+                    btn.appendChild(dot);
+                }
+
+                var text = document.createElement("span");
+                text.textContent = label;
+                btn.appendChild(text);
+
+                btn.addEventListener("click", function () {
+                    if (index === -1 || selectedSeriesIndex === index) {
+                        selectedSeriesIndex = -1;
+                    } else {
+                        selectedSeriesIndex = index;
+                    }
+                    updateControls();
+                    renderPlot();
+                });
+
+                controlsEl.appendChild(btn);
+            }
+
+            addControl("All", null, -1);
             series.forEach(function(s, si) {
-                var color = s.color || self.palette[si % self.palette.length];
-                legend.append("line").attr("x1", lx).attr("x2", lx + 16)
-                    .attr("y1", 6).attr("y2", 6).attr("stroke", color).attr("stroke-width", 2);
-                legend.append("circle").attr("cx", lx + 8).attr("cy", 6).attr("r", 2.5).attr("fill", color);
-                legend.append("text").attr("x", lx + 20).attr("y", 10)
-                    .attr("fill", self.colors.text).attr("font-size", "10px").text(s.name);
-                lx += 20 + (s.name.length * 6) + 16;
+                addControl(s.name || ("Series " + (si + 1)), s.color || self.linePalette[si % self.linePalette.length], si);
             });
         }
+
+        function renderPlot() {
+            var visibleSeries = getVisibleSeries();
+            var visiblePoints = [];
+            visibleSeries.forEach(function(s) { visiblePoints = visiblePoints.concat(s.points); });
+            while (chartEl.firstChild) chartEl.removeChild(chartEl.firstChild);
+
+            var plotW = opts.width || chartEl.clientWidth || el.clientWidth || 320;
+            var plotH = opts.height || 180;
+            var plotInnerW = plotW - margin.left - margin.right;
+            var plotInnerH = plotH - margin.top - margin.bottom;
+
+            var plotSvg = d3.select(chartEl).append("svg")
+                .attr("width", plotW).attr("height", plotH)
+                .attr("viewBox", "0 0 " + plotW + " " + plotH);
+            var plotDefs = plotSvg.append("defs");
+            var plotG = plotSvg.append("g")
+                .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+            var x = d3.scaleTime()
+                .domain(d3.extent(allPoints, function(p) { return p.date; }))
+                .range([0, plotInnerW]);
+            var yMax = d3.max(visiblePoints, function(p) { return p.value; }) || 1;
+            var y = d3.scaleLinear()
+                .domain([0, yMax * 1.1])
+                .nice()
+                .range([plotInnerH, 0]);
+
+            plotG.selectAll(".grid-line").data(y.ticks(4)).enter().append("line")
+                .attr("x1", 0).attr("x2", plotInnerW)
+                .attr("y1", function(d) { return y(d); })
+                .attr("y2", function(d) { return y(d); })
+                .attr("stroke", self.colors.grid).attr("stroke-dasharray", "3,3");
+
+            plotG.append("g").attr("transform", "translate(0," + plotInnerH + ")")
+                .call(d3.axisBottom(x).ticks(Math.min(allPoints.length, 6)).tickFormat(d3.timeFormat("%b %d")))
+                .selectAll("text").attr("fill", self.colors.text).attr("font-size", "10px");
+            plotG.selectAll(".domain, .tick line").attr("stroke", self.colors.grid);
+
+            plotG.append("g").call(d3.axisLeft(y).ticks(4).tickFormat(function(d) {
+                return d >= 1000 ? (d / 1000).toFixed(1) + "K" : d;
+            })).selectAll("text").attr("fill", self.colors.text).attr("font-size", "10px");
+            plotG.selectAll(".domain, .tick line").attr("stroke", self.colors.grid);
+
+            visibleSeries.forEach(function(s, si) {
+                var seriesIndex = s._seriesIndex != null ? s._seriesIndex : si;
+                var gp = self.gradients[seriesIndex % self.gradients.length];
+                var color = s.color || self.palette[seriesIndex % self.palette.length];
+                var fillRef = self._grad(plotDefs, "line-area-" + containerId + "-" + seriesIndex, gp[0], gp[1], true);
+
+                var area = d3.area()
+                    .x(function(p) { return x(p.date); }).y0(plotInnerH)
+                    .y1(function(p) { return y(p.value); }).curve(d3.curveMonotoneX);
+                plotG.append("path").datum(s.points)
+                    .attr("fill", fillRef).attr("fill-opacity", 0.15).attr("d", area);
+
+                var line = d3.line()
+                    .x(function(p) { return x(p.date); })
+                    .y(function(p) { return y(p.value); }).curve(d3.curveMonotoneX);
+                plotG.append("path").datum(s.points)
+                    .attr("fill", "none").attr("stroke", color).attr("stroke-width", 2.25).attr("d", line);
+
+                plotG.selectAll(".dot-" + seriesIndex).data(s.points).enter().append("circle")
+                    .attr("cx", function(p) { return x(p.date); })
+                    .attr("cy", function(p) { return y(p.value); })
+                    .attr("r", s.points.length > 20 ? 2 : 4)
+                    .attr("fill", color).attr("stroke", self.colors.bg).attr("stroke-width", 1.25);
+            });
+        }
+
+        updateControls();
+        renderPlot();
     },
 
     // ══════════════════════════════════════════════════════

@@ -29,11 +29,37 @@ var BodyMap3D = {
     pins: [],
     pinGroup: null,
     deformedMeshes: [],
+    statePulseMeshes: [],
+    muscleSurfaceCanonicalSet: {},
+    supplementaryMusclesLoading: false,
+    supplementaryMusclesReady: false,
+    pendingLayerAfterSupplementaryMuscles: null,
 
-    // Detailed organs (BodyParts3D high-detail overlay)
-    detailedOrgansModel: null,     // wrapper Group for the detailed organs GLB
+    // Unified NIH HRA atlas (gender-specific whole-body detail source)
+    unifiedAtlasModel: null,
+    unifiedAtlasLoaded: false,
+    unifiedAtlasLoading: false,
+    unifiedAtlasGender: null,
+    unifiedAtlasOrgans: {},
+    unifiedAtlasSkinMeshes: [],
+    unifiedAtlasSources: {
+        male: "/models/nih_hra/3d-vh-m-united.glb",
+        female: "/models/nih_hra/3d-vh-f-united.glb"
+    },
+    unifiedAtlasPreferredCategories: {
+        lungs: true,
+        gi_tract: true
+    },
+
+    // Detailed organs (bundled high-detail system overlays)
+    detailedOrgansModel: null,     // wrapper Group for the detailed organ GLBs
     detailedOrgans: {},            // category → [mesh, mesh, ...] for drill-down
     detailedOrgansLoaded: false,
+    detailedOrgansLoading: false,
+    detailedOrganSources: [
+        "/models/z-anatomy-hq/visceral-systems.glb",
+        "/models/z-anatomy-hq/cardiovascular-system.glb"
+    ],
 
     // Organ sub-category keyword mapping for mesh name classification
     organCategories: {
@@ -55,6 +81,38 @@ var BodyMap3D = {
                 "tongue", "tonsil", "salivary", "pituitary", "pineal", "uvula",
                 "thymus", "parathyroid"]
     },
+
+    vasculatureDisplayKeywords: [
+        "arter", "vein", "vena", "vascular", "vessel", "aort", "coronary",
+        "jugular", "carotid", "subclavian", "cava", "sinus", "plexus",
+        "portal", "mesenteric", "brachiocephalic", "pulmonary_trunk",
+        "hepatic_arter", "hepatic_vein", "renal_arter", "renal_vein",
+        "saphenous", "femoral", "iliac", "arch", "capillar", "basilar"
+    ],
+    vasculatureExcludeKeywords: [
+        "atri", "ventric", "leaflet", "valve", "papillary", "myocard",
+        "endocard", "pericard", "septum", "sulcus", "border", "surface",
+        "apex", "base_of_heart", "notch", "chamber", "trabecula", "fossa"
+    ],
+    nervousDisplayKeywords: [
+        "nerve", "plexus", "gangli", "root", "ramus", "branch", "tract",
+        "spinal_cord", "optic", "vagus", "sciatic", "trigeminal", "ulnar",
+        "radial", "median", "femoral", "tibial", "fibular", "peroneal",
+        "phrenic", "hypoglossal", "glossopharyngeal", "vestibulocochlear",
+        "oculomotor", "trochlear", "abducens", "accessory_nerve",
+        "olfactory", "brachial_plexus", "lumbar_plexus", "sacral_plexus",
+        "sympathetic", "parasympathetic", "autonomic"
+    ],
+    nervousExcludeKeywords: [
+        "nucleus", "gyrus", "sulcus", "lobule", "vermis", "thalam",
+        "hypothalam", "amygdal", "hippocamp", "putamen", "caudate",
+        "globus_pallidus", "ventricle", "colliculus", "midbrain",
+        "medulla_oblongata", "pons", "cerebr", "cerebel", "brain",
+        "cortex", "septal", "habenula", "mamillary", "geniculate",
+        "aqueduct", "fossa", "peduncle", "olive", "red_nucleus",
+        "stria_medullaris", "interpeduncular", "claustrum", "precuneus",
+        "cuneus", "tegment", "pretect"
+    ],
 
     // ── NIH HRA on-demand organ loading ────────────────────
     // Maps organ sub-categories → GLB filenames by gender.
@@ -110,6 +168,7 @@ var BodyMap3D = {
     showingHealthy: false,
     cachedOrganFindings: null,
     cachedRegionFindings: null,
+    visualFindingSummary: null,
 
     raycaster: null,
     mouse: null,
@@ -313,7 +372,7 @@ var BodyMap3D = {
         this.renderer.setPixelRatio(window.devicePixelRatio);
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
         this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        this.renderer.toneMappingExposure = 1.0;
+        this.renderer.toneMappingExposure = 0.68;
 
         // Post-processing + HDR environment
         this._setupEnvironment();
@@ -373,36 +432,36 @@ var BodyMap3D = {
         // Lights — balanced studio setup: enough to reveal surface detail
         // without washing out dark anatomical colors (crimson muscle, dark liver).
         // Hemisphere light: warm from above (sky), cool from below (ground bounce)
-        var hemi = new THREE.HemisphereLight(0xffeedd, 0x445566, 0.6);
+        var hemi = new THREE.HemisphereLight(0xf6e5d4, 0x364355, 0.32);
         this.scene.add(hemi);
 
         // Key light — warm, moderate, front-right
-        var key = new THREE.DirectionalLight(0xfff5ee, 0.9);
+        var key = new THREE.DirectionalLight(0xfff0e4, 0.45);
         key.position.set(3, 4, 5);
         this.scene.add(key);
 
         // Fill light — cooler, softer, front-left
-        var fill = new THREE.DirectionalLight(0xe8eef5, 0.45);
+        var fill = new THREE.DirectionalLight(0xdbe4ef, 0.18);
         fill.position.set(-3, 2, 3);
         this.scene.add(fill);
 
         // Rim/back light — edge definition for depth perception
-        var rim = new THREE.DirectionalLight(0xffffff, 0.35);
+        var rim = new THREE.DirectionalLight(0xf7f4ef, 0.10);
         rim.position.set(0, 2, -4);
         this.scene.add(rim);
 
         // Under light — illuminates abdominal and pelvic cavity detail
-        var under = new THREE.DirectionalLight(0xdde8ff, 0.25);
+        var under = new THREE.DirectionalLight(0xd0ddf1, 0.08);
         under.position.set(0, -3, 2);
         this.scene.add(under);
 
         // Side light — brings out surface contours on muscles and vessels
-        var side = new THREE.DirectionalLight(0xfff0e0, 0.3);
+        var side = new THREE.DirectionalLight(0xffead8, 0.12);
         side.position.set(-5, 1, -1);
         this.scene.add(side);
 
         // Ambient — subtle shadow fill, low to preserve color saturation
-        this.scene.add(new THREE.AmbientLight(0xffffff, 0.12));
+        this.scene.add(new THREE.AmbientLight(0xffffff, 0.05));
 
         // Raycaster
         this.raycaster = new THREE.Raycaster();
@@ -561,6 +620,16 @@ var BodyMap3D = {
             }
         }
 
+        // Animate region/state highlights with subtle emissive breathing.
+        for (var k = 0; k < this.statePulseMeshes.length; k++) {
+            var hm = this.statePulseMeshes[k];
+            if (!hm.mesh || !hm.mesh.material) continue;
+            this._setMeshEmissiveIntensity(
+                hm.mesh,
+                hm.base + hm.amp * (0.5 + 0.5 * Math.sin(t * 2.2 + k * 0.6))
+            );
+        }
+
         if (this.composer) {
             this.composer.render();
         } else if (this.renderer && this.scene && this.camera) {
@@ -602,6 +671,19 @@ var BodyMap3D = {
 
     loadModel: function(gender) {
         this.currentGender = gender;
+        this.supplementaryMusclesLoading = false;
+        this.supplementaryMusclesReady = false;
+        this.pendingLayerAfterSupplementaryMuscles = null;
+        this.unifiedAtlasModel = null;
+        this.unifiedAtlasLoaded = false;
+        this.unifiedAtlasLoading = false;
+        this.unifiedAtlasGender = null;
+        this.unifiedAtlasOrgans = {};
+        this.unifiedAtlasSkinMeshes = [];
+        this.detailedOrgansModel = null;
+        this.detailedOrgans = {};
+        this.detailedOrgansLoaded = false;
+        this.detailedOrgansLoading = false;
 
         // Remove cached NIH organ groups from scene before loading new model
         for (var key in this.nihOrgansCache) {
@@ -620,9 +702,12 @@ var BodyMap3D = {
         }
 
         var loading = document.getElementById("bodymap-loading");
-        if (loading) loading.style.display = "flex";
+        if (loading) {
+            loading.textContent = "Loading anatomy model...";
+            loading.style.display = "flex";
+        }
 
-        // Try Z-Anatomy full model first, then NIH HRA united, then basic fallbacks.
+        // Try the layered Z-Anatomy export first, then basic fallbacks.
         // Note: Z-Anatomy has 0 image textures — materials are Principled BSDF
         // node colors (roughness, metallic) already exported as glTF PBR properties.
         // Rendering quality improvements come from lighting setup, not model files.
@@ -632,12 +717,10 @@ var BodyMap3D = {
         var maleBasic = "/models/male_anatomy.glb";
         var self = this;
 
-        // Cascade: Z-Anatomy full → basic → male Z-Anatomy fallbacks → placeholder
-        // NOTE: NIH HRA 3d-vh-f-united.glb is intentionally excluded. It is a
-        // skin-only surface (Y-up, no MUSC__/SKEL__ prefixes) incompatible with
-        // the Z-Anatomy supplementary muscles and layer classification system.
-        // A Z-Anatomy male model with full layered anatomy is far more useful as
-        // a female fallback than a broken NIH HRA skin envelope.
+        // Cascade: Z-Anatomy full → basic → male Z-Anatomy fallbacks → placeholder.
+        // Female mode still uses the layered Z-Anatomy base when no dedicated
+        // female layered export exists, then overlays the female NIH HRA unified
+        // atlas for skin and organ detail.
         var candidates = [fullPath];
         candidates.push(basicPath);
         if (gender === "female") candidates.push(maleFull, maleBasic);
@@ -930,8 +1013,7 @@ var BodyMap3D = {
 
             // Store original material colors + geometry for damage visualization & deformation
             if (child.isMesh && child.material) {
-                child.userData.originalColor = child.material.color ? child.material.color.getHex() : 0xcccccc;
-                child.userData.originalEmissive = child.material.emissive ? child.material.emissive.getHex() : 0x000000;
+                self._captureOriginalMaterialState(child);
             }
             if (child.isMesh && child.geometry && child.geometry.attributes.position) {
                 child.userData.originalPositions = child.geometry.attributes.position.array.slice();
@@ -1141,7 +1223,10 @@ var BodyMap3D = {
         this._loadSupplementaryMuscles();
 
         // NIH HRA organs are loaded on-demand when user drills into a category.
-        // No eager loading needed — see _loadNIHOrgan().
+        // Load the bundled detailed organ overview immediately; NIH HRA remains
+        // on-demand for category drill-downs.
+        this._loadDetailedOrgans();
+        this._loadUnifiedAtlas();
     },
 
     // ── Supplementary Muscle GLBs ───────────────────────────────
@@ -1162,6 +1247,8 @@ var BodyMap3D = {
         var self = this;
         var wrapper = this.currentModel;
         if (!wrapper) return;
+        this.supplementaryMusclesLoading = true;
+        this.supplementaryMusclesReady = false;
 
         // Guard: only load supplementary muscles if base model is Z-Anatomy.
         // Z-Anatomy models use MUSC__/SKEL__/etc. prefixed mesh names.
@@ -1175,6 +1262,8 @@ var BodyMap3D = {
             }
         });
         if (!hasZAnatomyMeshes) {
+            this.supplementaryMusclesLoading = false;
+            this.supplementaryMusclesReady = true;
             console.warn("[BodyMap3D] Skipping supplementary muscles — base model is not Z-Anatomy format");
             return;
         }
@@ -1187,9 +1276,22 @@ var BodyMap3D = {
             }
         });
 
-        var glbPaths = [
-            "/models/z-anatomy-hq/muscular-system.glb",
-            "/models/z-anatomy-hq/muscular-insertions.glb"
+        var glbSources = [
+            {
+                path: "/models/z-anatomy-hq/muscular-system.glb",
+                source: "system",
+                muscleOnly: true
+            },
+            {
+                path: "/models/z-anatomy-hq/muscular-insertions.glb",
+                source: "insertions",
+                muscleOnly: true
+            },
+            {
+                path: "/models/z-anatomy-hq/male-anatomy-full-pbr.glb",
+                source: "atlas",
+                muscleOnly: true
+            }
         ];
 
         var loader = new THREE.GLTFLoader();
@@ -1200,7 +1302,7 @@ var BodyMap3D = {
         } catch (e) { /* Draco optional */ }
 
         var totalNew = 0, totalDups = 0, totalGlyphs = 0;
-        var pending = glbPaths.length;
+        var pending = glbSources.length;
 
         // Z-Anatomy 3D text glyph filter
         var glyphRe = /(?:_g|systemg|organsg|glandsg|musclesg|girdleg|genitaliag|abdomeng|termsg|movementsg|linesg|planesg)$/;
@@ -1208,6 +1310,8 @@ var BodyMap3D = {
 
         function onAllLoaded() {
             if (--pending > 0) return;
+            self.supplementaryMusclesLoading = false;
+            self.supplementaryMusclesReady = true;
             console.log("[BodyMap3D] Supplementary muscles loaded: " + totalNew +
                 " new, " + totalDups + " duplicates skipped, " + totalGlyphs + " glyphs skipped");
 
@@ -1222,8 +1326,15 @@ var BodyMap3D = {
                 "latissimus_dorsi", "deltoid"
             ];
             var mirrored = 0;
+            var mirrorPlaneX = 0;
+            var mirrorPlaneMatrix = new THREE.Matrix4().set(
+                -1, 0, 0, 0,
+                 0, 1, 0, 0,
+                 0, 0, 1, 0,
+                 0, 0, 0, 1
+            );
             var suppMeshes = self.layers.muscle.filter(function(m) {
-                return !m.name.startsWith("MUSC__");
+                return m.userData && m.userData._supplementaryMuscleSource === "system";
             });
 
             for (var si = 0; si < suppMeshes.length; si++) {
@@ -1248,18 +1359,45 @@ var BodyMap3D = {
 
                 var clone = src.clone(true);
                 clone.name = mirrorName;
-                // Mirror across the body's sagittal plane (X=0 in world):
-                // 1. Negate local position.x to move to the opposite side
-                // 2. Negate local scale.x to flip the geometry shape
-                clone.position.x = -clone.position.x;
-                clone.scale.x *= -1;
-                // Flip face winding so normals point outward after mirror
-                if (clone.material) {
-                    clone.material = clone.material.clone();
-                    clone.material.side = THREE.DoubleSide;
+                src.updateWorldMatrix(true, false);
+                var parent = src.parent || self.currentModel;
+                parent.updateWorldMatrix(true, false);
+                var parentWorldInverse = parent.matrixWorld.clone().invert();
+                var worldMatrix = src.matrixWorld.clone();
+                if (mirrorPlaneX !== 0) {
+                    mirrorPlaneMatrix = new THREE.Matrix4().set(
+                        -1, 0, 0, mirrorPlaneX * 2,
+                         0, 1, 0, 0,
+                         0, 0, 1, 0,
+                         0, 0, 0, 1
+                    );
                 }
-                // Add to the same parent so it gets the same transforms
-                if (src.parent) src.parent.add(clone);
+                var mirroredWorldMatrix = worldMatrix.clone().premultiply(mirrorPlaneMatrix);
+                var localMirrorMatrix = parentWorldInverse.clone().multiply(mirroredWorldMatrix);
+                clone.matrixAutoUpdate = false;
+                clone.matrix.copy(localMirrorMatrix);
+                clone.matrix.decompose(clone.position, clone.quaternion, clone.scale);
+                clone.updateMatrixWorld(true);
+
+                // Flip face winding so normals point outward after mirror
+                clone.traverse(function(desc) {
+                    if (!desc.isMesh || !desc.material) return;
+                    if (Array.isArray(desc.material)) {
+                        var mats = [];
+                        for (var mi = 0; mi < desc.material.length; mi++) {
+                            var clonedMat = desc.material[mi].clone();
+                            clonedMat.side = THREE.DoubleSide;
+                            mats.push(clonedMat);
+                        }
+                        desc.material = mats;
+                        return;
+                    }
+                    desc.material = desc.material.clone();
+                    desc.material.side = THREE.DoubleSide;
+                });
+
+                parent.add(clone);
+                clone.userData._supplementaryMuscleSource = "system-mirror";
                 self.layers.muscle.push(clone);
                 clone.userData.region = self._meshNameToRegion(srcName);
                 existingNames[mirrorName.toLowerCase()] = true;
@@ -1270,15 +1408,20 @@ var BodyMap3D = {
                     " left-side muscles to fill right-side coverage");
             }
 
-            // Apply muscle material to newly added meshes, then re-apply layer
+            // Apply muscle material to newly added meshes, then re-apply the
+            // active layer or the user's queued muscle/fascia request.
             if (totalNew > 0 || mirrored > 0) {
                 self._applyMuscleMaterial();
-                self.setLayer(self.currentLayer);
             }
+            var targetLayer = self.pendingLayerAfterSupplementaryMuscles || self.currentLayer;
+            self.pendingLayerAfterSupplementaryMuscles = null;
+            self._hideBodyMapLoading();
+            self.setLayer(targetLayer);
         }
 
-        for (var gi = 0; gi < glbPaths.length; gi++) {
-            (function(glbPath) {
+        for (var gi = 0; gi < glbSources.length; gi++) {
+            (function(glbSource) {
+                var glbPath = glbSource.path;
                 fetch(glbPath, { method: "HEAD" }).then(function(r) {
                     if (!r.ok) {
                         console.warn("[BodyMap3D] Supplementary muscle GLB not found: " + glbPath);
@@ -1292,6 +1435,8 @@ var BodyMap3D = {
                         scene.traverse(function(child) {
                             if (!child.isMesh) return;
                             var n = (child.name || "").toLowerCase();
+
+                            if (glbSource.muscleOnly && n.indexOf("musc__") !== 0) return;
 
                             // Skip instructional text
                             if (instructionalRe.test(n)) { totalGlyphs++; return; }
@@ -1336,6 +1481,7 @@ var BodyMap3D = {
 
                         for (var mi = 0; mi < newMeshes.length; mi++) {
                             var mesh = newMeshes[mi];
+                            mesh.userData._supplementaryMuscleSource = glbSource.source;
                             self.layers.muscle.push(mesh);
 
                             // Tag for region mapping
@@ -1356,61 +1502,89 @@ var BodyMap3D = {
                     console.warn("[BodyMap3D] Cannot reach " + glbPath);
                     onAllLoaded();
                 });
-            })(glbPaths[gi]);
+            })(glbSources[gi]);
         }
     },
 
-    // ── Detailed Organs (BodyParts3D) ──────────────────────────
-    // Loads organs_detailed.glb as a secondary model. When the user
-    // drills into a specific organ sub-category (Heart, Brain, etc.),
-    // the detailed meshes replace Z-Anatomy's basic organ layer.
-    // On "All Organs" the overview (Z-Anatomy) is restored.
+    // ── Detailed Organs (bundled free overlays) ─────────────────
+    // Loads the higher-detail bundled organ system GLBs and uses them as
+    // additive drill-down detail on top of the authoritative base model.
+    // "All Organs" stays on the clean overview; category drill-downs can
+    // reveal extra detail without blanking the underlying anatomy.
 
     _loadDetailedOrgans: function() {
-        var self = this;
-        var path = "/models/organs_detailed.glb";
+        if (this.detailedOrgansLoaded || this.detailedOrgansLoading) return;
 
-        fetch(path, { method: "HEAD" }).then(function(r) {
-            if (!r.ok) {
-                console.log("[BodyMap3D] No detailed organs model at " + path);
+        var self = this;
+        var paths = this.detailedOrganSources || [];
+        if (!paths.length) return;
+        this.detailedOrgansLoading = true;
+
+        var loader = new THREE.GLTFLoader();
+        try {
+            var draco = new THREE.DRACOLoader();
+            draco.setDecoderPath("https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/libs/draco/");
+            loader.setDRACOLoader(draco);
+        } catch (e) { /* Draco optional */ }
+
+        var pending = paths.length;
+        var loadedAny = false;
+
+        function onDone() {
+            pending--;
+            if (pending > 0) return;
+            self.detailedOrgansLoading = false;
+            self.detailedOrgansLoaded = loadedAny;
+
+            if (!loadedAny) {
+                console.log("[BodyMap3D] No bundled detailed organ overlays loaded");
                 return;
             }
 
-            var loader = new THREE.GLTFLoader();
-            try {
-                var draco = new THREE.DRACOLoader();
-                draco.setDecoderPath("https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/libs/draco/");
-                loader.setDRACOLoader(draco);
-            } catch (e) { /* Draco optional */ }
+            var catCounts = [];
+            for (var cat in self.detailedOrgans) {
+                catCounts.push(cat + ":" + self.detailedOrgans[cat].length);
+            }
+            console.log("[BodyMap3D] Detailed organ overlays ready: " + catCounts.join(", "));
 
-            loader.load(path, function(gltf) {
-                self._onDetailedOrgansReady(gltf.scene);
-            }, null, function(err) {
-                console.warn("[BodyMap3D] Failed to load detailed organs:", err);
-            });
-        }).catch(function() {
-            console.log("[BodyMap3D] Detailed organs model not available");
-        });
+            if (self.currentLayer === "organs") {
+                self.setOrganCategory(self.currentOrganCategory || "all");
+            }
+        }
+
+        for (var i = 0; i < paths.length; i++) {
+            (function(detailPath) {
+                loader.load(detailPath, function(gltf) {
+                    loadedAny = true;
+                    self._onDetailedOrgansReady(gltf.scene, detailPath);
+                    onDone();
+                }, null, function(err) {
+                    console.warn("[BodyMap3D] Failed to load bundled detail " + detailPath + ":", err);
+                    onDone();
+                });
+            })(paths[i]);
+        }
     },
 
-    _onDetailedOrgansReady: function(organsScene) {
+    _onDetailedOrgansReady: function(organsScene, sourcePath) {
         if (!this.currentModel) return;
 
-        // Both Z-Anatomy and BodyParts3D export to GLB in meters, Y-up.
-        // Add detailed organs directly INTO the main model's wrapper so they
-        // share the exact same normalization transform (scale + position).
-        // No separate normalization needed — coordinates should overlap.
-        this.currentModel.children[0].add(organsScene);
-        this.detailedOrgansModel = organsScene;
+        if (!this.detailedOrgansModel) {
+            this.detailedOrgansModel = new THREE.Group();
+            this.detailedOrgansModel.name = "detailed_organs_overlay";
+            this.currentModel.add(this.detailedOrgansModel);
+        }
+        this.detailedOrgansModel.add(organsScene);
 
-        // Parse categories from organ_* parent empties
-        this.detailedOrgans = {};
+        // Parse categories from bundled scene meshes.
         var self = this;
+        var sceneLabel = (sourcePath || "").toLowerCase();
+        var limitToHeart = sceneLabel.indexOf("cardiovascular-system") >= 0;
+        var allDetailedMeshes = [];
 
         organsScene.traverse(function(child) {
             if (!child.isMesh) return;
 
-            // Walk up to find organ_* parent
             var category = null;
             var p = child.parent;
             while (p) {
@@ -1426,6 +1600,11 @@ var BodyMap3D = {
             if (!category) {
                 category = self._classifyOrgan((child.name || "").toLowerCase());
             }
+            if (limitToHeart && category !== "heart") return;
+
+            child.userData._organCategory = category || "other";
+            child.userData._organDetailSource = "detailed";
+            child.userData.region = self._meshNameToRegion((child.name || "").toLowerCase());
 
             if (category) {
                 if (!self.detailedOrgans[category]) {
@@ -1434,17 +1613,36 @@ var BodyMap3D = {
                 self.detailedOrgans[category].push(child);
             }
 
+            self.layers.organs.push(child);
+            allDetailedMeshes.push(child);
+
             // All detailed organs start hidden
             child.visible = false;
         });
 
-        this.detailedOrgansLoaded = true;
+        this._applyOrganMaterialToMeshes(allDetailedMeshes);
+    },
 
-        var catCounts = [];
+    _showDetailedOrgansCategory: function(category) {
+        var shown = 0;
         for (var cat in this.detailedOrgans) {
-            catCounts.push(cat + ":" + this.detailedOrgans[cat].length);
+            var meshes = this.detailedOrgans[cat] || [];
+            var shouldShowCategory = category === "all" || cat === category;
+            for (var i = 0; i < meshes.length; i++) {
+                meshes[i].visible = shouldShowCategory;
+                if (shouldShowCategory) shown++;
+            }
         }
-        console.log("[BodyMap3D] Detailed organs loaded: " + catCounts.join(", "));
+        return shown;
+    },
+
+    _hideDetailedOrgans: function() {
+        for (var cat in this.detailedOrgans) {
+            var meshes = this.detailedOrgans[cat] || [];
+            for (var i = 0; i < meshes.length; i++) {
+                meshes[i].visible = false;
+            }
+        }
     },
 
     // ── NIH HRA On-Demand Organ Loading ─────────────────────
@@ -1535,9 +1733,19 @@ var BodyMap3D = {
             return;
         }
 
+        for (var i = 0; i < meshes.length; i++) {
+            var mesh = meshes[i];
+            mesh.userData._organCategory = category;
+            mesh.userData._organDetailSource = "nih";
+            mesh.userData.region = this._meshNameToRegion((mesh.name || "").toLowerCase());
+            this.layers.organs.push(mesh);
+            mesh.visible = false;
+        }
+        this._applyOrganMaterialToMeshes(meshes);
+
         // Add into main model wrapper to share normalization transform
-        if (this.currentModel && this.currentModel.children[0]) {
-            this.currentModel.children[0].add(group);
+        if (this.currentModel) {
+            this.currentModel.add(group);
         }
 
         this.nihOrgansCache[cacheKey] = { group: group, meshes: meshes };
@@ -1547,7 +1755,7 @@ var BodyMap3D = {
 
         // If the user is still on this category, show it
         if (this.currentOrganCategory === category && this.currentLayer === "organs") {
-            this._showNIHOrgan(cacheKey);
+            this.setOrganCategory(category);
         }
     },
 
@@ -1581,7 +1789,7 @@ var BodyMap3D = {
         var indicator = document.getElementById("nih-organ-loading");
         if (!indicator) {
             // Create floating indicator on canvas
-            var canvas = document.getElementById("bodymap3d-canvas");
+            var canvas = document.getElementById("bodymap-canvas");
             if (!canvas || !canvas.parentElement) return;
             indicator = document.createElement("div");
             indicator.id = "nih-organ-loading";
@@ -1604,7 +1812,7 @@ var BodyMap3D = {
     _showLoadingProgress: function(pct) {
         var bar = document.getElementById("glb-loading-progress");
         if (!bar) {
-            var canvas = document.getElementById("bodymap3d-canvas");
+            var canvas = document.getElementById("bodymap-canvas");
             if (!canvas || !canvas.parentElement) return;
             bar = document.createElement("div");
             bar.id = "glb-loading-progress";
@@ -1638,6 +1846,78 @@ var BodyMap3D = {
         if (bar) bar.style.display = "none";
     },
 
+    _classifyMeshLayer: function(meshName) {
+        var n = (meshName || "").toLowerCase();
+        if (!n) return null;
+
+        var keywordLayerMap = {
+            skeleton: ["bone", "skeletal", "pelvis", "rib", "vertebr", "skull", "sternum",
+                       "clavicle", "scapula", "humerus", "femur", "tibia", "fibula",
+                       "radius", "ulna", "patella", "sacrum", "mandible", "cartilage",
+                       "maxilla", "sphenoid", "temporal_bone", "occipital_bone",
+                       "metacarpal", "metatarsal", "phalang", "carpal", "tarsal",
+                       "hyoid", "coccyx", "ilium", "ischium", "pubis", "calcaneus",
+                       "talus", "navicular", "cuneiform", "cuboid", "pisiform",
+                       "triquetrum", "lunate", "scaphoid", "capitate", "hamate",
+                       "trapezoid", "trapezium",
+                       "epicondyl", "enthesis", "condyle", "tubercle", "tuberosity",
+                       "trochle", "fossa", "groove", "foramen", "olecranon",
+                       "malleolus", "acetabul", "glenoid", "labrum",
+                       "annulus", "disc_", "meniscus", "sesamoid"],
+            muscle: ["muscle", "musc_", "tendon", "ligament", "diaphragm",
+                     "bicep", "tricep", "deltoid", "pectoral", "trapezius",
+                     "quadricep", "hamstring", "gluteus", "abdomin", "oblique",
+                     "soleus", "gastrocnemius", "sartorius", "latissimus",
+                     "rotator_cuff", "masseter", "temporalis",
+                     "fascia", "aponeurosis", "retinaculum"],
+            organs: ["heart", "lung", "liver", "kidney", "brain", "stomach", "intestin",
+                     "spleen", "pancrea", "bladder", "uterus", "ovary", "prostate",
+                     "thyroid", "thymus", "trachea", "bronch", "larynx", "esophag",
+                     "colon", "rectum", "appendix", "duodenum", "jejunum", "ileum",
+                     "gallbladder", "adrenal", "pituitary", "pineal", "tonsil",
+                     "mammary", "placenta", "fallopian", "epididym",
+                     "retina", "fovea", "macula", "sclera", "pupil", "iris",
+                     "cornea", "conjunctiva", "eyelid", "lens", "vitreous",
+                     "aqueous", "ciliary", "humor", "ora_serrata",
+                     "calyx", "renal_papilla", "renal_pyramid", "renal_column",
+                     "renal_pelvis", "nephron",
+                     "atrium", "cardiac", "ventricle", "septum",
+                     "papillary", "chordae", "valve",
+                     "bile_duct", "hepatic_duct", "cystic_duct", "ampulla",
+                     "pylor", "fundus", "cardia",
+                     "mesovarium", "mesosalpinx", "endometrium", "myometrium",
+                     "cervix", "vagina", "vulva", "labia",
+                     "areol", "nipple", "lactiferous"],
+            vasculature: ["artery", "arter", "vein", "venous", "vessel", "blood",
+                          "aorta", "aortic", "coronary", "vascular", "capillar",
+                          "jugular", "carotid", "subclavian",
+                          "pulmonary_artery", "pulmonary_vein",
+                          "hepatic_artery", "hepatic_vein",
+                          "renal_artery", "renal_vein",
+                          "iliac", "femoral_artery", "femoral_vein",
+                          "vena_cava", "azygos", "portal",
+                          "mesenteric", "celiac", "splenic_artery", "splenic_vein"],
+            nervous: ["nerve", "nerv", "gangli", "plexus", "cerebr", "cerebel",
+                      "spinal_cord", "brainstem", "optic", "vagus", "sciatic",
+                      "brachial_plexus", "lumbar_plexus", "sacral_plexus",
+                      "allen_", "gyrus", "nucleus", "putamen", "caudate",
+                      "globus_pallidus", "colliculus", "substantia_nigra",
+                      "hippocamp", "amygdal", "thalamus", "hypothalamus",
+                      "claustrum", "habenul", "pretect", "tegment",
+                      "cingulate", "precuneus", "cuneus", "sulcus"],
+            skin: ["skin", "dermis", "epidermis", "integument", "subcutaneous",
+                   "fat_l", "fat_r", "adipose"]
+        };
+
+        for (var kwLayer in keywordLayerMap) {
+            var kws = keywordLayerMap[kwLayer];
+            for (var kwi = 0; kwi < kws.length; kwi++) {
+                if (n.indexOf(kws[kwi]) >= 0) return kwLayer;
+            }
+        }
+        return null;
+    },
+
     _meshNameToRegion: function(name) {
         var regions = Object.keys(this.meshToRegion);
         for (var i = 0; i < regions.length; i++) {
@@ -1660,23 +1940,182 @@ var BodyMap3D = {
         return "other";
     },
 
+    _matchesAnyKeyword: function(name, keywords) {
+        var n = (name || "").toLowerCase();
+        for (var i = 0; i < keywords.length; i++) {
+            if (n.indexOf(keywords[i]) >= 0) return true;
+        }
+        return false;
+    },
+
+    _shouldHideMeshInSystemLayer: function(mesh, layer) {
+        if (!mesh || !mesh.isMesh) return false;
+
+        var n = (mesh.name || "").toLowerCase();
+        if (layer === "vasculature") {
+            return !this._matchesAnyKeyword(n, this.vasculatureDisplayKeywords) ||
+                this._matchesAnyKeyword(n, this.vasculatureExcludeKeywords);
+        }
+        if (layer === "nervous") {
+            return !this._matchesAnyKeyword(n, this.nervousDisplayKeywords) ||
+                this._matchesAnyKeyword(n, this.nervousExcludeKeywords);
+        }
+        return false;
+    },
+
+    _organCategoryToRegion: function(category) {
+        var map = {
+            heart: "chest",
+            lungs: "chest",
+            brain: "head",
+            liver: "abdomen",
+            kidneys: "abdomen",
+            gi_tract: "abdomen",
+            reproductive: "pelvis",
+            other: "abdomen",
+        };
+        return map[category] || null;
+    },
+
+    _shouldHideOrganMeshForCategory: function(mesh, category) {
+        if (!mesh || !mesh.isMesh || category === "all") return false;
+
+        var n = (mesh.name || "").toLowerCase();
+        if (category === "gi_tract") {
+            var blockers = [
+                "omentum", "peritone", "mesocol", "mesocolic", "meso-appendix",
+                "mesenteric_nodes", "juxta-intestinal", "paracolic", "mouth",
+                "fibrous_appendix_of_liver", "lymph_node", "nodes"
+            ];
+            for (var i = 0; i < blockers.length; i++) {
+                if (n.indexOf(blockers[i]) >= 0) return true;
+            }
+        }
+
+        return false;
+    },
+
+    _loadUnifiedAtlas: function() {
+        var gender = this.currentGender || "male";
+        var path = this.unifiedAtlasSources[gender];
+        if (!path || this.unifiedAtlasLoading) return;
+        if (this.unifiedAtlasLoaded && this.unifiedAtlasGender === gender) return;
+
+        var self = this;
+        var loader = new THREE.GLTFLoader();
+        this.unifiedAtlasLoading = true;
+
+        try {
+            var draco = new THREE.DRACOLoader();
+            draco.setDecoderPath("https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/libs/draco/");
+            loader.setDRACOLoader(draco);
+        } catch (e) { /* Draco optional */ }
+
+        loader.load(path, function(gltf) {
+            self.unifiedAtlasLoading = false;
+            self._onUnifiedAtlasReady(gltf.scene, gender);
+        }, null, function(err) {
+            self.unifiedAtlasLoading = false;
+            console.warn("[BodyMap3D] Failed to load unified NIH atlas " + path + ":", err);
+        });
+    },
+
+    _onUnifiedAtlasReady: function(atlasScene, gender) {
+        if (!this.currentModel) return;
+
+        if (!this.unifiedAtlasModel) {
+            this.unifiedAtlasModel = new THREE.Group();
+            this.unifiedAtlasModel.name = "nih_unified_atlas_overlay";
+            this.currentModel.add(this.unifiedAtlasModel);
+        }
+
+        this.unifiedAtlasModel.clear();
+        this.unifiedAtlasModel.add(atlasScene);
+        this.unifiedAtlasOrgans = {};
+        this.unifiedAtlasSkinMeshes = [];
+        this.unifiedAtlasGender = gender;
+        this.unifiedAtlasLoaded = true;
+
+        var organMeshes = [];
+        var self = this;
+        atlasScene.traverse(function(child) {
+            if (!child.isMesh) return;
+
+            var n = (child.name || "").toLowerCase();
+            var layer = self._classifyMeshLayer(n);
+            child.visible = false;
+            child.userData.region = self._meshNameToRegion(n);
+
+            if (layer === "skin" && gender === "female") {
+                child.userData._skinSource = "unified";
+                self.layers.skin.push(child);
+                self.unifiedAtlasSkinMeshes.push(child);
+                return;
+            }
+
+            if (layer !== "organs") return;
+
+            var category = self._classifyOrgan(n);
+            child.userData._organCategory = category;
+            child.userData._organDetailSource = "unified";
+            self.layers.organs.push(child);
+            organMeshes.push(child);
+
+            if (!self.unifiedAtlasOrgans[category]) {
+                self.unifiedAtlasOrgans[category] = [];
+            }
+            self.unifiedAtlasOrgans[category].push(child);
+        });
+
+        if (this.unifiedAtlasSkinMeshes.length > 0) {
+            this._applySkinMaterial(gender);
+        }
+        if (organMeshes.length > 0) {
+            this._applyOrganMaterialToMeshes(organMeshes);
+        }
+
+        console.log("[BodyMap3D] Unified NIH atlas ready (" + gender + "): " +
+            organMeshes.length + " organ meshes, " + this.unifiedAtlasSkinMeshes.length + " skin meshes");
+
+        if (this.currentLayer === "organs") {
+            this.setOrganCategory(this.currentOrganCategory || "all");
+        } else if (this.currentLayer === "skin" && gender === "female") {
+            this.setLayer("skin");
+        }
+    },
+
     setOrganCategory: function(category) {
         this.currentOrganCategory = category;
         if (!this.currentModel || this.currentLayer !== "organs") return;
 
+        if (!this.detailedOrgansLoaded && !this.detailedOrgansLoading) {
+            this._loadDetailedOrgans();
+        }
+        if (!this.unifiedAtlasLoaded && !this.unifiedAtlasLoading) {
+            this._loadUnifiedAtlas();
+        }
+        if (category === "all") {
+            this.setLayer("organs");
+        }
+
         var gender = this.currentGender || "male";
         var cacheKey = gender + "_" + category;
+        var preferUnifiedAtlas = category !== "all" && this.unifiedAtlasPreferredCategories[category];
 
         // Check if NIH HRA high-detail organs are available/cached for this category
         var hasNIH = category !== "all" &&
+            !preferUnifiedAtlas &&
             this.nihOrganRegistry[category] &&
             this.nihOrgansCache[cacheKey];
 
         // Check if NIH HRA files exist for this category (even if not yet loaded)
         var canLoadNIH = category !== "all" &&
+            !preferUnifiedAtlas &&
             this.nihOrganRegistry[category] &&
             this.nihOrganRegistry[category][gender] &&
             this.nihOrganRegistry[category][gender].length > 0;
+        var wantsNIH = category !== "all" && canLoadNIH;
+        var hasLiveNIH = wantsNIH && hasNIH;
 
         // ── Companion layers: show for "all", hide for specific organ ──
         // When drilling into a specific organ (e.g. Liver), the vasculature +
@@ -1715,48 +2154,51 @@ var BodyMap3D = {
 
         // ── Z-Anatomy (base) organ layer ──
         var organMeshes = this.layers.organs || [];
+        var seenOrganMeshes = {};
         var shown = 0, hidden = 0;
         for (var i = 0; i < organMeshes.length; i++) {
-            var mesh = organMeshes[i];
-            if (!mesh.isMesh) {
-                // Handle group nodes — set visibility on all child meshes
-                if (mesh.traverse) {
-                    mesh.traverse(function(d) {
-                        if (!d.isMesh) return;
-                        if (category === "all") {
-                            d.visible = true;
-                            if (d.material) { d.material.opacity = 1.0; d.material.transparent = false; }
-                            shown++;
-                        } else if (hasNIH || canLoadNIH) {
-                            d.visible = false; hidden++;
-                        } else {
-                            var meshCat = d.userData._organCategory || "other";
-                            if (meshCat === category) {
-                                d.visible = true;
-                                if (d.material) { d.material.opacity = 1.0; d.material.transparent = false; }
-                                shown++;
-                            } else { d.visible = false; hidden++; }
-                        }
-                    });
-                }
-                continue;
+            var entry = organMeshes[i];
+            var meshesToProcess = [];
+            if (entry.isMesh) {
+                meshesToProcess.push(entry);
+            } else if (entry.traverse) {
+                entry.traverse(function(d) {
+                    if (d.isMesh) meshesToProcess.push(d);
+                });
             }
-            if (category === "all") {
-                mesh.visible = true;
-                if (mesh.material) {
-                    mesh.material.opacity = 1.0;
-                    mesh.material.transparent = false;
-                }
-                shown++;
-            } else if (hasNIH || canLoadNIH) {
-                // Hide Z-Anatomy organs — NIH HRA meshes replace them
-                mesh.visible = false;
-                hidden++;
-            } else {
-                // No NIH HRA available — filter Z-Anatomy organs by category
+
+            for (var mi = 0; mi < meshesToProcess.length; mi++) {
+                var mesh = meshesToProcess[mi];
+                if (seenOrganMeshes[mesh.uuid]) continue;
+                seenOrganMeshes[mesh.uuid] = true;
+
+                var detailSource = mesh.userData._organDetailSource || "base";
                 var meshCat = mesh.userData._organCategory || "other";
-                if (meshCat === category) {
+                var shouldShow = false;
+
+                if (category === "all") {
+                    shouldShow = detailSource === "base";
+                } else if (detailSource === "nih") {
+                    shouldShow = hasLiveNIH && meshCat === category;
+                } else if (detailSource === "unified") {
+                    shouldShow = meshCat === category;
+                } else {
+                    shouldShow = detailSource === "base" && meshCat === category;
+                    if (!preferUnifiedAtlas) {
+                        shouldShow = (detailSource === "base" || detailSource === "detailed") &&
+                            meshCat === category;
+                    }
+                }
+
+                if (shouldShow && this._shouldHideOrganMeshForCategory(mesh, category)) {
+                    shouldShow = false;
+                }
+
+                if (shouldShow) {
                     mesh.visible = true;
+                    if (mesh.userData._origMat && mesh.material === mesh.userData._hiddenMat) {
+                        mesh.material = mesh.userData._origMat;
+                    }
                     if (mesh.material) {
                         mesh.material.opacity = 1.0;
                         mesh.material.transparent = false;
@@ -1769,32 +2211,25 @@ var BodyMap3D = {
             }
         }
 
-        if (category === "all") {
-            this._hideAllNIHOrgans();
-            // Re-run setLayer to restore companion visibility
-            this.setLayer("organs");
-        }
-
         // ── NIH HRA organ overlay ──
         if (hasNIH) {
-            // Already cached — show immediately
+            // Already cached — show as an additive detail overlay on top of
+            // the authoritative base category meshes.
             this._showNIHOrgan(cacheKey);
             console.log("[BodyMap3D] setOrganCategory('" + category + "') — NIH HRA cached, showing");
         } else if (canLoadNIH && category !== "all") {
-            // Not yet loaded — trigger on-demand load
+            // Not yet loaded — keep the base category visible until the NIH
+            // overlay is ready so specific organs never disappear.
             this._loadNIHOrgan(category);
         } else if (category !== "all") {
             this._hideAllNIHOrgans();
+        } else {
+            this._hideAllNIHOrgans();
         }
 
-        // Legacy BodyParts3D overlay — hide all
-        if (this.detailedOrgansLoaded) {
-            for (var cat in this.detailedOrgans) {
-                var meshes = this.detailedOrgans[cat];
-                for (var di = 0; di < meshes.length; di++) {
-                    meshes[di].visible = false;
-                }
-            }
+        var focusRegion = this._organCategoryToRegion(category);
+        if (focusRegion && this.cameraPresets[focusRegion]) {
+            this.focusRegion(focusRegion);
         }
 
         console.log("[BodyMap3D] setOrganCategory('" + category + "') — base shown: " + shown + ", hidden: " + hidden);
@@ -1878,6 +2313,9 @@ var BodyMap3D = {
             }
         });
         console.log("[BodyMap3D] Fascia layer: " + fasciaCount + " fascia meshes shown");
+        if (!this.showingHealthy && this.cachedRegionFindings) {
+            this._applyRegionDamage(this.cachedRegionFindings);
+        }
     },
 
     // ═══════════════════════════════════════════════════════
@@ -1949,9 +2387,9 @@ var BodyMap3D = {
         // Pass 3: Bloom — specular highlight glow
         this.bloomPass = new THREE.UnrealBloomPass(
             new THREE.Vector2(w, h),
-            0.15,     // strength
-            0.4,      // radius
-            0.85      // threshold — only brightest highlights
+            0.04,     // strength — keep subtle, avoid bone haloing
+            0.25,     // radius
+            0.97      // threshold — bloom only on deliberate hotspots
         );
         this.composer.addPass(this.bloomPass);
 
@@ -1960,6 +2398,123 @@ var BodyMap3D = {
         this.composer.addPass(outputPass);
 
         console.log("[BodyMap3D] Post-processing pipeline: RenderPass → SSAO → Bloom → Output");
+        this._updatePostProcessingForLayer();
+    },
+
+    _materialsFor: function(mesh) {
+        if (!mesh || !mesh.material) return [];
+        return Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    },
+
+    _captureOriginalMaterialState: function(mesh) {
+        if (!mesh || !mesh.userData) return;
+
+        var materials = this._materialsFor(mesh);
+        if (materials.length === 0) return;
+
+        var states = [];
+        for (var i = 0; i < materials.length; i++) {
+            var mat = materials[i];
+            states.push({
+                color: mat && mat.color && typeof mat.color.getHex === "function" ? mat.color.getHex() : null,
+                emissive: mat && mat.emissive && typeof mat.emissive.getHex === "function" ? mat.emissive.getHex() : null
+            });
+        }
+
+        mesh.userData.originalMaterialStates = states;
+        if (states[0].color !== null) {
+            mesh.userData.originalColor = states[0].color;
+        }
+        mesh.userData.originalEmissive = states[0].emissive !== null ? states[0].emissive : 0x000000;
+    },
+
+    _restoreOriginalMaterialState: function(mesh) {
+        if (!mesh || !mesh.material) return;
+
+        var states = mesh.userData.originalMaterialStates || [];
+        var materials = this._materialsFor(mesh);
+        for (var i = 0; i < materials.length; i++) {
+            var mat = materials[i];
+            var state = states[i] || states[0] || {};
+
+            if (mat.color && typeof mat.color.setHex === "function") {
+                var colorHex = state.color;
+                if (colorHex === null || colorHex === undefined) colorHex = mesh.userData.originalColor;
+                if (colorHex !== null && colorHex !== undefined) {
+                    mat.color.setHex(colorHex);
+                }
+            }
+
+            if (mat.emissive && typeof mat.emissive.setHex === "function") {
+                var emissiveHex = state.emissive;
+                if (emissiveHex === null || emissiveHex === undefined) emissiveHex = mesh.userData.originalEmissive;
+                if (emissiveHex !== null && emissiveHex !== undefined) {
+                    mat.emissive.setHex(emissiveHex);
+                }
+                mat.emissiveIntensity = 0;
+            }
+
+            if (mat.userData && mat.userData.shader) {
+                mat.userData.shader.uniforms.uDamage.value = 0.0;
+            }
+        }
+    },
+
+    _setMeshEmissiveIntensity: function(mesh, intensity) {
+        var materials = this._materialsFor(mesh);
+        for (var i = 0; i < materials.length; i++) {
+            if (materials[i].emissive && typeof materials[i].emissiveIntensity === "number") {
+                materials[i].emissiveIntensity = intensity;
+            }
+        }
+    },
+
+    _updatePostProcessingForLayer: function() {
+        if (!this.bloomPass) return;
+
+        if (this.currentLayer === "skeleton") {
+            this.bloomPass.strength = 0.0;
+            this.bloomPass.radius = 0.0;
+            this.bloomPass.threshold = 1.0;
+            return;
+        }
+
+        this.bloomPass.strength = this.showingHealthy ? 0.015 : 0.035;
+        this.bloomPass.radius = 0.22;
+        this.bloomPass.threshold = 0.98;
+    },
+
+    _updateComparisonStatus: function() {
+        var chip = document.getElementById("bodymap-state-chip");
+        var text = document.getElementById("bodymap-state-text");
+        if (!chip && !text) return;
+
+        var summary = this.visualFindingSummary || {};
+        var totalFindings = summary.totalFindings || 0;
+        var regionCount = summary.regionCount || 0;
+        var organCount = summary.organCount || 0;
+        var layerLabel = this.currentLayer === "fascia" ? "fascia" : (this.currentLayer || "body");
+
+        if (chip) {
+            chip.dataset.mode = this.showingHealthy ? "healthy" : "current";
+            chip.textContent = this.showingHealthy ? "Healthy Baseline" : "Current State";
+        }
+
+        if (!text) return;
+
+        if (this.showingHealthy) {
+            text.textContent = "Showing the healthy baseline atlas. Patient-specific highlights, pins, and deformations are hidden so you can compare against normal anatomy.";
+            return;
+        }
+
+        if (totalFindings > 0) {
+            text.textContent = "Showing " + totalFindings + " chart-driven findings across " +
+                regionCount + " body regions and " + organCount + " organ targets on the " +
+                layerLabel + " layer. Use Show Healthy for a before/after comparison.";
+            return;
+        }
+
+        text.textContent = "Showing the baseline anatomy. Load or select a patient record to project findings onto the model and compare current state versus healthy anatomy.";
     },
 
     // ═══════════════════════════════════════════════════════
@@ -1971,15 +2526,15 @@ var BodyMap3D = {
 
         // MeshPhysicalMaterial with transmission/thickness gives subsurface scattering
         var skinMat = new THREE.MeshPhysicalMaterial({
-            color: new THREE.Color(0.72, 0.52, 0.40),        // warm skin tone
-            roughness: 0.75,
+            color: new THREE.Color(0.56, 0.38, 0.28),        // mid-tone skin baseline
+            roughness: 0.92,
             metalness: 0.0,
-            clearcoat: 0.05,
-            clearcoatRoughness: 0.4,
-            sheen: 0.4,
-            sheenRoughness: 0.5,
-            sheenColor: new THREE.Color(0.6, 0.35, 0.25),    // warm sheen for skin depth
-            envMapIntensity: 0.5,                              // HDR studio reflections
+            clearcoat: 0.01,
+            clearcoatRoughness: 0.7,
+            sheen: 0.05,
+            sheenRoughness: 0.8,
+            sheenColor: new THREE.Color(0.40, 0.24, 0.18),    // warm sheen for skin depth
+            envMapIntensity: 0.04,                              // avoid chalky HDR wash-out
             side: THREE.DoubleSide,
         });
 
@@ -2003,12 +2558,106 @@ var BodyMap3D = {
         for (var i = 0; i < allMeshes.length; i++) {
             var child = allMeshes[i];
             child.material = skinMat.clone();
-            child.userData.originalColor = skinMat.color.getHex();
-            child.userData.originalEmissive = 0x000000;
+            this._captureOriginalMaterialState(child);
             if (child.geometry && !child.geometry.attributes.normal) {
                 child.geometry.computeVertexNormals();
             }
         }
+    },
+
+    _normalizeMuscleCanonicalName: function(name) {
+        var n = (name || "").toLowerCase();
+        if (!n) return "";
+
+        n = n.replace(/^(?:musc__)+/g, "");
+        n = n.replace(/[()]/g, "");
+        n = n.replace(/[\s.\/-]+/g, "_");
+        n = n.replace(/_+/g, "_");
+        n = n.replace(/_mirrored_r$/g, "");
+        n = n.replace(/_\d+$/g, "");
+        n = n.replace(/_(left|right)$/g, "");
+        n = n.replace(/(?:_)?[eo]\d*[lr]$/g, "");
+        n = n.replace(/(?:_)?[eo][lr]$/g, "");
+        n = n.replace(/(?:_)?[lr]$/g, "");
+        n = n.replace(/^_+|_+$/g, "");
+        return n;
+    },
+
+    _annotateMuscleMesh: function(mesh) {
+        if (!mesh || !mesh.isMesh) return;
+
+        var n = (mesh.name || "").toLowerCase();
+        var canonical = this._normalizeMuscleCanonicalName(mesh.name || "");
+        var keepVisibleAsPresentationSurface = n.indexOf("epicranial aponeurosis") >= 0 ||
+            n.indexOf("epicranial_aponeurosis") >= 0;
+        var isConnectiveDetail = n.indexOf("tendon") >= 0 ||
+            n.indexOf("aponeuros") >= 0 ||
+            n.indexOf("retinacul") >= 0 ||
+            n.indexOf("ligament") >= 0 ||
+            n.indexOf("sheath") >= 0 ||
+            n.indexOf("bursa") >= 0 ||
+            (n.indexOf("fascia") >= 0 && n.indexOf("fasciae_latae") < 0);
+        var isInsertionDetail = /(?:^|_)[eo]\d*[lr]$/.test(n) ||
+            /(?:^|_)[eo][lr]$/.test(n) ||
+            /_j$/.test(n);
+        var deepKeywords = [
+            "intercost", "pectoralis_minor", "subclavi", "scalen", "levator_scapulae",
+            "rhomboid", "serratus_posterior", "erector_spinae", "multifid",
+            "obliquus_capitis", "longus_coli", "longus_capitis", "semispinalis",
+            "deep_part_of_masseter", "transversus_abdominis", "internal_abdominal_oblique"
+        ];
+        var isDeepLayer = false;
+        for (var di = 0; di < deepKeywords.length; di++) {
+            if (n.indexOf(deepKeywords[di]) >= 0) {
+                isDeepLayer = true;
+                break;
+            }
+        }
+
+        mesh.userData._muscleCanonicalName = canonical;
+        mesh.userData._isMuscleDetail = (isConnectiveDetail || isInsertionDetail) &&
+            !keepVisibleAsPresentationSurface;
+        mesh.userData._isMuscleDeepLayer = isDeepLayer;
+    },
+
+    _rebuildMusclePresentationSet: function() {
+        var canonicalSet = {};
+        var meshes = this.layers.muscle || [];
+        for (var i = 0; i < meshes.length; i++) {
+            var mesh = meshes[i];
+            if (!mesh || !mesh.isMesh) continue;
+            this._annotateMuscleMesh(mesh);
+
+            var source = mesh.userData._supplementaryMuscleSource || "";
+            var canonical = mesh.userData._muscleCanonicalName || "";
+            if (!canonical) continue;
+
+            // Prefer clean muscular-system surfaces over the dissected base model
+            // and insertion-point fragments when both represent the same muscle.
+            if (source === "system" || source === "system-mirror" || source === "atlas") {
+                if (!mesh.userData._isMuscleDetail) {
+                    canonicalSet[canonical] = true;
+                }
+            }
+        }
+        this.muscleSurfaceCanonicalSet = canonicalSet;
+    },
+
+    _shouldHideMeshInMuscleLayer: function(mesh) {
+        if (!mesh || !mesh.isMesh) return false;
+
+        this._annotateMuscleMesh(mesh);
+        if (mesh.userData._isFascia || mesh.userData._isMuscleDetail) {
+            return true;
+        }
+
+        var canonical = mesh.userData._muscleCanonicalName || "";
+        var source = mesh.userData._supplementaryMuscleSource || "";
+        if (canonical && this.muscleSurfaceCanonicalSet[canonical]) {
+            return !(source === "system" || source === "system-mirror" || source === "atlas");
+        }
+
+        return false;
     },
 
     _applyMuscleMaterial: function() {
@@ -2027,8 +2676,8 @@ var BodyMap3D = {
         // Bumped ~10% from previous values to compensate for ACES Filmic tone mapping
         // which slightly darkens midtones. MeshPhysicalMaterial (lit) + clearcoat
         // gives wet muscle appearance with HDR env reflections.
-        var baseR = 0.50, baseG = 0.09, baseB = 0.07;   // sRGB deep crimson (ACES-compensated)
-        var rangeR = 0.15, rangeG = 0.04, rangeB = 0.03;
+        var baseR = 0.56, baseG = 0.24, baseB = 0.17;   // warm bronze-red, closer to atlas presentation
+        var rangeR = 0.10, rangeG = 0.05, rangeB = 0.04;
 
         var muscleCount = 0, fasciaCount = 0, tendonCount = 0;
 
@@ -2059,6 +2708,7 @@ var BodyMap3D = {
 
             var n = (child.name || "muscle_" + i).toLowerCase();
             var h = hashName(n);
+            this._annotateMuscleMesh(child);
 
             // Per-muscle color: base + variation seeded by name hash (sRGB values)
             var r = baseR + h * rangeR;
@@ -2094,25 +2744,25 @@ var BodyMap3D = {
             color.setRGB(r, g, b, THREE.SRGBColorSpace);
             var mat = new THREE.MeshPhysicalMaterial({
                 color: color,
-                roughness: 0.5,
+                roughness: 0.65,
                 metalness: 0.0,
-                clearcoat: 0.08,
-                clearcoatRoughness: 0.3,
-                sheen: 0.25,
-                sheenRoughness: 0.5,
-                sheenColor: new THREE.Color(0.4, 0.06, 0.04),
-                envMapIntensity: 0.4,
+                clearcoat: 0.03,
+                clearcoatRoughness: 0.45,
+                sheen: 0.08,
+                sheenRoughness: 0.65,
+                sheenColor: new THREE.Color(0.45, 0.18, 0.12),
+                envMapIntensity: 0.18,
                 side: THREE.DoubleSide,
             });
 
             child.material = mat;
-            child.userData.originalColor = mat.color.getHex();
-            child.userData.originalEmissive = 0x000000;
+            this._captureOriginalMaterialState(child);
             if (child.geometry && !child.geometry.attributes.normal) {
                 child.geometry.computeVertexNormals();
             }
             muscleCount++;
         }
+        this._rebuildMusclePresentationSet();
         console.log("[BodyMap3D] Muscle material applied: " + muscleCount + " total (" +
             (muscleCount - fasciaCount - tendonCount) + " muscles, " + fasciaCount + " fascia, " + tendonCount + " tendons)");
     },
@@ -2120,15 +2770,15 @@ var BodyMap3D = {
     _applySkeletonMaterial: function() {
         var meshes = this.layers.skeleton || [];
         var boneMat = new THREE.MeshPhysicalMaterial({
-            color: new THREE.Color(0.92, 0.88, 0.78),   // warm ivory bone
-            roughness: 0.5,
+            color: new THREE.Color(0.82, 0.78, 0.72),   // warm ivory bone
+            roughness: 0.92,
             metalness: 0.0,
-            clearcoat: 0.12,
-            clearcoatRoughness: 0.35,
-            sheen: 0.2,
-            sheenRoughness: 0.6,
-            sheenColor: new THREE.Color(0.85, 0.80, 0.65),
-            envMapIntensity: 0.35,                        // waxy porcelain-like surface
+            clearcoat: 0.0,
+            clearcoatRoughness: 1.0,
+            sheen: 0.0,
+            sheenRoughness: 1.0,
+            sheenColor: new THREE.Color(0.78, 0.74, 0.66),
+            envMapIntensity: 0.01,                        // matte, no glowing halo
             side: THREE.DoubleSide,
         });
         // Collect all meshes — including children of Group nodes.
@@ -2151,8 +2801,7 @@ var BodyMap3D = {
         for (var i = 0; i < allMeshes.length; i++) {
             var child = allMeshes[i];
             child.material = boneMat.clone();
-            child.userData.originalColor = boneMat.color.getHex();
-            child.userData.originalEmissive = 0x000000;
+            this._captureOriginalMaterialState(child);
             if (child.geometry && !child.geometry.attributes.normal) {
                 child.geometry.computeVertexNormals();
             }
@@ -2211,8 +2860,7 @@ var BodyMap3D = {
             }
             var mat = isVein ? veinMat : arteryMat;
             child.material = mat.clone();
-            child.userData.originalColor = mat.color.getHex();
-            child.userData.originalEmissive = 0x000000;
+            this._captureOriginalMaterialState(child);
             if (child.geometry && !child.geometry.attributes.normal) {
                 child.geometry.computeVertexNormals();
             }
@@ -2223,6 +2871,8 @@ var BodyMap3D = {
         var meshes = this.layers.nervous || [];
         var nerveMat = new THREE.MeshPhysicalMaterial({
             color: new THREE.Color(0.95, 0.85, 0.35),   // bright neural yellow
+            emissive: new THREE.Color(0.18, 0.14, 0.04),
+            emissiveIntensity: 0.35,
             roughness: 0.45,
             metalness: 0.0,
             clearcoat: 0.1,
@@ -2251,22 +2901,15 @@ var BodyMap3D = {
         }
         for (var i = 0; i < allMeshes.length; i++) {
             var child = allMeshes[i];
-            // Keep existing colors for meshes that already have non-white/non-black colors
-            var existing = child.material && child.material.color ?
-                child.material.color.getHexString() : "ffffff";
-            if (existing === "ffffff" || existing === "000000") {
-                child.material = nerveMat.clone();
-                child.userData.originalColor = nerveMat.color.getHex();
-                child.userData.originalEmissive = 0x000000;
-            }
+            child.material = nerveMat.clone();
+            this._captureOriginalMaterialState(child);
             if (child.geometry && !child.geometry.attributes.normal) {
                 child.geometry.computeVertexNormals();
             }
         }
     },
 
-    _applyOrganMaterial: function() {
-        var meshes = this.layers.organs || [];
+    _applyOrganMaterialToMeshes: function(allMeshes) {
         var seen = {};  // deduplicate cross-listed meshes
 
         // Anatomically accurate organ colors (sRGB) with per-mesh variation
@@ -2348,26 +2991,10 @@ var BodyMap3D = {
             return (((h >>> 0) % 10000) / 10000);
         }
 
-        // Collect all meshes — including children of Group nodes.
-        // Skip meshes whose name prefix belongs to a different layer.
-        var _otherPrefixes = ["musc__", "skel__", "skin__", "vasc__", "nerv__"];
-        var allMeshes = [];
-        for (var i = 0; i < meshes.length; i++) {
-            var entry = meshes[i];
-            if (entry.isMesh) { allMeshes.push(entry); }
-            else if (entry.traverse) { entry.traverse(function(d) {
-                if (!d.isMesh) return;
-                var dn = (d.name || "").toLowerCase();
-                for (var p = 0; p < _otherPrefixes.length; p++) {
-                    if (dn.indexOf(_otherPrefixes[p]) === 0) return;
-                }
-                allMeshes.push(d);
-            }); }
-        }
-
         var applied = 0;
         for (var i = 0; i < allMeshes.length; i++) {
             var child = allMeshes[i];
+            if (!child || !child.isMesh) continue;
             if (seen[child.uuid]) continue;
             seen[child.uuid] = true;
 
@@ -2410,13 +3037,36 @@ var BodyMap3D = {
             });
 
             child.material = mat;
-            child.userData.originalColor = mat.color.getHex();
-            child.userData.originalEmissive = 0x000000;
+            this._captureOriginalMaterialState(child);
             if (child.geometry && !child.geometry.attributes.normal) {
                 child.geometry.computeVertexNormals();
             }
             applied++;
         }
+        return applied;
+    },
+
+    _applyOrganMaterial: function() {
+        var meshes = this.layers.organs || [];
+
+        // Collect all meshes — including children of Group nodes.
+        // Skip meshes whose name prefix belongs to a different layer.
+        var _otherPrefixes = ["musc__", "skel__", "skin__", "vasc__", "nerv__"];
+        var allMeshes = [];
+        for (var i = 0; i < meshes.length; i++) {
+            var entry = meshes[i];
+            if (entry.isMesh) { allMeshes.push(entry); }
+            else if (entry.traverse) { entry.traverse(function(d) {
+                if (!d.isMesh) return;
+                var dn = (d.name || "").toLowerCase();
+                for (var p = 0; p < _otherPrefixes.length; p++) {
+                    if (dn.indexOf(_otherPrefixes[p]) === 0) return;
+                }
+                allMeshes.push(d);
+            }); }
+        }
+
+        var applied = this._applyOrganMaterialToMeshes(allMeshes);
         console.log("[BodyMap3D] Organ material applied: " + applied + " unique meshes colored");
     },
 
@@ -2520,9 +3170,8 @@ var BodyMap3D = {
         mesh.position.set(pos[0], pos[1], pos[2]);
         mesh.name = name;
         mesh.userData.region = region;
-        mesh.userData.originalColor = mat.color.getHex();
-        mesh.userData.originalEmissive = 0x000000;
         parent.add(mesh);
+        this._captureOriginalMaterialState(mesh);
         return mesh;
     },
 
@@ -2542,9 +3191,22 @@ var BodyMap3D = {
     },
 
     setLayer: function(layer) {
-        this.currentLayer = layer;
         var layerNames = ["skin", "muscle", "skeleton", "organs", "vasculature", "nervous"];
         if (!this.currentModel) return;
+        if ((layer === "muscle" || layer === "fascia") &&
+                this.supplementaryMusclesLoading && !this.supplementaryMusclesReady) {
+            this.pendingLayerAfterSupplementaryMuscles = layer;
+            this._showBodyMapLoading(layer === "fascia"
+                ? "Loading full fascia layer..."
+                : "Loading full muscle layer...");
+            return;
+        }
+
+        this.currentLayer = layer;
+        this.pendingLayerAfterSupplementaryMuscles = null;
+        this._hideBodyMapLoading();
+        this._updatePostProcessingForLayer();
+        this._updateComparisonStatus();
 
         // Update toolbar active state
         var allBtns = document.querySelectorAll(".bodymap-layer");
@@ -2592,8 +3254,8 @@ var BodyMap3D = {
             muscle:       [],
             skeleton:     [{layer: "nervous", opacity: 0.5}],
             organs:       [{layer: "vasculature", opacity: 0.7}, {layer: "nervous", opacity: 0.45}],
-            vasculature:  [{layer: "nervous", opacity: 0.35}],
-            nervous:      [{layer: "vasculature", opacity: 0.35}]
+            vasculature:  [],
+            nervous:      []
         };
 
         // Build companion opacity lookup: companionOf[layerName] = opacity (0 = not a companion)
@@ -2602,6 +3264,10 @@ var BodyMap3D = {
         for (var ci = 0; ci < comps.length; ci++) {
             companionOf[comps[ci].layer] = comps[ci].opacity;
         }
+        var preferUnifiedFemaleSkin = layer === "skin" &&
+            this.currentGender === "female" &&
+            this.unifiedAtlasSkinMeshes &&
+            this.unifiedAtlasSkinMeshes.length > 0;
 
         // Build a Set of UUIDs for each layer from the parsed this.layers dict.
         // Include descendant meshes of group nodes — Z-Anatomy packs some
@@ -2638,6 +3304,7 @@ var BodyMap3D = {
             }
         }
 
+        var layerSelf = this;
         this.currentModel.traverse(function(child) {
             // Determine which layer this child belongs to
             var childLayer = null;
@@ -2676,6 +3343,28 @@ var BodyMap3D = {
             }
 
             if (childLayer === layer) {
+                if (preferUnifiedFemaleSkin &&
+                        layer === "skin" &&
+                        child.userData._skinSource !== "unified") {
+                    child.visible = false;
+                    return;
+                }
+                if (layer === "organs" &&
+                        layerSelf.currentOrganCategory === "all" &&
+                        child.userData._organDetailSource &&
+                        child.userData._organDetailSource !== "base") {
+                    child.visible = false;
+                    return;
+                }
+                if (layer === "muscle" && layerSelf._shouldHideMeshInMuscleLayer(child)) {
+                    child.visible = false;
+                    return;
+                }
+                if ((layer === "vasculature" || layer === "nervous") &&
+                        layerSelf._shouldHideMeshInSystemLayer(child, layer)) {
+                    child.visible = false;
+                    return;
+                }
                 // Active layer: fully visible
                 child.visible = true;
                 if (child.isMesh) {
@@ -2696,12 +3385,13 @@ var BodyMap3D = {
                 // Companion layer: show at reduced opacity for anatomical context
                 child.visible = true;
                 if (child.isMesh && child.material) {
-                    // Save original material if needed
-                    if (!child.userData._origLayerMat) {
-                        child.userData._origLayerMat = child.material;
+                    // Always clone from the anatomical base material, not the
+                    // hidden placeholder used for inactive layers.
+                    var baseMat = child.userData._origLayerMat || child.userData._origMat || child.material;
+                    if (baseMat === child.userData._hiddenMat && child.userData._origMat) {
+                        baseMat = child.userData._origMat;
                     }
-                    // Restore original first (in case it was previously ghosted)
-                    var baseMat = child.userData._origLayerMat;
+                    child.userData._origLayerMat = baseMat;
                     var compMat = baseMat.clone();
                     compMat.transparent = true;
                     compMat.opacity = companionOf[childLayer];
@@ -2750,12 +3440,30 @@ var BodyMap3D = {
             " companion=" + diag.companion + " skinVisible=" + diag.skinVisible +
             " untagged=" + diag.untagged + " hidden=" + diag.hidden);
 
+        if (!this.showingHealthy && (this.cachedRegionFindings || this.cachedOrganFindings)) {
+            this._applyCurrentState();
+        }
+
         // Update buttons
         var btns = document.querySelectorAll(".bodymap-layer");
         for (var b = 0; b < btns.length; b++) {
             if (btns[b].dataset.layer === layer) btns[b].classList.add("active");
             else btns[b].classList.remove("active");
         }
+    },
+
+    _showBodyMapLoading: function(message) {
+        var loading = document.getElementById("bodymap-loading");
+        if (!loading) return;
+        loading.textContent = message || "Loading anatomy model...";
+        loading.style.display = "flex";
+    },
+
+    _hideBodyMapLoading: function() {
+        var loading = document.getElementById("bodymap-loading");
+        if (!loading) return;
+        loading.style.display = "none";
+        loading.textContent = "Loading anatomy model...";
     },
 
 
@@ -2814,67 +3522,10 @@ var BodyMap3D = {
             fetch("/api/labs").then(function(r) { return r.ok ? r.json() : []; }).catch(function() { return []; }),
             fetch("/api/flags").then(function(r) { return r.ok ? r.json() : []; }).catch(function() { return []; }),
         ]).then(function(results) {
-            self.clearPins();
-            self._resetOrganColors();
-
-            var regionFindings = {};
-            var organFindings = {}; // mesh-level findings for damage vis
-
-            // Diagnoses
-            var dx = results[0];
-            for (var a = 0; a < dx.length; a++) {
-                var txt = ((dx[a].name || "") + " " + (dx[a].status || "")).toLowerCase();
-                var reg = self._textToRegion(txt);
-                if (reg) {
-                    if (!regionFindings[reg]) regionFindings[reg] = [];
-                    regionFindings[reg].push({ type: "diagnosis", name: dx[a].name || "", severity: dx[a].severity || "moderate", source: dx[a].source_file || "", page: dx[a].source_page || "", date: dx[a].date_extracted || "" });
-
-                    // Map to specific organ meshes for damage vis
-                    self._mapToOrganMeshes(txt, dx[a].severity || "moderate", organFindings);
-                }
-            }
-
-            // Imaging
-            var img = results[1];
-            for (var b = 0; b < img.length; b++) {
-                var itxt = ((img[b].study_type || "") + " " + (img[b].description || "")).toLowerCase();
-                var ir = self._textToRegion(itxt);
-                if (ir) {
-                    if (!regionFindings[ir]) regionFindings[ir] = [];
-                    regionFindings[ir].push({ type: "imaging", name: img[b].study_type || "Imaging", severity: img[b].severity || "info", source: img[b].source_file || "", page: img[b].source_page || "", date: img[b].study_date || "" });
-                    self._mapToOrganMeshes(itxt, img[b].severity || "info", organFindings);
-                }
-            }
-
-            // Flags
-            var fl = results[3];
-            for (var c = 0; c < fl.length; c++) {
-                var ftxt = ((fl[c].description || "") + " " + (fl[c].category || "")).toLowerCase();
-                var fr = self._textToRegion(ftxt);
-                if (fr) {
-                    if (!regionFindings[fr]) regionFindings[fr] = [];
-                    regionFindings[fr].push({ type: "flag", name: fl[c].description || "Flag", severity: fl[c].severity || "high", source: fl[c].source_file || "", page: fl[c].source_page || "", date: fl[c].date || "" });
-                    self._mapToOrganMeshes(ftxt, fl[c].severity || "high", organFindings);
-                }
-            }
-
-            // Cache findings for Before/After toggle
-            self.cachedRegionFindings = regionFindings;
-            self.cachedOrganFindings = organFindings;
-
-            // Place pins
-            var regions = Object.keys(regionFindings);
-            for (var d = 0; d < regions.length; d++) {
-                var r = regions[d];
-                var findings = regionFindings[r];
-                var highest = self._highestSeverity(findings);
-                self._placePin(r, findings.length, highest, findings);
-            }
-
-            // Apply damage visualization to organ meshes
-            if (!self.showingHealthy) {
-                self._applyOrganDamage(organFindings);
-            }
+            var parsed = self._buildVisualFindings(results);
+            self.cachedRegionFindings = parsed.regionFindings;
+            self.cachedOrganFindings = parsed.organFindings;
+            self.visualFindingSummary = parsed.summary;
 
             // Reset toggle button state
             var btn = document.getElementById("bodymap-healthy-toggle");
@@ -2883,7 +3534,188 @@ var BodyMap3D = {
                 btn.textContent = "Show Healthy";
                 btn.classList.remove("active");
             }
+            self._applyCurrentState();
+            self._updateComparisonStatus();
         });
+    },
+
+    _buildVisualFindings: function(results) {
+        var self = this;
+        var regionFindings = {};
+        var organFindings = {};
+        var totalFindings = 0;
+
+        function pushFinding(payload) {
+            var fullText = (payload.text || "").toLowerCase().trim();
+            if (!fullText) return;
+
+            if (payload.allowNegative !== true && self._isNegativeFindingText(fullText)) {
+                return;
+            }
+
+            totalFindings++;
+
+            var regionText = ((payload.body_region || "") + " " + fullText).toLowerCase();
+            var reg = payload.region || self._textToRegion(regionText);
+            if (reg) {
+                if (!regionFindings[reg]) regionFindings[reg] = [];
+                regionFindings[reg].push({
+                    type: payload.type || "finding",
+                    name: payload.name || "Finding",
+                    severity: payload.severity || "moderate",
+                    source: payload.source || "",
+                    page: payload.page || "",
+                    date: payload.date || "",
+                    text: fullText
+                });
+            }
+
+            self._mapToOrganMeshes(fullText, payload.severity || "moderate", organFindings);
+        }
+
+        var dx = results[0] || [];
+        for (var a = 0; a < dx.length; a++) {
+            pushFinding({
+                type: "diagnosis",
+                name: dx[a].name || "Diagnosis",
+                severity: dx[a].severity || "moderate",
+                source: dx[a].source_file || "",
+                page: dx[a].source_page || "",
+                date: dx[a].date_extracted || dx[a].date_diagnosed || dx[a].date || "",
+                text: [dx[a].name, dx[a].status, dx[a].icd10].filter(Boolean).join(" ")
+            });
+        }
+
+        var img = results[1] || [];
+        for (var b = 0; b < img.length; b++) {
+            pushFinding({
+                type: "imaging",
+                name: img[b].modality || img[b].study_type || "Imaging",
+                severity: img[b].severity || "moderate",
+                source: img[b].source_file || "",
+                page: img[b].source_page || "",
+                date: img[b].study_date || "",
+                body_region: img[b].body_region || "",
+                text: [
+                    img[b].modality,
+                    img[b].study_type,
+                    img[b].body_region,
+                    img[b].description,
+                    img[b].findings
+                ].filter(Boolean).join(" ")
+            });
+        }
+
+        var labs = results[2] || [];
+        for (var li = 0; li < labs.length; li++) {
+            var lab = labs[li];
+            var flagText = [
+                lab.test_name || lab.name || "",
+                lab.interpretation || "",
+                lab.flag || "",
+                lab.note || "",
+                lab.value != null ? String(lab.value) : ""
+            ].join(" ").trim();
+            if (!flagText) continue;
+            var abnormal = false;
+            var normalizedFlag = flagText.toLowerCase();
+            abnormal = normalizedFlag.indexOf("abnormal") >= 0 ||
+                normalizedFlag.indexOf("high") >= 0 ||
+                normalizedFlag.indexOf("low") >= 0 ||
+                normalizedFlag.indexOf("elevated") >= 0 ||
+                normalizedFlag.indexOf("decreased") >= 0;
+            if (!abnormal) continue;
+
+            pushFinding({
+                type: "lab",
+                name: lab.test_name || lab.name || "Lab",
+                severity: lab.severity || "moderate",
+                source: lab.source_file || "",
+                page: lab.source_page || "",
+                date: lab.date || lab.collected_date || "",
+                text: flagText
+            });
+        }
+
+        var fl = results[3] || [];
+        for (var c = 0; c < fl.length; c++) {
+            pushFinding({
+                type: "flag",
+                name: fl[c].title || fl[c].description || "Flag",
+                severity: fl[c].severity || "high",
+                source: fl[c].source_file || "",
+                page: fl[c].source_page || "",
+                date: fl[c].date || "",
+                text: [
+                    fl[c].title,
+                    fl[c].description,
+                    fl[c].category,
+                    (fl[c].evidence || []).join(" ")
+                ].filter(Boolean).join(" ")
+            });
+        }
+
+        return {
+            regionFindings: regionFindings,
+            organFindings: organFindings,
+            summary: {
+                totalFindings: totalFindings,
+                regionCount: Object.keys(regionFindings).length,
+                organCount: Object.keys(organFindings).length
+            }
+        };
+    },
+
+    _isNegativeFindingText: function(text) {
+        var t = (text || "").toLowerCase();
+        if (!t) return false;
+
+        var positiveSignals = [
+            "mild", "moderate", "severe", "enlarg", "hypert", "lesion", "mass",
+            "tumor", "edema", "effusion", "fibrosis", "cirrhosis", "collapse",
+            "atelectasis", "stone", "fracture", "retinopathy", "neuropathy",
+            "dysfunction", "abnormal", "disease", "inflam", "ischemia"
+        ];
+        for (var i = 0; i < positiveSignals.length; i++) {
+            if (t.indexOf(positiveSignals[i]) >= 0) return false;
+        }
+
+        var negativeSignals = [
+            "no acute", "no evidence", "without evidence", "normal", "unremarkable",
+            "negative for", "no abnormal", "heart size normal", "no pleural effusion",
+            "no mass lesion", "no hemorrhage", "no infarct", "no valvular abnormalities"
+        ];
+        for (var j = 0; j < negativeSignals.length; j++) {
+            if (t.indexOf(negativeSignals[j]) >= 0) return true;
+        }
+        return false;
+    },
+
+    _applyCurrentState: function() {
+        this._resetOrganColors();
+        this.clearPins();
+
+        if (this.showingHealthy) {
+            this._updateComparisonStatus();
+            return;
+        }
+
+        if (this.cachedRegionFindings) {
+            var regions = Object.keys(this.cachedRegionFindings);
+            for (var i = 0; i < regions.length; i++) {
+                var r = regions[i];
+                var findings = this.cachedRegionFindings[r];
+                this._placePin(r, findings.length, this._highestSeverity(findings), findings);
+            }
+        }
+
+        if (this.cachedOrganFindings) {
+            this._applyOrganDamage(this.cachedOrganFindings);
+        }
+        if (this.cachedRegionFindings) {
+            this._applyRegionDamage(this.cachedRegionFindings);
+        }
+        this._updateComparisonStatus();
     },
 
     _mapToOrganMeshes: function(text, severity, organFindings) {
@@ -2911,6 +3743,112 @@ var BodyMap3D = {
                     organFindings[key].push({ severity: severity, text: text });
                     break;
                 }
+            }
+        }
+    },
+
+    _severityVisualState: function(severity, layer) {
+        var layerMix = {
+            skin: 0.30,
+            muscle: 0.22,
+            fascia: 0.18,
+            skeleton: 0.12,
+            vasculature: 0.16,
+            nervous: 0.12,
+            organs: 0.0
+        };
+        var profiles = {
+            critical: { tint: 0x8b1e1e, emissive: 0x4d1212, boost: 1.0, base: 0.18, pulse: 0.20 },
+            high:     { tint: 0xb13a24, emissive: 0x4a1a10, boost: 0.82, base: 0.14, pulse: 0.15 },
+            moderate: { tint: 0xc27d2a, emissive: 0x483114, boost: 0.60, base: 0.10, pulse: 0.10 },
+            low:      { tint: 0x5a8ffc, emissive: 0x14294a, boost: 0.38, base: 0.05, pulse: 0.06 },
+            info:     { tint: 0x8aa0c8, emissive: 0x111827, boost: 0.18, base: 0.02, pulse: 0.03 }
+        };
+        var key = (severity || "info").toLowerCase();
+        var p = profiles[key] || profiles.info;
+        return {
+            tint: p.tint,
+            emissive: p.emissive,
+            mix: (layerMix[layer] || 0.12) * p.boost,
+            base: p.base,
+            pulse: p.pulse
+        };
+    },
+
+    _applyRegionDamage: function(regionFindings) {
+        if (!this.currentModel || !regionFindings) return;
+        if (this.currentLayer === "organs") return;
+
+        var self = this;
+        var seen = {};
+        var activeMeshes = [];
+        var entries = this.layers[this.currentLayer] || [];
+        var prefixMap = {
+            skin: ["musc__", "skel__", "orgn__", "vasc__", "nerv__"],
+            muscle: ["skin__", "skel__", "orgn__", "vasc__", "nerv__"],
+            skeleton: ["skin__", "musc__", "orgn__", "vasc__", "nerv__"],
+            vasculature: ["skin__", "musc__", "skel__", "orgn__", "nerv__"],
+            nervous: ["skin__", "musc__", "skel__", "orgn__", "vasc__"],
+            fascia: ["skin__", "skel__", "orgn__", "vasc__", "nerv__"]
+        };
+        var otherPrefixes = prefixMap[this.currentLayer] || [];
+
+        for (var i = 0; i < entries.length; i++) {
+            var node = entries[i];
+            if (!node) continue;
+            if (node.isMesh) {
+                activeMeshes.push(node);
+            } else if (node.traverse) {
+                node.traverse(function(desc) {
+                    if (!desc.isMesh) return;
+                    var dn = (desc.name || "").toLowerCase();
+                    for (var pi = 0; pi < otherPrefixes.length; pi++) {
+                        if (dn.indexOf(otherPrefixes[pi]) === 0) return;
+                    }
+                    activeMeshes.push(desc);
+                });
+            }
+        }
+
+        for (var j = 0; j < activeMeshes.length; j++) {
+            var child = activeMeshes[j];
+            if (!child || !child.isMesh || !child.visible || !child.material) continue;
+            if (child.material === child.userData._hiddenMat || seen[child.uuid]) continue;
+            if (this.currentLayer === "muscle" && this._shouldHideMeshInMuscleLayer(child)) continue;
+
+            seen[child.uuid] = true;
+            var reg = child.userData.region;
+            if (!reg || !regionFindings[reg] || regionFindings[reg].length === 0) continue;
+
+            var visual = this._severityVisualState(this._highestSeverity(regionFindings[reg]), this.currentLayer);
+            var materials = this._materialsFor(child);
+            var baseStates = child.userData.originalMaterialStates || [];
+            var visualized = false;
+            for (var mi = 0; mi < materials.length; mi++) {
+                var mat = materials[mi];
+                var matState = baseStates[mi] || baseStates[0] || {};
+                var baseHex = matState.color;
+                if (baseHex === null || baseHex === undefined) baseHex = child.userData.originalColor;
+
+                if (mat.color && typeof mat.color.copy === "function" &&
+                        baseHex !== null && baseHex !== undefined) {
+                    var baseColor = new THREE.Color(baseHex);
+                    var stateColor = baseColor.clone().lerp(new THREE.Color(visual.tint), visual.mix);
+                    mat.color.copy(stateColor);
+                    visualized = true;
+                }
+                if (mat.emissive && typeof mat.emissive.setHex === "function") {
+                    mat.emissive.setHex(visual.emissive);
+                    mat.emissiveIntensity = visual.base;
+                    visualized = true;
+                }
+            }
+            if (visualized) {
+                self.statePulseMeshes.push({
+                    mesh: child,
+                    base: visual.base,
+                    amp: visual.pulse
+                });
             }
         }
     },
@@ -3126,21 +4064,12 @@ var BodyMap3D = {
 
     _resetOrganColors: function() {
         this._clearDeformations();
+        this.statePulseMeshes = [];
         if (!this.currentModel) return;
+        var self = this;
         this.currentModel.traverse(function(child) {
             if (!child.isMesh || !child.material) return;
-            if (child.userData.originalColor !== undefined) {
-                child.material.color.setHex(child.userData.originalColor);
-            }
-            if (child.material.emissive && child.userData.originalEmissive !== undefined) {
-                child.material.emissive.setHex(child.userData.originalEmissive);
-                child.material.emissiveIntensity = 0;
-            }
-            
-            // Reset custom GLSL shader damage if present
-            if (child.material.userData && child.material.userData.shader) {
-                child.material.userData.shader.uniforms.uDamage.value = 0.0;
-            }
+            self._restoreOriginalMaterialState(child);
         });
     },
 
@@ -3340,33 +4269,22 @@ var BodyMap3D = {
     toggleHealthyView: function() {
         this.showingHealthy = !this.showingHealthy;
         var btn = document.getElementById("bodymap-healthy-toggle");
+        this._updatePostProcessingForLayer();
 
         if (this.showingHealthy) {
             // Show healthy baseline — clear all damage
             this._clearDeformations();
             this._resetOrganColors();
             this.clearPins();
+            this._updateComparisonStatus();
             if (btn) {
                 btn.textContent = "Show My State";
                 btn.classList.add("active");
             }
         } else {
             // Restore patient's actual state
-            if (this.cachedOrganFindings) {
-                this._applyOrganDamage(this.cachedOrganFindings);
-            }
-            // Re-place pins from cached region findings
-            if (this.cachedRegionFindings) {
-                this.clearPins();
-                var self = this;
-                var regions = Object.keys(this.cachedRegionFindings);
-                for (var i = 0; i < regions.length; i++) {
-                    var r = regions[i];
-                    var findings = self.cachedRegionFindings[r];
-                    var highest = self._highestSeverity(findings);
-                    self._placePin(r, findings.length, highest, findings);
-                }
-            }
+            this._applyCurrentState();
+            this._updateComparisonStatus();
             if (btn) {
                 btn.textContent = "Show Healthy";
                 btn.classList.remove("active");
