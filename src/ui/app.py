@@ -2238,6 +2238,92 @@ def download_report():
     )
 
 
+def _prepare_demo_for_model(data: dict) -> dict:
+    """Transform demo profile dict to match Pydantic PatientProfile schema.
+
+    Demo data is shaped for the dashboard API (flat, human-friendly) but the
+    report builder needs strict Pydantic models with provenance, enums, etc.
+    """
+    import copy
+    data = copy.deepcopy(data)
+
+    demo_provenance = {
+        "source_file": "demo_patient.json",
+        "source_page": None,
+        "extraction_model": "demo",
+    }
+
+    # Category mapping for ClinicalFlag.category (FindingCategory enum)
+    flag_category_map = {
+        "Lab Finding": "lab_threshold",
+        "Trend Analysis": "lab_threshold",
+        "Vital Sign": "lab_threshold",
+        "Symptom Pattern": "adverse_event",
+        "Imaging Finding": "imaging_change",
+        "Monitoring Gap": "screening_gap",
+    }
+
+    timeline = data.get("clinical_timeline", {})
+
+    # Add provenance to all clinical timeline items
+    for key in ("medications", "diagnoses", "procedures", "genetics"):
+        for item in timeline.get(key, []):
+            if "provenance" not in item:
+                item["provenance"] = demo_provenance
+
+    # Labs: rename test_name → name, add provenance
+    for lab in timeline.get("labs", []):
+        if "test_name" in lab and "name" not in lab:
+            lab["name"] = lab.pop("test_name")
+        if "provenance" not in lab:
+            lab["provenance"] = demo_provenance
+
+    # Imaging: findings string → list of ImagingFinding dicts, add provenance
+    for study in timeline.get("imaging", []):
+        if isinstance(study.get("findings"), str):
+            study["findings"] = [{"description": study["findings"]}]
+        if "provenance" not in study:
+            study["provenance"] = demo_provenance
+
+    # Analysis flags: fix category enum, add description, fix evidence
+    analysis = data.get("analysis", {})
+    for flag in analysis.get("flags", []):
+        raw_cat = flag.get("category", "")
+        flag["category"] = flag_category_map.get(raw_cat, "lab_threshold")
+        if "description" not in flag:
+            flag["description"] = flag.get("title", "")
+        if isinstance(flag.get("evidence"), list):
+            flag["evidence"] = [
+                e.get("value", str(e)) if isinstance(e, dict) else str(e)
+                for e in flag["evidence"]
+            ]
+
+    # Drug interactions: add description + source from existing fields
+    for interaction in analysis.get("drug_interactions", []):
+        if "description" not in interaction:
+            interaction["description"] = interaction.get("mechanism", "")
+        if "source" not in interaction:
+            interaction["source"] = interaction.get("evidence_source", "Clinical database")
+
+    # Community insights: add required fields
+    for insight in analysis.get("community_insights", []):
+        if "subreddit" not in insight:
+            insight["subreddit"] = insight.get("source", "r/medicine")
+        if "description" not in insight:
+            insight["description"] = insight.get("summary", insight.get("title", ""))
+        if "upvote_count" not in insight:
+            insight["upvote_count"] = 0
+
+    # Questions for doctor: convert dicts to strings
+    raw_questions = analysis.get("questions_for_doctor", [])
+    analysis["questions_for_doctor"] = [
+        q["question"] if isinstance(q, dict) else str(q)
+        for q in raw_questions
+    ]
+
+    return data
+
+
 @app.route("/api/report/generate", methods=["POST"])
 def generate_report():
     """Generate a new report from current profile."""
@@ -2248,7 +2334,8 @@ def generate_report():
         from src.models import PatientProfile
         from src.report.builder import ReportBuilder
 
-        profile = PatientProfile(**_profile_data)
+        prepared = _prepare_demo_for_model(_profile_data)
+        profile = PatientProfile(**prepared)
         builder = ReportBuilder()
 
         REPORTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -2258,6 +2345,7 @@ def generate_report():
         return jsonify({"status": "generated", "path": str(output_path)})
 
     except Exception as e:
+        logger.error("Report generation failed: %s", e)
         return jsonify({"error": str(e)}), 500
 
 
