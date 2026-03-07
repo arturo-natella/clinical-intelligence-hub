@@ -3046,8 +3046,8 @@ def toggle_counter_archive(symptom_id, counter_id):
 @app.route("/api/trajectories")
 def trajectories():
     """Analyze lab trends and project future values."""
-    if not _passphrase:
-        return jsonify({"error": "Vault not unlocked"}), 401
+    if not _passphrase and not _profile_data:
+        return jsonify({"error": "No data loaded"}), 401
 
     profile = _profile_data or {}
 
@@ -3066,8 +3066,8 @@ def trajectories():
 @app.route("/api/biomarker-cascades", methods=["POST"])
 def biomarker_cascades():
     """Analyze patient labs for biomarker cascade chains."""
-    if not _passphrase:
-        return jsonify({"error": "Vault not unlocked"}), 401
+    if not _passphrase and not _profile_data:
+        return jsonify({"error": "No data loaded"}), 401
 
     profile = _profile_data or {}
 

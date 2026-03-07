@@ -654,8 +654,12 @@
     <!-- ── Labs ───────────────────────────────────────── -->
     <div id="view-labs" class="view">
         <div class="card">
-            <div style="margin-bottom:12px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
                 <div class="card-title" style="margin-bottom:0;">Lab Results</div>
+                <div style="display:flex; gap:8px;">
+                    <button class="btn btn-sm btn-outline" id="trajectory-btn" title="See how your lab values are trending over time" onclick="Trajectories.open();" style="color:var(--accent-bluetron); border-color:var(--accent-bluetron);">Trajectories</button>
+                    <button class="btn btn-sm btn-outline" id="cascade-btn" title="See how your abnormal lab values cascade into downstream effects" onclick="BiomarkerCascades.open();" style="color:var(--accent-crimson); border-color:var(--accent-crimson);">Biomarker Cascades</button>
+                </div>
             </div>
             <table class="data-table">
                 <thead>

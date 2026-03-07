@@ -186,7 +186,7 @@ class TrajectoryForecaster:
         """Group lab results by test name, keeping only numeric values."""
         groups = {}
         for lab in labs:
-            name = (lab.get("name") or "").strip()
+            name = (lab.get("name") or lab.get("test_name") or "").strip()
             if not name:
                 continue
 

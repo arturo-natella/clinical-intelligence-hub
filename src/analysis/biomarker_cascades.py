@@ -447,7 +447,7 @@ class BiomarkerCascadeEngine:
         """Build lookup: lowered test name → latest result dict."""
         lookup = {}
         for lab in labs:
-            name = lab.get("name", "").lower().strip()
+            name = (lab.get("name") or lab.get("test_name") or "").lower().strip()
             if not name:
                 continue
 
@@ -455,7 +455,7 @@ class BiomarkerCascadeEngine:
                 "value": lab.get("value", lab.get("value_text", "")),
                 "unit": lab.get("unit", ""),
                 "flag": (lab.get("flag") or "").lower(),
-                "date": lab.get("test_date", ""),
+                "date": lab.get("test_date") or lab.get("date", ""),
             }
 
             # Keep most recent
