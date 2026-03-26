@@ -41,6 +41,44 @@ class ProcessingStatus(str, Enum):
     SKIPPED = "skipped"               # Duplicate or unsupported
 
 
+class ProfileStatus(str, Enum):
+    """High-level status of a patient profile."""
+    PROCESSING = "processing"
+    PARTIAL_READY = "partial_ready"   # Some data available, still processing
+    READY = "ready"
+    FAILED_PARTIAL = "failed_partial" # Failed but some data was saved
+    FAILED = "failed"
+
+
+class JobStatus(str, Enum):
+    """Status of a background processing job."""
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELED = "canceled"
+
+
+class SectionStatus(str, Enum):
+    """Status of an individual profile section (labs, meds, etc.)."""
+    PENDING = "pending"
+    PROCESSING = "processing"
+    AVAILABLE = "available"
+    WARNING = "warning"
+    FAILED = "failed"
+
+
+class ProcessingStage(str, Enum):
+    """Granular processing stages used for checkpoint/resume."""
+    UPLOADED = "uploaded"
+    OCR_COMPLETE = "ocr_complete"
+    CLASSIFIED = "classified"
+    ENTITIES_EXTRACTED = "entities_extracted"
+    NORMALIZED = "normalized"
+    LINKED_TO_PROFILE = "linked_to_profile"
+    SNAPSHOT_APPLIED = "snapshot_applied"
+
+
 class BodySystem(str, Enum):
     GI = "gi"
     MUSCULOSKELETAL = "musculoskeletal"
@@ -422,6 +460,42 @@ class PatientProfile(BaseModel):
     analysis: AnalysisResults = Field(default_factory=AnalysisResults)
     processed_files: list[ProcessedFile] = Field(default_factory=list)
     pipeline_version: str = "1.0.0"
+    # Incremental persistence fields
+    profile_status: ProfileStatus = ProfileStatus.PROCESSING
+    job_id: Optional[str] = None
+    current_stage: Optional[str] = None
+    progress_percent: int = 0
+    section_statuses: dict = Field(default_factory=dict)
+
+
+class ProfileSnapshot(BaseModel):
+    """Lightweight renderable profile snapshot for immediate UI display.
+
+    Written to the database after each meaningful pipeline stage so the UI
+    can show partial results while processing continues.
+    """
+    profile_id: str
+    status: ProfileStatus = ProfileStatus.PROCESSING
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+    # Progress
+    current_stage: Optional[str] = None
+    progress_percent: int = 0
+    job_id: Optional[str] = None
+    # Data counts (available even during processing)
+    file_count: int = 0
+    medication_count: int = 0
+    lab_count: int = 0
+    diagnosis_count: int = 0
+    imaging_count: int = 0
+    note_count: int = 0
+    flag_count: int = 0
+    # Per-section statuses: {"labs": "available", "medications": "pending", ...}
+    sections: dict = Field(default_factory=dict)
+    # Basic demographics (populated as soon as extracted)
+    demographics: dict = Field(default_factory=dict)
+    # Full profile payload — included so the UI can render available sections
+    profile_data: Optional[dict] = None
 
 
 # ── PII Redaction Log ─────────────────────────────────────
