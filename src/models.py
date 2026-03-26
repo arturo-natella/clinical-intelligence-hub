@@ -161,6 +161,7 @@ class Demographics(BaseModel):
 
 class Medication(BaseModel):
     """A single medication entry."""
+    medication_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
     generic_name: Optional[str] = None
     rxnorm_cui: Optional[str] = Field(default=None, description="RxNorm Concept Unique Identifier")
@@ -173,6 +174,20 @@ class Medication(BaseModel):
     prescriber: Optional[str] = None
     reason: Optional[str] = None            # Why prescribed
     provenance: Provenance
+
+
+class MedicationDose(BaseModel):
+    """A single logged dose event for a medication (F18 Adherence Tracking)."""
+    dose_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    medication_id: str                      # Links to parent Medication.medication_id
+    medication_name: str                    # Denormalized for convenience
+    dose_date: date
+    dose_time: Optional[str] = None         # "08:00", "morning", etc.
+    taken: bool = True
+    skipped_reason: Optional[str] = None
+    reaction: Optional[str] = None          # Free-text reaction note
+    reaction_severity: Optional[str] = None  # "none", "mild", "moderate", "severe"
+    date_logged: datetime = Field(default_factory=datetime.now)
 
 
 class LabResult(BaseModel):
@@ -215,14 +230,38 @@ class ImagingFinding(BaseModel):
     radiomic_features: Optional[dict] = None  # Quantitative texture/shape/intensity features
 
 
+class DiagnosisConfirmationStatus(str, Enum):
+    """Lifecycle stages for a diagnosis confirmation."""
+    PENDING = "pending"
+    SUSPECTED = "suspected"
+    PROBABLE = "probable"
+    CONFIRMED = "confirmed"
+    RULED_OUT = "ruled_out"
+
+
+class DiagnosisConfirmationEvent(BaseModel):
+    """One dated entry in a diagnosis confirmation history."""
+    event_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    status: DiagnosisConfirmationStatus
+    provider: Optional[str] = None
+    notes: Optional[str] = None
+    date: datetime = Field(default_factory=datetime.now)
+
+
 class Diagnosis(BaseModel):
     """A diagnosis or medical condition."""
+    diagnosis_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
     snomed_code: Optional[str] = Field(default=None, description="SNOMED CT code")
     icd10_code: Optional[str] = None
     date_diagnosed: Optional[date] = None
     status: Optional[str] = None            # "Active", "Resolved", "Chronic"
     diagnosing_provider: Optional[str] = None
+    # Confirmation tracking (F14)
+    confirmation_status: DiagnosisConfirmationStatus = DiagnosisConfirmationStatus.PENDING
+    patient_agreement: Optional[str] = None   # "agree", "disagree", "unsure"
+    patient_agreement_reason: Optional[str] = None
+    confirmation_history: list[DiagnosisConfirmationEvent] = Field(default_factory=list)
     provenance: Provenance
 
 
@@ -425,9 +464,29 @@ class MonitoringAlert(BaseModel):
 
 # ── Patient Profile (top-level aggregate) ──────────────────
 
+class FamilyCondition(BaseModel):
+    """A condition reported in a family member's history."""
+    name: str
+    age_at_diagnosis: Optional[int] = None
+    status: Optional[str] = None            # "Active", "Resolved", "Deceased"
+
+
+class FamilyMember(BaseModel):
+    """One family member's medical history (F16 Family Medical History)."""
+    member_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    relationship: str                       # "mother", "father", "sibling", etc.
+    name: Optional[str] = None             # Optional — patient may prefer anonymity
+    conditions: list[FamilyCondition] = Field(default_factory=list)
+    deceased: bool = False
+    cause_of_death: Optional[str] = None
+    notes: Optional[str] = None
+    date_added: datetime = Field(default_factory=datetime.now)
+
+
 class ClinicalTimeline(BaseModel):
     """All clinical data organized for the patient."""
     medications: list[Medication] = Field(default_factory=list)
+    medication_doses: list[MedicationDose] = Field(default_factory=list)
     labs: list[LabResult] = Field(default_factory=list)
     imaging: list[ImagingStudy] = Field(default_factory=list)
     diagnoses: list[Diagnosis] = Field(default_factory=list)
@@ -466,6 +525,8 @@ class PatientProfile(BaseModel):
     current_stage: Optional[str] = None
     progress_percent: int = 0
     section_statuses: dict = Field(default_factory=dict)
+    # Family medical history (F16)
+    family_history: list[FamilyMember] = Field(default_factory=list)
 
 
 class ProfileSnapshot(BaseModel):
