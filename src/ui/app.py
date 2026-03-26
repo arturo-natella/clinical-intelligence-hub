@@ -50,6 +50,8 @@ _profile_data: dict = None
 _environmental_sync_worker = None
 _pipeline_paused: threading.Event = threading.Event()
 _pipeline_paused.set()  # Not paused by default (set = running)
+_current_profile_id: str = None   # Profile ID created on upload
+_current_job_id: str = None       # Job ID created on upload
 
 _DEV_BYPASS_SENTINEL = "__medprep_local_dev_bypass__"
 
@@ -94,7 +96,7 @@ def _purge_local_patient_data() -> dict:
       - encrypted API key vault
       - downloaded model assets bundled with the app
     """
-    global _profile_data
+    global _profile_data, _current_profile_id, _current_job_id
 
     from src.database import Database
     from src.encryption import EncryptedVault
@@ -155,6 +157,8 @@ def _purge_local_patient_data() -> dict:
     Database(DATA_DIR / "cih.db").close()
 
     _profile_data = None
+    _current_profile_id = None
+    _current_job_id = None
 
     return {"status": "cleared", "removed": removed}
 
@@ -783,7 +787,13 @@ def _build_demo_profile():
 
 @app.route("/api/upload", methods=["POST"])
 def upload_files():
-    """Handle file upload (drag-and-drop or file picker)."""
+    """Handle file upload (drag-and-drop or file picker).
+
+    Creates a profile record and processing job immediately so the profile
+    is visible in the UI before parsing begins.
+    """
+    global _current_profile_id, _current_job_id
+
     if not _passphrase:
         return jsonify({"error": "Vault not unlocked"}), 401
 
@@ -802,11 +812,47 @@ def upload_files():
                 "name": file.filename,
                 "path": str(filepath),
                 "size": filepath.stat().st_size,
+                "file_id": safe_name,
             })
+
+    if not uploaded:
+        return jsonify({"error": "No valid files provided"}), 400
+
+    # Create profile + job records immediately so the UI can show this profile
+    try:
+        from src.database import Database
+
+        db = Database(DATA_DIR / "cih.db")
+        profile_id = str(uuid.uuid4())
+        job_id = str(uuid.uuid4())
+
+        db.create_profile(
+            profile_id=profile_id,
+            status="processing",
+            display_name=f"Upload {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}",
+        )
+        for file_info in uploaded:
+            db.create_source_file(
+                file_id=file_info["file_id"],
+                profile_id=profile_id,
+                filename=file_info["name"],
+                file_size_bytes=file_info["size"],
+            )
+        db.create_processing_job(job_id=job_id, profile_id=profile_id)
+        db.close()
+
+        _current_profile_id = profile_id
+        _current_job_id = job_id
+    except Exception as e:
+        logger.error(f"Failed to create profile record on upload: {e}")
+        profile_id = None
+        job_id = None
 
     return jsonify({
         "uploaded": len(uploaded),
         "files": uploaded,
+        "profile_id": profile_id,
+        "job_id": job_id,
     })
 
 
@@ -840,10 +886,10 @@ def start_analysis():
         except queue.Empty:
             break
 
-    # Start pipeline in background thread
+    # Start pipeline in background thread, passing pre-created profile/job IDs
     _pipeline_thread = threading.Thread(
         target=_run_pipeline,
-        args=(input_files,),
+        args=(input_files, _current_profile_id, _current_job_id),
         daemon=True,
     )
     _pipeline_thread.start()
@@ -851,10 +897,14 @@ def start_analysis():
     return jsonify({
         "status": "started",
         "file_count": len(input_files),
+        "profile_id": _current_profile_id,
+        "job_id": _current_job_id,
     })
 
 
-def _run_pipeline(input_files: list[Path]):
+def _run_pipeline(input_files: list[Path],
+                  profile_id: str = None,
+                  job_id: str = None):
     """Run the pipeline in a background thread."""
     global _profile_data
 
@@ -869,8 +919,12 @@ def _run_pipeline(input_files: list[Path]):
                 "timestamp": time.time(),
             })
 
-        pipeline = Pipeline(DATA_DIR, _passphrase, progress_callback,
-                            pause_event=_pipeline_paused)
+        pipeline = Pipeline(
+            DATA_DIR, _passphrase, progress_callback,
+            pause_event=_pipeline_paused,
+            profile_id=profile_id,
+            job_id=job_id,
+        )
         profile = pipeline.run(input_files)
 
         _profile_data = profile.model_dump(mode="json")
@@ -1149,54 +1203,169 @@ def sync_environmental():
 
 @app.route("/api/profile")
 def get_profile():
-    """Get the full patient profile."""
-    if not _profile_data:
-        return jsonify({"error": "No profile loaded"}), 404
-    return jsonify(_profile_data)
+    """Get the full patient profile.
+
+    Returns in-memory profile if available (pipeline complete), otherwise
+    falls back to the latest durable snapshot from the database so that
+    partially-processed profiles are visible.
+    """
+    if _profile_data:
+        return jsonify(_profile_data)
+
+    # Fall back to latest snapshot from DB
+    try:
+        from src.database import Database
+
+        db = Database(DATA_DIR / "cih.db")
+        snapshot = None
+        if _current_profile_id:
+            snapshot = db.get_latest_snapshot(_current_profile_id)
+        if not snapshot:
+            # Try the most recent profile we know about
+            profiles = db.list_profiles()
+            if profiles:
+                snapshot = db.get_latest_snapshot(profiles[0]["profile_id"])
+        db.close()
+
+        if snapshot and snapshot.get("profile_data"):
+            return jsonify(snapshot["profile_data"])
+        if snapshot:
+            return jsonify(snapshot)
+    except Exception as e:
+        logger.warning(f"Could not load profile snapshot: {e}")
+
+    return jsonify({"error": "No profile loaded"}), 404
+
+
+@app.route("/api/profiles")
+def list_profiles():
+    """List all patient profiles, including those still being processed.
+
+    Returns profiles in all states: processing, partial_ready, ready,
+    failed_partial, failed — so the UI always shows something after upload.
+    """
+    if not _passphrase:
+        return jsonify({"error": "Vault not unlocked"}), 401
+
+    try:
+        from src.database import Database
+
+        db = Database(DATA_DIR / "cih.db")
+        profiles = db.list_profiles()
+
+        result = []
+        for p in profiles:
+            snapshot = db.get_latest_snapshot(p["profile_id"])
+            entry = {
+                "profile_id": p["profile_id"],
+                "status": p["status"],
+                "created_at": p["created_at"],
+                "updated_at": p["updated_at"],
+                "display_name": p.get("display_name"),
+            }
+            if snapshot:
+                entry["progress_percent"] = snapshot.get("progress_percent", 0)
+                entry["current_stage"] = snapshot.get("current_stage")
+                entry["file_count"] = snapshot.get("file_count", 0)
+                entry["medication_count"] = snapshot.get("medication_count", 0)
+                entry["lab_count"] = snapshot.get("lab_count", 0)
+                entry["diagnosis_count"] = snapshot.get("diagnosis_count", 0)
+                entry["sections"] = snapshot.get("sections", {})
+            result.append(entry)
+
+        db.close()
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Failed to list profiles: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/profiles/<profile_id>")
+def get_profile_by_id(profile_id: str):
+    """Get a specific profile by ID, including partial/in-progress profiles."""
+    if not _passphrase:
+        return jsonify({"error": "Vault not unlocked"}), 401
+
+    try:
+        from src.database import Database
+
+        db = Database(DATA_DIR / "cih.db")
+        record = db.get_profile_record(profile_id)
+        if not record:
+            db.close()
+            return jsonify({"error": "Profile not found"}), 404
+
+        snapshot = db.get_latest_snapshot(profile_id)
+        db.close()
+
+        if snapshot and snapshot.get("profile_data"):
+            # Enrich profile_data with live status info
+            data = snapshot["profile_data"]
+            data["_profile_status"] = record["status"]
+            data["_progress_percent"] = snapshot.get("progress_percent", 0)
+            data["_current_stage"] = snapshot.get("current_stage")
+            data["_sections"] = snapshot.get("sections", {})
+            return jsonify(data)
+
+        # No snapshot yet — return minimal record
+        return jsonify({
+            "profile_id": profile_id,
+            "status": record["status"],
+            "created_at": record["created_at"],
+            "display_name": record.get("display_name"),
+        })
+    except Exception as e:
+        logger.error(f"Failed to get profile {profile_id}: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/medications")
 def get_medications():
     """Get medications list."""
-    if not _profile_data:
+    data = _profile_data or _load_latest_snapshot_data()
+    if not data:
         return jsonify([])
-    timeline = _profile_data.get("clinical_timeline", {})
+    timeline = data.get("clinical_timeline", {})
     return jsonify(timeline.get("medications", []))
 
 
 @app.route("/api/labs")
 def get_labs():
     """Get lab results."""
-    if not _profile_data:
+    data = _profile_data or _load_latest_snapshot_data()
+    if not data:
         return jsonify([])
-    timeline = _profile_data.get("clinical_timeline", {})
+    timeline = data.get("clinical_timeline", {})
     return jsonify(timeline.get("labs", []))
 
 
 @app.route("/api/diagnoses")
 def get_diagnoses():
     """Get diagnoses."""
-    if not _profile_data:
+    data = _profile_data or _load_latest_snapshot_data()
+    if not data:
         return jsonify([])
-    timeline = _profile_data.get("clinical_timeline", {})
+    timeline = data.get("clinical_timeline", {})
     return jsonify(timeline.get("diagnoses", []))
 
 
 @app.route("/api/imaging")
 def get_imaging():
     """Get imaging studies."""
-    if not _profile_data:
+    data = _profile_data or _load_latest_snapshot_data()
+    if not data:
         return jsonify([])
-    timeline = _profile_data.get("clinical_timeline", {})
+    timeline = data.get("clinical_timeline", {})
     return jsonify(timeline.get("imaging", []))
 
 
 @app.route("/api/genetics")
 def get_genetics():
     """Get genetic variants."""
-    if not _profile_data:
+    data = _profile_data or _load_latest_snapshot_data()
+    if not data:
         return jsonify([])
-    timeline = _profile_data.get("clinical_timeline", {})
+    timeline = data.get("clinical_timeline", {})
     return jsonify(timeline.get("genetics", []))
 
 
@@ -2217,6 +2386,33 @@ def _save_profile_to_vault():
         vault.save_profile(_profile_data)
     except Exception as e:
         logger.error(f"Failed to save profile to vault: {e}")
+
+
+def _load_latest_snapshot_data() -> dict:
+    """Load profile_data from the most recent DB snapshot.
+
+    Used as a fallback when the in-memory _profile_data is not yet populated
+    (e.g., pipeline still running or not yet started after server restart).
+    Returns the profile_data dict from the snapshot, or None if unavailable.
+    """
+    try:
+        from src.database import Database
+
+        db = Database(DATA_DIR / "cih.db")
+        profile_id = _current_profile_id
+        snapshot = None
+        if profile_id:
+            snapshot = db.get_latest_snapshot(profile_id)
+        if not snapshot:
+            profiles = db.list_profiles()
+            if profiles:
+                snapshot = db.get_latest_snapshot(profiles[0]["profile_id"])
+        db.close()
+        if snapshot:
+            return snapshot.get("profile_data")
+    except Exception as e:
+        logger.debug(f"Could not load snapshot: {e}")
+    return None
 
 
 # ── Report Download ───────────────────────────────────────────
@@ -3544,6 +3740,298 @@ def _simple_chat_response(message: str) -> str:
         "• Cross-disciplinary connections\n\n"
         "What would you like to know?"
     )
+
+
+# ── F14: Diagnosis Confirmation Tracking ─────────────────────
+
+@app.route("/api/diagnoses/<diagnosis_id>", methods=["PUT"])
+def update_diagnosis(diagnosis_id):
+    """Update confirmation status and/or patient agreement for a diagnosis."""
+    if not _passphrase:
+        return jsonify({"error": "Vault not unlocked"}), 401
+    if not _profile_data:
+        return jsonify({"error": "No profile loaded"}), 404
+
+    body = request.get_json() or {}
+    timeline = _profile_data.setdefault("clinical_timeline", {})
+    diagnoses = timeline.setdefault("diagnoses", [])
+
+    # Find the diagnosis by diagnosis_id; fall back to name match for legacy records
+    dx = next(
+        (d for d in diagnoses
+         if d.get("diagnosis_id") == diagnosis_id or d.get("name") == diagnosis_id),
+        None,
+    )
+    if dx is None:
+        return jsonify({"error": "Diagnosis not found"}), 404
+
+    # Ensure the record has an id (migrate legacy records on the fly)
+    if not dx.get("diagnosis_id"):
+        dx["diagnosis_id"] = diagnosis_id
+
+    if "confirmation_status" in body:
+        dx["confirmation_status"] = body["confirmation_status"]
+
+    if "patient_agreement" in body:
+        dx["patient_agreement"] = body["patient_agreement"]
+
+    if "patient_agreement_reason" in body:
+        dx["patient_agreement_reason"] = body["patient_agreement_reason"]
+
+    _save_profile_to_vault()
+    return jsonify(dx)
+
+
+@app.route("/api/diagnoses/<diagnosis_id>/history", methods=["POST"])
+def add_diagnosis_history(diagnosis_id):
+    """Append a confirmation history event to a diagnosis."""
+    if not _passphrase:
+        return jsonify({"error": "Vault not unlocked"}), 401
+    if not _profile_data:
+        return jsonify({"error": "No profile loaded"}), 404
+
+    body = request.get_json() or {}
+    status = body.get("status")
+    if not status:
+        return jsonify({"error": "status is required"}), 400
+
+    timeline = _profile_data.setdefault("clinical_timeline", {})
+    diagnoses = timeline.setdefault("diagnoses", [])
+
+    dx = next(
+        (d for d in diagnoses
+         if d.get("diagnosis_id") == diagnosis_id or d.get("name") == diagnosis_id),
+        None,
+    )
+    if dx is None:
+        return jsonify({"error": "Diagnosis not found"}), 404
+
+    if not dx.get("diagnosis_id"):
+        dx["diagnosis_id"] = diagnosis_id
+
+    event = {
+        "event_id": str(uuid.uuid4()),
+        "status": status,
+        "provider": body.get("provider"),
+        "notes": body.get("notes"),
+        "date": datetime.utcnow().isoformat(),
+    }
+    dx.setdefault("confirmation_history", []).append(event)
+    # Also update the current confirmation_status to match the new event
+    dx["confirmation_status"] = status
+
+    _save_profile_to_vault()
+    return jsonify(event), 201
+
+
+@app.route("/api/diagnoses/<diagnosis_id>/history")
+def get_diagnosis_history(diagnosis_id):
+    """Return full confirmation history for a diagnosis."""
+    if not _profile_data:
+        return jsonify([])
+
+    timeline = _profile_data.get("clinical_timeline", {})
+    diagnoses = timeline.get("diagnoses", [])
+
+    dx = next(
+        (d for d in diagnoses
+         if d.get("diagnosis_id") == diagnosis_id or d.get("name") == diagnosis_id),
+        None,
+    )
+    if dx is None:
+        return jsonify([])
+
+    return jsonify(dx.get("confirmation_history", []))
+
+
+# ── F16: Family Medical History ────────────────────────────────
+
+@app.route("/api/family-history")
+def get_family_history():
+    """Return all family members."""
+    if not _passphrase:
+        return jsonify({"error": "Vault not unlocked"}), 401
+    if not _profile_data:
+        return jsonify([])
+
+    return jsonify(_profile_data.get("family_history", []))
+
+
+@app.route("/api/family-history", methods=["POST"])
+def add_family_member():
+    """Add a new family member."""
+    if not _passphrase:
+        return jsonify({"error": "Vault not unlocked"}), 401
+    if not _profile_data:
+        return jsonify({"error": "No profile loaded"}), 404
+
+    body = request.get_json() or {}
+    relationship = body.get("relationship", "").strip()
+    if not relationship:
+        return jsonify({"error": "relationship is required"}), 400
+
+    member = {
+        "member_id": str(uuid.uuid4()),
+        "relationship": relationship,
+        "name": body.get("name"),
+        "conditions": body.get("conditions", []),
+        "deceased": bool(body.get("deceased", False)),
+        "cause_of_death": body.get("cause_of_death"),
+        "notes": body.get("notes"),
+        "date_added": datetime.utcnow().isoformat(),
+    }
+    _profile_data.setdefault("family_history", []).append(member)
+    _save_profile_to_vault()
+    return jsonify(member), 201
+
+
+@app.route("/api/family-history/<member_id>", methods=["PUT"])
+def update_family_member(member_id):
+    """Update an existing family member."""
+    if not _passphrase:
+        return jsonify({"error": "Vault not unlocked"}), 401
+    if not _profile_data:
+        return jsonify({"error": "No profile loaded"}), 404
+
+    body = request.get_json() or {}
+    members = _profile_data.setdefault("family_history", [])
+    member = next((m for m in members if m.get("member_id") == member_id), None)
+    if member is None:
+        return jsonify({"error": "Family member not found"}), 404
+
+    for field in ("relationship", "name", "conditions", "deceased",
+                  "cause_of_death", "notes"):
+        if field in body:
+            member[field] = body[field]
+
+    _save_profile_to_vault()
+    return jsonify(member)
+
+
+@app.route("/api/family-history/<member_id>", methods=["DELETE"])
+def delete_family_member(member_id):
+    """Remove a family member."""
+    if not _passphrase:
+        return jsonify({"error": "Vault not unlocked"}), 401
+    if not _profile_data:
+        return jsonify({"error": "No profile loaded"}), 404
+
+    members = _profile_data.setdefault("family_history", [])
+    before = len(members)
+    _profile_data["family_history"] = [
+        m for m in members if m.get("member_id") != member_id
+    ]
+    if len(_profile_data["family_history"]) == before:
+        return jsonify({"error": "Family member not found"}), 404
+
+    _save_profile_to_vault()
+    return jsonify({"status": "deleted"})
+
+
+# ── F18: Medication Adherence Tracking ────────────────────────
+
+@app.route("/api/medications/<medication_id>/doses", methods=["GET"])
+def get_medication_doses(medication_id):
+    """Return dose log for a specific medication."""
+    if not _profile_data:
+        return jsonify([])
+
+    timeline = _profile_data.get("clinical_timeline", {})
+    doses = timeline.get("medication_doses", [])
+    result = [d for d in doses if d.get("medication_id") == medication_id]
+    return jsonify(result)
+
+
+@app.route("/api/medications/<medication_id>/doses", methods=["POST"])
+def log_medication_dose(medication_id):
+    """Log a single dose event for a medication."""
+    if not _passphrase:
+        return jsonify({"error": "Vault not unlocked"}), 401
+    if not _profile_data:
+        return jsonify({"error": "No profile loaded"}), 404
+
+    body = request.get_json() or {}
+
+    # Verify medication exists (look up by medication_id OR name for legacy records)
+    timeline = _profile_data.setdefault("clinical_timeline", {})
+    medications = timeline.get("medications", [])
+    med = next(
+        (m for m in medications
+         if m.get("medication_id") == medication_id or m.get("name") == medication_id),
+        None,
+    )
+    if med is None:
+        return jsonify({"error": "Medication not found"}), 404
+
+    # Ensure the medication record has an id
+    if not med.get("medication_id"):
+        med["medication_id"] = medication_id
+
+    dose = {
+        "dose_id": str(uuid.uuid4()),
+        "medication_id": med.get("medication_id", medication_id),
+        "medication_name": med.get("name", ""),
+        "dose_date": body.get("dose_date", datetime.utcnow().date().isoformat()),
+        "dose_time": body.get("dose_time"),
+        "taken": bool(body.get("taken", True)),
+        "skipped_reason": body.get("skipped_reason"),
+        "reaction": body.get("reaction"),
+        "reaction_severity": body.get("reaction_severity"),
+        "date_logged": datetime.utcnow().isoformat(),
+    }
+    timeline.setdefault("medication_doses", []).append(dose)
+    _save_profile_to_vault()
+    return jsonify(dose), 201
+
+
+@app.route("/api/medication-adherence")
+def medication_adherence():
+    """Return adherence summary across all active medications.
+
+    For each medication returns:
+      - total_logged, taken_count, missed_count, adherence_pct
+      - reaction_count, last_dose_date
+    """
+    if not _profile_data:
+        return jsonify([])
+
+    timeline = _profile_data.get("clinical_timeline", {})
+    medications = timeline.get("medications", [])
+    all_doses = timeline.get("medication_doses", [])
+
+    result = []
+    for med in medications:
+        med_id = med.get("medication_id") or med.get("name", "")
+        med_name = med.get("name", "")
+        med_doses = [
+            d for d in all_doses
+            if d.get("medication_id") == med_id or d.get("medication_name") == med_name
+        ]
+        total = len(med_doses)
+        taken = sum(1 for d in med_doses if d.get("taken") is True)
+        missed = total - taken
+        reactions = [d for d in med_doses if d.get("reaction")]
+        last_dose = None
+        if med_doses:
+            sorted_dates = sorted(
+                (d.get("dose_date") for d in med_doses if d.get("dose_date")),
+                reverse=True,
+            )
+            last_dose = sorted_dates[0] if sorted_dates else None
+
+        result.append({
+            "medication_id": med_id,
+            "medication_name": med_name,
+            "status": med.get("status"),
+            "total_logged": total,
+            "taken_count": taken,
+            "missed_count": missed,
+            "adherence_pct": round(taken / total * 100) if total > 0 else None,
+            "reaction_count": len(reactions),
+            "last_dose_date": last_dose,
+        })
+
+    return jsonify(result)
 
 
 # ── API Key Management ────────────────────────────────────────

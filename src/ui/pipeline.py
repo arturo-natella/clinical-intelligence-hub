@@ -21,6 +21,7 @@ Features:
 """
 
 import hashlib
+import json
 import logging
 import os
 import subprocess
@@ -30,13 +31,18 @@ from typing import Callable, Optional
 
 from src.models import (
     FileType,
+    JobStatus,
     PatientProfile,
     ProcessedFile,
+    ProcessingStage,
     ProcessingStatus,
+    ProfileStatus,
     Provenance,
 )
 
 logger = logging.getLogger("CIH-Pipeline")
+
+PIPELINE_VERSION = "1.0.0"
 
 
 class Pipeline:
@@ -49,19 +55,25 @@ class Pipeline:
 
     def __init__(self, data_dir: Path, passphrase: str,
                  progress_callback: Callable = None,
-                 pause_event=None):
+                 pause_event=None,
+                 profile_id: str = None,
+                 job_id: str = None):
         """
         Args:
             data_dir: Base directory for all data
             passphrase: Encryption passphrase for patient data
             progress_callback: Called with (pass_name, message, percent)
             pause_event: threading.Event — cleared when paused, set when running
+            profile_id: Existing profile ID to resume/update (created on upload)
+            job_id: Existing job ID for progress tracking
         """
         self.data_dir = data_dir
         self._passphrase = passphrase
         self._progress = progress_callback or (lambda *a: None)
         self._pause_event = pause_event
         self._caffeinate_proc = None
+        self._profile_id = profile_id
+        self._job_id = job_id
 
         # Lazy-initialized components
         self._db = None
@@ -79,17 +91,114 @@ class Pipeline:
         """Send a detailed log line to the terminal viewer."""
         self._progress("log", message, -1)
 
+    def _update_profile_progress(self, stage: str, progress_pct: int):
+        """Update current stage and progress on the in-memory profile."""
+        if self._profile:
+            self._profile.current_stage = stage
+            self._profile.progress_percent = max(0, progress_pct)
+        if self._job_id and self._db:
+            try:
+                self._db.update_job_status(self._job_id, "running", max(0, progress_pct))
+            except Exception as e:
+                logger.debug(f"Could not update job status: {e}")
+
+    def _save_incremental_snapshot(self, status: ProfileStatus, progress_pct: int):
+        """Persist a lightweight profile snapshot to the database.
+
+        Called after each meaningful pipeline stage so the UI can render
+        partial results immediately without waiting for full completion.
+        """
+        if not self._db or not self._profile_id or not self._profile:
+            return
+
+        try:
+            tl = self._profile.clinical_timeline
+            analysis = self._profile.analysis
+
+            # Determine per-section availability
+            sections = {
+                "medications": "available" if tl.medications else "pending",
+                "labs": "available" if tl.labs else "pending",
+                "diagnoses": "available" if tl.diagnoses else "pending",
+                "imaging": "available" if tl.imaging else "pending",
+                "notes": "available" if tl.notes else "pending",
+                "vitals": "available" if tl.vitals else "pending",
+                "genetics": "available" if tl.genetics else "pending",
+                "flags": "available" if analysis.flags else "pending",
+                "interactions": "available" if analysis.drug_interactions else "pending",
+                "cross_disciplinary": "available" if analysis.cross_disciplinary else "pending",
+            }
+
+            snapshot = {
+                "profile_id": self._profile_id,
+                "status": status.value,
+                "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "current_stage": self._profile.current_stage,
+                "progress_percent": max(0, progress_pct),
+                "job_id": self._job_id,
+                "file_count": len(self._profile.processed_files),
+                "medication_count": len(tl.medications),
+                "lab_count": len(tl.labs),
+                "diagnosis_count": len(tl.diagnoses),
+                "imaging_count": len(tl.imaging),
+                "note_count": len(tl.notes),
+                "flag_count": len(analysis.flags),
+                "sections": sections,
+                "demographics": self._profile.demographics.model_dump(),
+                "profile_data": self._profile.model_dump(mode="json"),
+            }
+
+            self._db.save_profile_snapshot(self._profile_id, json.dumps(snapshot))
+            logger.debug(
+                f"Snapshot saved for profile {self._profile_id} "
+                f"(stage={self._profile.current_stage}, status={status.value})"
+            )
+        except Exception as e:
+            logger.warning(f"Could not save incremental snapshot: {e}")
+
+    def _save_stage_checkpoints(self, preprocessed: list[dict], stage: str):
+        """Record a completed stage checkpoint for every preprocessed file."""
+        if not self._db or not self._job_id:
+            return
+        for item in preprocessed:
+            file_id = item.get("file_id", "")
+            if file_id:
+                try:
+                    self._db.save_checkpoint(
+                        job_id=self._job_id,
+                        file_id=file_id,
+                        stage=stage,
+                        status="completed",
+                        parser_version=PIPELINE_VERSION,
+                    )
+                except Exception as e:
+                    logger.debug(f"Checkpoint save failed for {file_id}/{stage}: {e}")
+
+    def _is_stage_done(self, file_id: str, stage: str) -> bool:
+        """Return True if this file/stage was already completed (for resumability)."""
+        if not self._db or not file_id:
+            return False
+        return self._db.is_stage_completed(file_id, stage, PIPELINE_VERSION)
+
     def run(self, input_files: list[Path]) -> PatientProfile:
         """
         Run the full pipeline on a set of input files.
 
         Returns the complete patient profile with all analysis results.
+        Saves incremental snapshots to the database after each meaningful stage
+        so the UI can show partial results while processing continues.
         """
         self._start_caffeinate()
 
         try:
             self._init_components()
             self._progress("init", "Pipeline initialized", 0)
+
+            # ── Resolve profile and job IDs ──
+            if self._profile_id and self._db:
+                self._db.update_profile_status(self._profile_id, "processing")
+            if self._job_id and self._db:
+                self._db.update_job_status(self._job_id, "running", 0)
 
             # Load or create profile
             try:
@@ -104,6 +213,15 @@ class Pipeline:
                 self._profile = None
             if not self._profile:
                 self._profile = PatientProfile()
+
+            # Sync profile_id between DB record and in-memory profile
+            if self._profile_id:
+                self._profile.profile_id = self._profile_id
+            elif self._profile.profile_id:
+                self._profile_id = self._profile.profile_id
+
+            if self._job_id:
+                self._profile.job_id = self._job_id
 
             run_id = f"run_{int(time.time())}"
             self._db.start_pipeline_run(run_id)
@@ -122,6 +240,17 @@ class Pipeline:
                           f"{len(item.get('text', '')):,} chars, "
                           f"{len(item.get('pages', []))} pages")
 
+            # Save checkpoint + snapshot after preprocessing (files visible in UI)
+            self._save_stage_checkpoints(
+                preprocessed, ProcessingStage.OCR_COMPLETE.value
+            )
+            self._update_profile_progress(
+                ProcessingStage.OCR_COMPLETE.value, int(step / total_steps * 100)
+            )
+            self._save_incremental_snapshot(
+                ProfileStatus.PROCESSING, int(step / total_steps * 100)
+            )
+
             # ── Pass 1a: Text Extraction ──
             self._wait_if_paused()
             step += 1
@@ -129,6 +258,17 @@ class Pipeline:
                            int(step / total_steps * 100))
             self._log("Pass 1a: Loading MedGemma 27B for clinical extraction...")
             self._pass_1a_text_extraction(preprocessed)
+
+            # Save checkpoint + snapshot after extraction (labs/meds appear in UI)
+            self._save_stage_checkpoints(
+                preprocessed, ProcessingStage.ENTITIES_EXTRACTED.value
+            )
+            self._update_profile_progress(
+                ProcessingStage.ENTITIES_EXTRACTED.value, int(step / total_steps * 100)
+            )
+            self._save_incremental_snapshot(
+                ProfileStatus.PARTIAL_READY, int(step / total_steps * 100)
+            )
 
             # ── Pass 1b: Vision Analysis ──
             self._wait_if_paused()
@@ -153,6 +293,9 @@ class Pipeline:
                            int(step / total_steps * 100))
             self._log("Pass 1.5: PII redaction check...")
             self._pass_1_5_redaction()
+            self._save_stage_checkpoints(
+                preprocessed, ProcessingStage.NORMALIZED.value
+            )
 
             # ── Pass 2-4: Cloud Analysis ──
             self._wait_if_paused()
@@ -161,6 +304,14 @@ class Pipeline:
                            int(step / total_steps * 100))
             self._log("Pass 2-4: Cloud analysis (requires Gemini API key)...")
             self._pass_2_4_cloud_analysis()
+
+            # Snapshot after cloud analysis (flags/cross-disciplinary added)
+            self._update_profile_progress(
+                ProcessingStage.LINKED_TO_PROFILE.value, int(step / total_steps * 100)
+            )
+            self._save_incremental_snapshot(
+                ProfileStatus.PARTIAL_READY, int(step / total_steps * 100)
+            )
 
             # ── Pass 5: Clinical Validation ──
             self._wait_if_paused()
@@ -180,6 +331,18 @@ class Pipeline:
             profile_dict = self._profile.model_dump(mode="json")
             self._vault.save_profile(profile_dict)
 
+            # Final snapshot (profile is fully ready)
+            self._update_profile_progress(
+                ProcessingStage.SNAPSHOT_APPLIED.value, 100
+            )
+            self._save_incremental_snapshot(ProfileStatus.READY, 100)
+
+            # Mark profile as ready in DB
+            if self._profile_id and self._db:
+                self._db.update_profile_status(self._profile_id, "ready")
+            if self._job_id and self._db:
+                self._db.complete_job(self._job_id, "completed")
+
             # Complete pipeline run
             files_ok = len([f for f in self._profile.processed_files
                             if f.status == ProcessingStatus.COMPLETE])
@@ -198,6 +361,22 @@ class Pipeline:
         except Exception as e:
             logger.error(f"Pipeline failed: {e}")
             self._progress("error", f"Pipeline error: {str(e)}", -1)
+            # Save a failed-partial snapshot if we have any data
+            try:
+                if self._profile and self._profile_id:
+                    tl = self._profile.clinical_timeline
+                    has_data = any([
+                        tl.labs, tl.medications, tl.diagnoses,
+                        tl.notes, tl.imaging,
+                    ])
+                    status = ProfileStatus.FAILED_PARTIAL if has_data else ProfileStatus.FAILED
+                    self._save_incremental_snapshot(status, -1)
+                    if self._db:
+                        self._db.update_profile_status(self._profile_id, status.value)
+                if self._job_id and self._db:
+                    self._db.complete_job(self._job_id, "failed")
+            except Exception:
+                pass
             raise
 
         finally:

@@ -135,45 +135,138 @@ def build_medications():
 def build_diagnoses():
     return [
         {
+            "diagnosis_id": uid(),
             "name": "Type 2 Diabetes Mellitus",
             "icd10_code": "E11.9",
             "date_diagnosed": "2023-06-15",
             "status": "Active",
+            "confirmation_status": "confirmed",
+            "patient_agreement": "agree",
+            "confirmation_history": [
+                {
+                    "event_id": uid(),
+                    "status": "suspected",
+                    "provider": "Dr. Chen (Primary Care)",
+                    "notes": "HbA1c 6.8% at initial screening",
+                    "date": "2023-06-15T10:00:00",
+                },
+                {
+                    "event_id": uid(),
+                    "status": "confirmed",
+                    "provider": "Dr. Martinez (Endocrinology)",
+                    "notes": "Confirmed after fasting glucose 148 mg/dL and repeat HbA1c 7.2%",
+                    "date": "2023-08-20T14:30:00",
+                },
+            ],
             "provenance": prov("Lab Report 2023-06"),
         },
         {
+            "diagnosis_id": uid(),
             "name": "Hypothyroidism",
             "icd10_code": "E03.9",
             "date_diagnosed": "2022-03-10",
             "status": "Active",
+            "confirmation_status": "confirmed",
+            "patient_agreement": "agree",
+            "confirmation_history": [
+                {
+                    "event_id": uid(),
+                    "status": "confirmed",
+                    "provider": "Dr. Martinez (Endocrinology)",
+                    "notes": "TSH 8.4 mIU/L, confirmed Hashimoto's pattern on ultrasound",
+                    "date": "2022-03-10T09:00:00",
+                },
+            ],
             "provenance": prov("Endocrinology Visit 2022-03"),
         },
         {
+            "diagnosis_id": uid(),
             "name": "Migraine without aura",
             "icd10_code": "G43.009",
             "date_diagnosed": "2021-11-01",
             "status": "Active",
+            "confirmation_status": "confirmed",
+            "patient_agreement": "agree",
+            "confirmation_history": [
+                {
+                    "event_id": uid(),
+                    "status": "suspected",
+                    "provider": "Dr. Chen (Primary Care)",
+                    "notes": "Recurring headaches, referred to neurology",
+                    "date": "2021-09-15T11:00:00",
+                },
+                {
+                    "event_id": uid(),
+                    "status": "confirmed",
+                    "provider": "Dr. Patel (Neurology)",
+                    "notes": "ICHD-3 criteria met, MRI unremarkable",
+                    "date": "2021-11-01T15:00:00",
+                },
+            ],
             "provenance": prov("Neurology Visit 2021-11"),
         },
         {
+            "diagnosis_id": uid(),
             "name": "Peripheral neuropathy",
             "icd10_code": "G62.9",
             "date_diagnosed": "2025-03-20",
             "status": "Active",
+            "confirmation_status": "probable",
+            "patient_agreement": "agree",
+            "confirmation_history": [
+                {
+                    "event_id": uid(),
+                    "status": "suspected",
+                    "provider": "Dr. Patel (Neurology)",
+                    "notes": "Tingling in feet correlates with elevated HbA1c; EMG ordered",
+                    "date": "2025-01-10T10:00:00",
+                },
+                {
+                    "event_id": uid(),
+                    "status": "probable",
+                    "provider": "Dr. Patel (Neurology)",
+                    "notes": "EMG shows mild sensory abnormalities consistent with diabetic neuropathy",
+                    "date": "2025-03-20T14:00:00",
+                },
+            ],
             "provenance": prov("Neurology Visit 2025-03"),
         },
         {
+            "diagnosis_id": uid(),
             "name": "Essential hypertension",
             "icd10_code": "I10",
             "date_diagnosed": "2024-01-20",
             "status": "Active",
+            "confirmation_status": "confirmed",
+            "patient_agreement": "agree",
+            "confirmation_history": [
+                {
+                    "event_id": uid(),
+                    "status": "confirmed",
+                    "provider": "Dr. Chen (Primary Care)",
+                    "notes": "Persistent SBP > 140 over 3 visits",
+                    "date": "2024-01-20T09:30:00",
+                },
+            ],
             "provenance": prov("Primary Care Visit 2024-01"),
         },
         {
+            "diagnosis_id": uid(),
             "name": "Hyperlipidemia",
             "icd10_code": "E78.5",
             "date_diagnosed": "2024-01-20",
             "status": "Active",
+            "confirmation_status": "confirmed",
+            "patient_agreement": "agree",
+            "confirmation_history": [
+                {
+                    "event_id": uid(),
+                    "status": "confirmed",
+                    "provider": "Dr. Chen (Primary Care)",
+                    "notes": "LDL 168 mg/dL, started atorvastatin",
+                    "date": "2024-01-20T09:30:00",
+                },
+            ],
             "provenance": prov("Primary Care Visit 2024-01"),
         },
     ]
@@ -705,6 +798,155 @@ def build_allergies():
     ]
 
 
+def build_medication_doses():
+    """Realistic 30-day dose log for Metformin and Gabapentin (F18)."""
+    doses = []
+    today = date(2026, 3, 26)
+    # Metformin (twice daily) — 30 days, 92% adherence
+    metformin_id = "demo-metformin"
+    for i in range(30):
+        d = (today - timedelta(days=29 - i)).isoformat()
+        # Morning dose — always taken
+        doses.append({
+            "dose_id": uid(),
+            "medication_id": metformin_id,
+            "medication_name": "Metformin",
+            "dose_date": d,
+            "dose_time": "morning",
+            "taken": True,
+            "skipped_reason": None,
+            "reaction": None,
+            "reaction_severity": "none",
+            "date_logged": d + "T08:15:00",
+        })
+        # Evening dose — missed 3 times
+        missed_days = {5, 14, 22}
+        if i in missed_days:
+            doses.append({
+                "dose_id": uid(),
+                "medication_id": metformin_id,
+                "medication_name": "Metformin",
+                "dose_date": d,
+                "dose_time": "evening",
+                "taken": False,
+                "skipped_reason": "Forgot",
+                "reaction": None,
+                "reaction_severity": "none",
+                "date_logged": d + "T20:00:00",
+            })
+        else:
+            doses.append({
+                "dose_id": uid(),
+                "medication_id": metformin_id,
+                "medication_name": "Metformin",
+                "dose_date": d,
+                "dose_time": "evening",
+                "taken": True,
+                "skipped_reason": None,
+                "reaction": None,
+                "reaction_severity": "none",
+                "date_logged": d + "T19:45:00",
+            })
+    # Gabapentin (three times daily) — 14 days, 2 reactions logged
+    gabapentin_id = "demo-gabapentin"
+    for i in range(14):
+        d = (today - timedelta(days=13 - i)).isoformat()
+        for dose_time, hour in [("morning", "08"), ("afternoon", "14"), ("evening", "20")]:
+            reaction = None
+            severity = "none"
+            if i == 3 and dose_time == "morning":
+                reaction = "Felt dizzy for about 30 minutes"
+                severity = "mild"
+            elif i == 9 and dose_time == "afternoon":
+                reaction = "Mild nausea after lunch dose"
+                severity = "mild"
+            doses.append({
+                "dose_id": uid(),
+                "medication_id": gabapentin_id,
+                "medication_name": "Gabapentin",
+                "dose_date": d,
+                "dose_time": dose_time,
+                "taken": True,
+                "skipped_reason": None,
+                "reaction": reaction,
+                "reaction_severity": severity,
+                "date_logged": f"{d}T{hour}:10:00",
+            })
+    return doses
+
+
+def build_family_history():
+    """Family medical history for the ghost patient (F16)."""
+    return [
+        {
+            "member_id": uid(),
+            "relationship": "mother",
+            "name": None,
+            "conditions": [
+                {"name": "Type 2 Diabetes Mellitus", "age_at_diagnosis": 48, "status": "Active"},
+                {"name": "Hypothyroidism", "age_at_diagnosis": 45, "status": "Active"},
+                {"name": "Breast cancer", "age_at_diagnosis": 58, "status": "Resolved"},
+            ],
+            "deceased": False,
+            "cause_of_death": None,
+            "notes": "Mother manages both diabetes and hypothyroidism with medication",
+            "date_added": datetime.now().isoformat(),
+        },
+        {
+            "member_id": uid(),
+            "relationship": "father",
+            "name": None,
+            "conditions": [
+                {"name": "Essential hypertension", "age_at_diagnosis": 50, "status": "Active"},
+                {"name": "Coronary artery disease", "age_at_diagnosis": 62, "status": "Active"},
+                {"name": "Type 2 Diabetes Mellitus", "age_at_diagnosis": 55, "status": "Active"},
+            ],
+            "deceased": False,
+            "cause_of_death": None,
+            "notes": "Father had CABG at 64",
+            "date_added": datetime.now().isoformat(),
+        },
+        {
+            "member_id": uid(),
+            "relationship": "maternal_grandmother",
+            "name": None,
+            "conditions": [
+                {"name": "Alzheimer's disease", "age_at_diagnosis": 72, "status": "Deceased"},
+                {"name": "Osteoporosis", "age_at_diagnosis": 68, "status": "Deceased"},
+            ],
+            "deceased": True,
+            "cause_of_death": "Complications from Alzheimer's disease",
+            "notes": None,
+            "date_added": datetime.now().isoformat(),
+        },
+        {
+            "member_id": uid(),
+            "relationship": "paternal_grandfather",
+            "name": None,
+            "conditions": [
+                {"name": "Colorectal cancer", "age_at_diagnosis": 65, "status": "Deceased"},
+            ],
+            "deceased": True,
+            "cause_of_death": "Colorectal cancer",
+            "notes": "Diagnosed at 65, passed at 68",
+            "date_added": datetime.now().isoformat(),
+        },
+        {
+            "member_id": uid(),
+            "relationship": "sibling",
+            "name": None,
+            "conditions": [
+                {"name": "Migraine with aura", "age_at_diagnosis": 25, "status": "Active"},
+                {"name": "Polycystic ovary syndrome", "age_at_diagnosis": 22, "status": "Active"},
+            ],
+            "deceased": False,
+            "cause_of_death": None,
+            "notes": "Older sister, 38",
+            "date_added": datetime.now().isoformat(),
+        },
+    ]
+
+
 def build_profile():
     """Build the complete ghost patient profile."""
     return {
@@ -714,6 +956,7 @@ def build_profile():
         "demographics": build_demographics(),
         "clinical_timeline": {
             "medications": build_medications(),
+            "medication_doses": build_medication_doses(),
             "labs": build_labs(),
             "imaging": build_imaging(),
             "diagnoses": build_diagnoses(),
@@ -728,6 +971,7 @@ def build_profile():
             "flags": [],
             "snowball_results": None,
         },
+        "family_history": build_family_history(),
         "processed_files": [
             {
                 "filename": "demo_data_seed.json",
@@ -758,9 +1002,11 @@ def main():
 
     # Count data
     tl = profile["clinical_timeline"]
+    fh = profile.get("family_history", [])
     print(f"  Ghost patient: 35F, Maricopa County, AZ")
     print(f"  Conditions:    {len(tl['diagnoses'])}")
     print(f"  Medications:   {len(tl['medications'])}")
+    print(f"  Dose log:      {len(tl.get('medication_doses', []))} entries (30-day Metformin + 14-day Gabapentin)")
     print(f"  Lab results:   {len(tl['labs'])}")
     print(f"  Genetic tests: {len(tl['genetics'])}")
     print(f"  Imaging:       {len(tl['imaging'])} studies")
@@ -770,6 +1016,7 @@ def main():
     print(f"  Vitals:        {len(tl['vitals'])}")
     print(f"  Notes:         {len(tl['notes'])}")
     print(f"  Allergies:     {len(tl['allergies'])}")
+    print(f"  Family history:{len(fh)} members")
     print()
 
     # Save to vault
@@ -788,19 +1035,22 @@ def main():
     print(f"  Passphrase: {PASSPHRASE}")
     print()
     print("  Features exercised:")
-    print("   1. Symptom Logger     — 3 symptoms, 23 episodes, 3 counter definitions")
-    print("   2. Doctor Visit Prep  — conditions + labs + meds + symptoms + counters")
-    print("   3. Pattern Monitor    — episodes over 80 days, multiple time-of-day patterns")
-    print("   4. AI Snowball        — 6 conditions, 36 labs, 6 meds, symptoms + demographics")
-    print("   5. Missing Negatives  — diabetes without dilated eye exam, foot exam on record")
-    print("   6. Cross-Specialty    — scattered findings (CRP + neuropathy + fatigue + diabetes)")
-    print("   7. Biomarker Cascades — HbA1c + glucose + CRP + urine albumin chain")
-    print("   8. PGx Collision Map  — CYP2D6, CYP2C19, SLCO1B1 × 6 active meds")
-    print("   9. Trajectories       — 3 dates × 12 lab tests = 36 data points")
-    print("  10. PubMed Sweeps      — symptom + med + condition + genetic queries")
-    print("  11. Environmental      — Maricopa County, AZ (Valley Fever, extreme heat)")
-    print("  12. Deep Radiomics     — 7mm lung nodule with measurements")
-    print("  13. Symptom Analytics  — counter-evidence verdicts, calendar heatmaps, AI insights")
+    print("   1. Symptom Logger          — 3 symptoms, 23 episodes, 3 counter definitions")
+    print("   2. Doctor Visit Prep       — conditions + labs + meds + symptoms + counters")
+    print("   3. Pattern Monitor         — episodes over 80 days, multiple time-of-day patterns")
+    print("   4. AI Snowball             — 6 conditions, 36 labs, 6 meds, symptoms + demographics")
+    print("   5. Missing Negatives       — diabetes without dilated eye exam, foot exam on record")
+    print("   6. Cross-Specialty         — scattered findings (CRP + neuropathy + fatigue + diabetes)")
+    print("   7. Biomarker Cascades      — HbA1c + glucose + CRP + urine albumin chain")
+    print("   8. PGx Collision Map       — CYP2D6, CYP2C19, SLCO1B1 × 6 active meds")
+    print("   9. Trajectories            — 3 dates × 12 lab tests = 36 data points")
+    print("  10. PubMed Sweeps           — symptom + med + condition + genetic queries")
+    print("  11. Environmental           — Maricopa County, AZ (Valley Fever, extreme heat)")
+    print("  12. Deep Radiomics          — 7mm lung nodule with measurements")
+    print("  13. Symptom Analytics       — counter-evidence verdicts, calendar heatmaps, AI insights")
+    print("  14. Diagnosis Confirmation  — confirmation history on all 6 diagnoses")
+    print("  15. Family Medical History  — 5 members, diabetes+hypertension+cancer hereditary risk")
+    print("  16. Medication Adherence    — 30-day Metformin log (92%), 14-day Gabapentin (2 reactions)")
     print()
     print("  Counter-evidence highlights:")
     print("   - Migraines: Doctor says anxiety → avg 1.6/5 → STRONGLY CONTRADICTS")

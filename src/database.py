@@ -90,6 +90,59 @@ class Database:
                 files_failed INTEGER DEFAULT 0,
                 status TEXT NOT NULL DEFAULT 'running'
             );
+
+            -- Patient profiles (identity + status; visible immediately on upload)
+            CREATE TABLE IF NOT EXISTS profiles (
+                profile_id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'processing',
+                display_name TEXT
+            );
+
+            -- Per-upload source files linked to a profile
+            CREATE TABLE IF NOT EXISTS source_files (
+                file_id TEXT PRIMARY KEY,
+                profile_id TEXT NOT NULL,
+                filename TEXT NOT NULL,
+                sha256_hash TEXT,
+                file_size_bytes INTEGER,
+                date_added TEXT NOT NULL,
+                FOREIGN KEY (profile_id) REFERENCES profiles(profile_id)
+            );
+
+            -- Background processing jobs
+            CREATE TABLE IF NOT EXISTS processing_jobs (
+                job_id TEXT PRIMARY KEY,
+                profile_id TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                completed_at TEXT,
+                status TEXT NOT NULL DEFAULT 'queued',
+                progress_pct INTEGER DEFAULT 0,
+                FOREIGN KEY (profile_id) REFERENCES profiles(profile_id)
+            );
+
+            -- Per-file per-stage checkpoints for resumability
+            CREATE TABLE IF NOT EXISTS processing_checkpoints (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id TEXT NOT NULL,
+                file_id TEXT NOT NULL,
+                stage TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'completed',
+                parser_version TEXT,
+                artifact_json TEXT,
+                saved_at TEXT NOT NULL,
+                UNIQUE(job_id, file_id, stage)
+            );
+
+            -- Lightweight profile snapshots written after each meaningful stage
+            CREATE TABLE IF NOT EXISTS profile_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile_id TEXT NOT NULL,
+                snapshot_json TEXT NOT NULL,
+                saved_at TEXT NOT NULL,
+                FOREIGN KEY (profile_id) REFERENCES profiles(profile_id)
+            );
         """)
 
         # Try to load sqlite-vec extension for vector search
@@ -311,13 +364,191 @@ class Database:
         """, (files_processed, files_failed, run_id))
         conn.commit()
 
+    # ── Profile Persistence ───────────────────────────────
+
+    def create_profile(self, profile_id: str, status: str = "processing",
+                       display_name: str = None):
+        """Create a new profile record (called immediately on upload)."""
+        conn = self._get_conn()
+        conn.execute("""
+            INSERT OR IGNORE INTO profiles (profile_id, created_at, updated_at, status, display_name)
+            VALUES (?, datetime('now'), datetime('now'), ?, ?)
+        """, (profile_id, status, display_name))
+        conn.commit()
+
+    def update_profile_status(self, profile_id: str, status: str):
+        """Update the status of an existing profile."""
+        conn = self._get_conn()
+        conn.execute("""
+            UPDATE profiles SET status = ?, updated_at = datetime('now')
+            WHERE profile_id = ?
+        """, (status, profile_id))
+        conn.commit()
+
+    def get_profile_record(self, profile_id: str) -> Optional[dict]:
+        """Get a profile record by ID."""
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT * FROM profiles WHERE profile_id = ?", (profile_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def list_profiles(self) -> list[dict]:
+        """List all profiles (including processing and partial) ordered newest first."""
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT * FROM profiles ORDER BY created_at DESC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    # ── Source Files ──────────────────────────────────────
+
+    def create_source_file(self, file_id: str, profile_id: str, filename: str,
+                           sha256_hash: str = None, file_size_bytes: int = None):
+        """Register a source file linked to a profile."""
+        conn = self._get_conn()
+        conn.execute("""
+            INSERT OR IGNORE INTO source_files
+                (file_id, profile_id, filename, sha256_hash, file_size_bytes, date_added)
+            VALUES (?, ?, ?, ?, ?, datetime('now'))
+        """, (file_id, profile_id, filename, sha256_hash, file_size_bytes))
+        conn.commit()
+
+    def get_source_files(self, profile_id: str) -> list[dict]:
+        """Get all source files for a profile."""
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT * FROM source_files WHERE profile_id = ?", (profile_id,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    # ── Processing Jobs ───────────────────────────────────
+
+    def create_processing_job(self, job_id: str, profile_id: str):
+        """Create a processing job record (queued state)."""
+        conn = self._get_conn()
+        conn.execute("""
+            INSERT OR IGNORE INTO processing_jobs
+                (job_id, profile_id, started_at, status, progress_pct)
+            VALUES (?, ?, datetime('now'), 'queued', 0)
+        """, (job_id, profile_id))
+        conn.commit()
+
+    def update_job_status(self, job_id: str, status: str, progress_pct: int = None):
+        """Update job status and optionally its progress percentage."""
+        conn = self._get_conn()
+        if progress_pct is not None:
+            conn.execute("""
+                UPDATE processing_jobs SET status = ?, progress_pct = ?
+                WHERE job_id = ?
+            """, (status, progress_pct, job_id))
+        else:
+            conn.execute(
+                "UPDATE processing_jobs SET status = ? WHERE job_id = ?",
+                (status, job_id)
+            )
+        conn.commit()
+
+    def complete_job(self, job_id: str, status: str = "completed"):
+        """Mark a job as completed (or failed)."""
+        conn = self._get_conn()
+        conn.execute("""
+            UPDATE processing_jobs SET
+                status = ?,
+                completed_at = datetime('now'),
+                progress_pct = CASE WHEN ? = 'completed' THEN 100 ELSE progress_pct END
+            WHERE job_id = ?
+        """, (status, status, job_id))
+        conn.commit()
+
+    def get_job(self, job_id: str) -> Optional[dict]:
+        """Get a processing job by ID."""
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT * FROM processing_jobs WHERE job_id = ?", (job_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    # ── Processing Checkpoints ────────────────────────────
+
+    def save_checkpoint(self, job_id: str, file_id: str, stage: str,
+                        status: str = "completed", parser_version: str = None,
+                        artifact_json: str = None):
+        """Save or update a per-file per-stage checkpoint."""
+        conn = self._get_conn()
+        conn.execute("""
+            INSERT INTO processing_checkpoints
+                (job_id, file_id, stage, status, parser_version, artifact_json, saved_at)
+            VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+            ON CONFLICT(job_id, file_id, stage) DO UPDATE SET
+                status = excluded.status,
+                parser_version = excluded.parser_version,
+                artifact_json = excluded.artifact_json,
+                saved_at = datetime('now')
+        """, (job_id, file_id, stage, status, parser_version, artifact_json))
+        conn.commit()
+
+    def get_completed_stages(self, file_id: str,
+                             parser_version: str = None) -> list[str]:
+        """Return stage names already completed for a file.
+
+        Optionally filters by parser_version so version bumps force re-extraction.
+        """
+        conn = self._get_conn()
+        if parser_version:
+            rows = conn.execute("""
+                SELECT DISTINCT stage FROM processing_checkpoints
+                WHERE file_id = ? AND status = 'completed' AND parser_version = ?
+            """, (file_id, parser_version)).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT DISTINCT stage FROM processing_checkpoints
+                WHERE file_id = ? AND status = 'completed'
+            """, (file_id,)).fetchall()
+        return [r["stage"] for r in rows]
+
+    def is_stage_completed(self, file_id: str, stage: str,
+                           parser_version: str = None) -> bool:
+        """Return True if a stage has already been completed for this file."""
+        return stage in self.get_completed_stages(file_id, parser_version)
+
+    # ── Profile Snapshots ─────────────────────────────────
+
+    def save_profile_snapshot(self, profile_id: str, snapshot_json: str):
+        """Persist a new profile snapshot (appends; latest is max saved_at)."""
+        conn = self._get_conn()
+        conn.execute("""
+            INSERT INTO profile_snapshots (profile_id, snapshot_json, saved_at)
+            VALUES (?, ?, datetime('now'))
+        """, (profile_id, snapshot_json))
+        conn.commit()
+
+    def get_latest_snapshot(self, profile_id: str) -> Optional[dict]:
+        """Return the most recent profile snapshot for a profile."""
+        conn = self._get_conn()
+        row = conn.execute("""
+            SELECT snapshot_json, saved_at FROM profile_snapshots
+            WHERE profile_id = ?
+            ORDER BY id DESC
+            LIMIT 1
+        """, (profile_id,)).fetchone()
+        if not row:
+            return None
+        try:
+            data = json.loads(row["snapshot_json"])
+            data["_snapshot_saved_at"] = row["saved_at"]
+            return data
+        except Exception:
+            return None
+
     # ── Session Reset ────────────────────────────────────────
 
     def clear_patient_data(self):
         """
         Clear all patient-specific data for a new session.
 
-        Wipes: processing state, redaction log, alerts, vectors, pipeline runs.
+        Wipes: processing state, redaction log, alerts, vectors, pipeline runs,
+               profiles, source_files, processing_jobs, checkpoints, snapshots.
         Preserves: database schema (tables remain, ready for new data).
         Does NOT touch: API key vault (encrypted separately).
         """
@@ -326,6 +557,11 @@ class Database:
         conn.execute("DELETE FROM redaction_log")
         conn.execute("DELETE FROM monitoring_alerts")
         conn.execute("DELETE FROM pipeline_runs")
+        conn.execute("DELETE FROM profile_snapshots")
+        conn.execute("DELETE FROM processing_checkpoints")
+        conn.execute("DELETE FROM processing_jobs")
+        conn.execute("DELETE FROM source_files")
+        conn.execute("DELETE FROM profiles")
         if self._vec_available:
             conn.execute("DELETE FROM clinical_vectors")
         conn.commit()
