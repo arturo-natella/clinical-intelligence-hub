@@ -524,15 +524,22 @@ var DashboardCharts = {
         var max = opts.maxItems || 8;
         var rH = 32;
         var lW = 90;
+        var vW = 64;                                   // reserved width for the value readout
         var data = labs.slice(0, max);
-        var W = el.clientWidth || 300;
+        // Floor the width so a too-small clientWidth measurement (which happens
+        // when the panel is measured before its column is laid out) can't drive
+        // bW to ~0 and collapse the name, bar, and value into one overlapping column.
+        var W = Math.max(el.clientWidth || 0, 320);
         var H = data.length * rH + 4;
-        var bW = W - lW - 50;
+        var bW = W - lW - vW;
         var self = this;
 
+        // width:100% lets the fixed viewBox scale up to fill the real column
+        // width even when the initial measurement came in low.
         var svg = d3.select(el).append("svg")
-            .attr("width", W).attr("height", H)
-            .attr("viewBox", "0 0 " + W + " " + H);
+            .attr("width", "100%").attr("height", H)
+            .attr("viewBox", "0 0 " + W + " " + H)
+            .attr("preserveAspectRatio", "xMidYMid meet");
 
         data.forEach(function(lab, i) {
             var yPos = i * rH + 2;

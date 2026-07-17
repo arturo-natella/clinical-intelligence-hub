@@ -1491,6 +1491,45 @@ def get_genetics():
     return jsonify(timeline.get("genetics", []))
 
 
+def _stringify_evidence(item):
+    """Coerce one evidence entry to a readable string (never '[object Object]')."""
+    if isinstance(item, str):
+        return item
+    if isinstance(item, dict):
+        value = str(item.get("value") or "").strip()
+        source = str(item.get("source") or "").strip()
+        date = str(item.get("date") or "").strip()
+        attribution = ", ".join(part for part in (source, date) if part)
+        if value and attribution:
+            return f"{value} — {attribution}"
+        if value or attribution:
+            return value or attribution
+        # Unknown dict shape: join its non-empty scalar values.
+        return " · ".join(
+            str(v).strip() for v in item.values() if v not in (None, "", [], {})
+        )
+    return str(item)
+
+
+def _normalize_flag(flag):
+    """Return a copy of `flag` conforming to the ClinicalFlag render contract.
+
+    The frontend and the ClinicalFlag model expect `description` (str) and
+    `evidence` (list[str]). Legacy/demo producers used `detail` and emitted
+    evidence as {source, date, value} objects; normalizing here keeps that
+    shape from reaching the UI as an empty line or "[object Object]".
+    """
+    normalized = dict(flag)
+    normalized["description"] = (
+        flag.get("description") or flag.get("detail") or flag.get("explanation") or ""
+    )
+    evidence = flag.get("evidence") or []
+    if not isinstance(evidence, (list, tuple)):
+        evidence = [evidence]
+    normalized["evidence"] = [_stringify_evidence(item) for item in evidence]
+    return normalized
+
+
 @app.route("/api/flags")
 def get_flags():
     """Get clinical flags and patterns, including missing negative gaps."""
@@ -1569,7 +1608,7 @@ def get_flags():
     except Exception as e:
         logger.debug("Radiomic flag extraction in flags: %s", e)
 
-    return jsonify(flags)
+    return jsonify([_normalize_flag(f) for f in flags])
 
 
 # ── Dashboard Helpers ─────────────────────────────────────

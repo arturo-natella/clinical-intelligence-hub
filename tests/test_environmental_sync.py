@@ -49,7 +49,16 @@ def test_environmental_source_catalog_merges_manifest_fields(tmp_path: Path):
     assert "active alerts" in nws["coverage_notes"]
 
 
-def test_environmental_sync_defaults_to_automated_sources(tmp_path: Path):
+def test_environmental_sync_defaults_to_automated_sources(tmp_path: Path, monkeypatch):
+    # Block network egress: epa_nutrient_pollution needs no location or API key,
+    # so without this it live-crawls epa.gov and reports "downloaded".
+    monkeypatch.setattr(
+        EnvironmentalDataSync, "_fetch_json", lambda self, url, headers=None: None
+    )
+    monkeypatch.setattr(
+        EnvironmentalDataSync, "_fetch_bytes", lambda self, url, headers=None: None
+    )
+
     syncer = EnvironmentalDataSync(tmp_path)
     result = syncer.sync_profile({})
 
