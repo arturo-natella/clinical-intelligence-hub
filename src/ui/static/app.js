@@ -464,7 +464,10 @@ var App = {
         // Update active sidebar item
         var items = document.querySelectorAll(".sidebar-item[data-view]");
         for (var j = 0; j < items.length; j++) {
-            items[j].classList.toggle("active", items[j].dataset.view === view);
+            var isActiveItem = items[j].dataset.view === view;
+            items[j].classList.toggle("active", isActiveItem);
+            if (isActiveItem) items[j].setAttribute("aria-current", "page");
+            else items[j].removeAttribute("aria-current");
         }
 
         // Load data for the view if needed
@@ -990,6 +993,25 @@ var App = {
                     });
                     DashboardCharts.renderSeverityBar("dash-flags-severity-bar", data.flags_by_severity);
                 }
+            }
+
+            // Plain-language urgency line under the flags donut
+            var urgencyEl = $("dash-flags-urgency");
+            if (urgencyEl && data.flags_by_severity) {
+                var critCount = data.flags_by_severity.critical || 0;
+                var highCount = data.flags_by_severity.high || 0;
+                var urgencyMsg = "";
+                urgencyEl.classList.remove("is-critical");
+                if (critCount > 0) {
+                    urgencyMsg = critCount + " critical finding" + (critCount > 1 ? "s" : "") + " — discuss with your doctor promptly.";
+                    urgencyEl.classList.add("is-critical");
+                } else if (highCount > 0) {
+                    urgencyMsg = highCount + " finding" + (highCount > 1 ? "s" : "") + " worth discussing at your next visit.";
+                } else if (data.flags_count > 0) {
+                    urgencyMsg = "No urgent findings. Review the rest at your convenience.";
+                }
+                urgencyEl.textContent = urgencyMsg;
+                urgencyEl.style.display = urgencyMsg ? "block" : "none";
             }
 
             // ── Symptoms — vertical bar chart ─────────────────

@@ -472,7 +472,8 @@ var DashboardCharts = {
 
         var cx = w / 2, cy = h - 4;
         var r = 38;
-        var start = -Math.PI, end = 0;
+        // D3 angles: 0 = 12 o'clock, clockwise. Semicircle gauge = 9 → 3 o'clock.
+        var start = -Math.PI / 2, end = Math.PI / 2;
         var scoreAngle = start + pct * (end - start);
 
         var gp;
@@ -493,7 +494,7 @@ var DashboardCharts = {
             .endAngle(function(d) { return d[1]; });
 
         svg.append("path").datum([start, end]).attr("d", arc)
-            .attr("fill", "#2a2a2a")
+            .attr("fill", "#3d3d3d")
             .attr("transform", "translate(" + cx + "," + cy + ")");
 
         if (score > 0) {
@@ -502,12 +503,10 @@ var DashboardCharts = {
                 .attr("transform", "translate(" + cx + "," + cy + ")");
         }
 
-        svg.append("text").attr("x", cx).attr("y", cy - 14)
+        svg.append("text").attr("x", cx).attr("y", cy - 6)
             .attr("text-anchor", "middle").attr("fill", color)
             .attr("font-size", "22px").attr("font-weight", "700").text(score);
-        svg.append("text").attr("x", cx).attr("y", cy + 1)
-            .attr("text-anchor", "middle").attr("fill", self.colors.text)
-            .attr("font-size", "9px").text("RISK SCORE");
+        // Card eyebrow supplies the label — no text inside the gauge.
     },
 
     // ══════════════════════════════════════════════════════

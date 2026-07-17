@@ -33,11 +33,19 @@
     --border-loud: #404040;
     --border-glass: #2a2a2a;
 
-    /* Text */
+    /* Text — lifted 2026-07 for WCAG AA on card surfaces */
     --text-primary: #f5f5f5;
-    --text-secondary: rgba(255, 255, 255, 0.56);
-    --text-muted: rgba(255, 255, 255, 0.40);
-    --text-faint: rgba(255, 255, 255, 0.24);
+    --text-secondary: rgba(255, 255, 255, 0.72);
+    --text-muted: rgba(255, 255, 255, 0.58);
+    --text-faint: rgba(255, 255, 255, 0.42);
+
+    /* Clinical Steel (primary interactive accent — never used for alerts) */
+    --accent-primary: #5a8ffc;
+    --accent-primary-hover: #4a7ce8;
+    --accent-primary-text: #8fb0ff;
+    --accent-primary-12: rgba(90, 143, 252, 0.12);
+    --accent-primary-16: rgba(90, 143, 252, 0.16);
+    --accent-primary-25: rgba(90, 143, 252, 0.25);
 
     /* Heat (Amaru Red — primary accent) */
     --heat: #dc2626;
@@ -85,11 +93,11 @@
     width: 100%;
     padding: 10px 12px;
     border-radius: 12px;
-    color: rgba(255,255,255,0.56);
+    color: var(--text-secondary);
     background: transparent;
     border: none;
     cursor: pointer;
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 400;
     transition: all 0.15s ease;
     text-align: left;
@@ -99,8 +107,8 @@
     color: rgba(255,255,255,0.9);
 }
 .sidebar-item.active {
-    background: rgba(220,38,38,0.12);
-    color: #dc2626;
+    background: var(--accent-primary-12);
+    color: var(--accent-primary-text);
     font-weight: 500;
 }
 /* Collapsed sidebar */
@@ -135,11 +143,11 @@ body {
 }
 
 ::selection {
-    background: var(--heat-20);
+    background: var(--accent-primary-25);
     color: var(--text-primary);
 }
 
-a { color: var(--heat); text-decoration: none; }
+a { color: var(--accent-primary); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
 /* Mono text */
@@ -147,7 +155,7 @@ a:hover { text-decoration: underline; }
 
 /* Section labels (Amaru style) */
 .section-label {
-    font-size: 0.75rem;
+    font-size: 0.8125rem;
     color: var(--text-muted);
     letter-spacing: 0.05em;
     font-family: 'JetBrains Mono', monospace;
@@ -208,7 +216,7 @@ a, button, input, textarea, select {
 }
 
 .nav-tab:hover { background: var(--bg-glass); color: var(--text-primary); }
-.nav-tab.active { background: var(--heat); color: white; }
+.nav-tab.active { background: var(--accent-primary); color: white; }
 
 .nav-actions {
     display: flex;
@@ -291,17 +299,17 @@ a, button, input, textarea, select {
 }
 
 .btn:focus-visible {
-    outline: 2px solid var(--heat);
+    outline: 2px solid var(--accent-primary);
     outline-offset: 2px;
 }
 
-/* Primary = Heat button */
+/* Primary = Clinical Steel button (red is reserved for alerts) */
 .btn-primary {
-    background: var(--heat);
+    background: var(--accent-primary);
     color: white;
-    border: 1px solid var(--heat);
+    border: 1px solid var(--accent-primary);
 }
-.btn-primary:hover { background: var(--heat-hover); border-color: var(--heat-hover); }
+.btn-primary:hover { background: var(--accent-primary-hover); border-color: var(--accent-primary-hover); }
 
 .btn-success { background: var(--accent-forest); color: white; }
 .btn-success:hover { background: #4cc06e; }
@@ -1690,7 +1698,7 @@ a, button, input, textarea, select {
 /* ── Focus Styles ───────────────────────────────────────── */
 
 :focus-visible {
-    outline: 2px solid var(--heat);
+    outline: 2px solid var(--accent-primary);
     outline-offset: 2px;
 }
 
@@ -5213,4 +5221,126 @@ a, button, input, textarea, select {
     .nav-tabs { display: none; }
     .card-grid { grid-template-columns: 1fr; }
     .container { padding: 12px; }
+}
+
+/* ── Dashboard — Clinical Instrument polish (2026-07) ───── */
+/* Replaces the inline-styled KPI strip + chart cards. Element
+   IDs are the app.js render contract — classes carry style. */
+
+.dash-summary {
+    background: var(--bg-card);
+    border: 1px solid var(--border-faint);
+    border-left: 3px solid var(--accent-primary);
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin-bottom: 14px;
+}
+
+.dash-summary-text {
+    color: var(--text-secondary);
+    font-size: 15px;
+    line-height: 1.65;
+    max-width: 72ch;
+}
+
+.dash-eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+}
+
+.dash-grid-kpi {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 14px;
+    margin-bottom: 14px;
+}
+
+.dash-kpi {
+    background: var(--bg-card);
+    border: 1px solid var(--border-faint);
+    border-radius: 10px;
+    padding: 14px 16px;
+}
+
+.dash-kpi-row {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+}
+
+.dash-kpi-value {
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1.1;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+}
+
+.dash-kpi-unit {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.dash-kpi-badge {
+    display: none;
+    margin-top: 6px;
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: var(--accent-primary-12);
+    color: var(--accent-primary-text);
+}
+
+.dash-grid-charts {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+    margin-bottom: 20px;
+}
+
+.dash-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-faint);
+    border-radius: 10px;
+    padding: 16px 18px;
+}
+
+.dash-card.span-3 { grid-column: span 3; }
+
+.dash-urgency {
+    display: none;
+    margin-top: 10px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+}
+
+.dash-urgency.is-critical {
+    color: #f26b6b;
+    font-weight: 500;
+}
+
+@media (max-width: 1100px) {
+    .dash-grid-charts { grid-template-columns: 1fr 1fr; }
+    .dash-card.span-3 { grid-column: span 2; }
+}
+
+@media (max-width: 760px) {
+    .dash-grid-charts { grid-template-columns: 1fr; }
+    .dash-card.span-3 { grid-column: auto; }
+}
+
+/* ── Reduced motion ─────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+    }
+    html { scroll-behavior: auto; }
 }
