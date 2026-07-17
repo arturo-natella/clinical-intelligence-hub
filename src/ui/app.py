@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import queue
+import re
 import shutil
 import sys
 import threading
@@ -830,9 +831,11 @@ def _build_demo_profile():
                  "evidence": [{"source": "Lab result", "date": "2025-12-01", "value": "HbA1c 8.2%"}]},
                 {"title": "Declining kidney function (eGFR trend)", "severity": "high", "category": "Trend Analysis",
                  "detail": "eGFR dropped from 92 to 78 mL/min over 18 months (15% decline). Stage 2 CKD territory. Combination of diabetes and hypertension accelerates nephron loss.",
+                 "question_for_doctor": "My kidney filtration number has been declining for 18 months — should we adjust any of my medications or add kidney-protective treatment?",
                  "evidence": [{"source": "Lab trend", "date": "2025-12-01", "value": "eGFR 78 (was 92 in Jun 2024)"}]},
                 {"title": "LDL above diabetic target", "severity": "high", "category": "Lab Finding",
                  "detail": "LDL 118 mg/dL exceeds the <70 mg/dL target for high-risk diabetic patients (AHA/ACC guidelines). Despite statin therapy, not at goal.",
+                 "question_for_doctor": "My LDL cholesterol is still above target on my current statin — should we discuss a dose change or a different medication?",
                  "evidence": [{"source": "Lab result", "date": "2025-12-01", "value": "LDL 118 mg/dL"}]},
                 {"title": "Elevated triglycerides", "severity": "moderate", "category": "Lab Finding",
                  "detail": "Triglycerides 195 mg/dL above 150 mg/dL reference range. Improving from 228 but still elevated. Part of metabolic syndrome picture.",
@@ -857,6 +860,7 @@ def _build_demo_profile():
                  "detail": "Annual uACR recommended for all diabetic patients per ADA guidelines. Critical given declining eGFR."},
                 {"title": "Annual dilated eye exam overdue", "severity": "moderate", "category": "Monitoring Gap",
                  "missing_test": "Annual Dilated Eye Exam",
+                 "question_for_doctor": "I'm about 6 months overdue for my dilated eye exam — can we schedule one soon?",
                  "detail": "Last eye exam was Jun 2024 (18 months ago). With known NPDR, annual screening is critical."},
                 {"title": "Comprehensive foot exam needed", "severity": "low", "category": "Monitoring Gap",
                  "missing_test": "Comprehensive Foot Exam",
@@ -1709,6 +1713,71 @@ def _count_visit_prep_items():
     return count
 
 
+_SEVERITY_ORDER = {"critical": 0, "high": 1, "moderate": 2, "low": 3, "info": 4}
+
+
+def _compose_dashboard_narrative(analysis, severity_counts, flags,
+                                 active_meds, diagnoses, latest_labs):
+    """Plain-language dashboard summary.
+
+    Prefers a pipeline-written executive summary when one exists; otherwise
+    composes a deterministic overview from data already on the dashboard so
+    the panel populates even for local-only runs with no cloud passes.
+    """
+    pipeline_summary = str(
+        analysis.get("executive_summary") or analysis.get("summary") or ""
+    ).strip()
+    if pipeline_summary:
+        return pipeline_summary
+
+    if not (flags or active_meds or diagnoses or latest_labs):
+        return ""
+
+    inventory = []
+    if diagnoses:
+        inventory.append(f"{len(diagnoses)} tracked condition{'s' if len(diagnoses) != 1 else ''}")
+    if active_meds:
+        inventory.append(f"{len(active_meds)} active medication{'s' if len(active_meds) != 1 else ''}")
+    if latest_labs:
+        inventory.append(f"{len(latest_labs)} recent lab result{'s' if len(latest_labs) != 1 else ''}")
+
+    if len(inventory) > 1:
+        joined = ", ".join(inventory[:-1]) + " and " + inventory[-1]
+    else:
+        joined = inventory[0] if inventory else ""
+
+    parts = []
+    if joined:
+        parts.append(f"Your records show {joined}.")
+
+    if flags:
+        needs_attention = severity_counts.get("critical", 0) + severity_counts.get("high", 0)
+        sentence = f"The analysis surfaced {len(flags)} finding{'s' if len(flags) != 1 else ''} to review"
+        if needs_attention:
+            sentence += (
+                f" — {needs_attention} may need prompt attention"
+            )
+        top = min(
+            (f for f in flags if f.get("title")),
+            key=lambda f: _SEVERITY_ORDER.get((f.get("severity") or "info").lower(), 4),
+            default=None,
+        )
+        if top:
+            sentence += f". Start with: {top['title']}"
+        parts.append(sentence + ".")
+
+        gaps = [f for f in flags if f.get("category") == "Monitoring Gap"]
+        if gaps:
+            verb = "checks look" if len(gaps) != 1 else "check looks"
+            parts.append(f"{len(gaps)} routine {verb} overdue or missing.")
+
+    parts.append(
+        "Open the Flags tab for details, or use Visit Prep to build "
+        "questions for your next appointment."
+    )
+    return " ".join(parts)
+
+
 @app.route("/api/dashboard")
 def get_dashboard():
     """Aggregate all data needed for the diagnostic dashboard."""
@@ -1832,6 +1901,9 @@ def get_dashboard():
         "cross_specialty_list": cross_spec_list,
         "visit_prep_items": _count_visit_prep_items(),
         "risk_score": risk_score,
+        "narrative": _compose_dashboard_narrative(
+            analysis, severity_counts, flags, active_meds, diagnoses, latest_labs
+        ),
     })
 
 
@@ -1888,13 +1960,56 @@ def get_cross_disciplinary():
     return jsonify(connections)
 
 
+_COMMUNITY_DISCLAIMER = (
+    "Unverified community report — NOT clinical data. "
+    "For discussion with your doctor only."
+)
+
+
+def _normalize_community(item):
+    """Coerce a community insight to the render contract.
+
+    Three shapes exist historically: the CommunityInsight model
+    (description/upvote_count, no title), the demo profile
+    (title/detail/source), and the renderer's expectation
+    (title/summary/upvotes). Normalize them all here.
+    """
+    normalized = dict(item)
+    description = str(
+        item.get("description") or item.get("summary") or item.get("detail") or ""
+    ).strip()
+    normalized["description"] = description
+    normalized["summary"] = normalized.get("summary") or description
+
+    title = str(item.get("title") or "").strip()
+    if not title and description:
+        first_sentence = re.split(r"(?<=[.!?])\s", description)[0]
+        title = first_sentence[:80] + ("…" if len(first_sentence) > 80 else "")
+    if not title:
+        subreddit = str(item.get("subreddit") or "").strip()
+        title = f"r/{subreddit} community report" if subreddit else "Community report"
+    normalized["title"] = title
+
+    upvotes = item.get("upvotes", item.get("upvote_count", 0))
+    try:
+        normalized["upvotes"] = int(upvotes)
+    except (TypeError, ValueError):
+        normalized["upvotes"] = 0
+
+    normalized.setdefault("disclaimer", _COMMUNITY_DISCLAIMER)
+    return normalized
+
+
 @app.route("/api/community")
 def get_community():
     """Get community insights."""
     if not _profile_data:
         return jsonify([])
     analysis = _profile_data.get("analysis", {})
-    return jsonify(analysis.get("community_insights", []))
+    return jsonify([
+        _normalize_community(item)
+        for item in analysis.get("community_insights", [])
+    ])
 
 
 @app.route("/api/literature")
@@ -1904,6 +2019,19 @@ def get_literature():
         return jsonify([])
     analysis = _profile_data.get("analysis", {})
     return jsonify(analysis.get("literature", []))
+
+
+def _normalize_question_entry(entry):
+    """Coerce a stored question (legacy string or object) to the render contract."""
+    if isinstance(entry, dict):
+        item = dict(entry)
+        item["question"] = str(entry.get("question") or "").strip()
+    else:
+        item = {"question": str(entry or "").strip()}
+    item.setdefault("context", "")
+    item.setdefault("priority", "moderate")
+    item.setdefault("source", "analysis")
+    return item
 
 
 @app.route("/api/questions", methods=["GET", "POST"])
@@ -1918,7 +2046,27 @@ def questions():
     questions_list = analysis.setdefault("questions_for_doctor", [])
 
     if request.method == "GET":
-        return jsonify(questions_list)
+        # Merged view: stored questions (normalized to objects) plus each
+        # flag's tailored question_for_doctor, deduplicated by text. The
+        # stored list itself is never mutated here.
+        merged, seen = [], set()
+        for entry in questions_list:
+            item = _normalize_question_entry(entry)
+            key = item["question"].lower()
+            if item["question"] and key not in seen:
+                merged.append(item)
+                seen.add(key)
+        for flag in analysis.get("flags", []):
+            tailored = str(flag.get("question_for_doctor") or "").strip()
+            if tailored and tailored.lower() not in seen:
+                merged.append({
+                    "question": tailored,
+                    "context": flag.get("title", ""),
+                    "priority": (flag.get("severity") or "moderate").lower(),
+                    "source": "flag",
+                })
+                seen.add(tailored.lower())
+        return jsonify(merged)
 
     # POST — add a new question to the visit prep list
     data = request.get_json()

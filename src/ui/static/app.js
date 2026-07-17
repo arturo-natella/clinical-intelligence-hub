@@ -876,6 +876,12 @@ var App = {
                 DashboardCharts.renderRiskGauge("dash-risk-gauge", riskScore, 100);
             }
 
+            // ── Clinical summary narrative ────────────────────
+            var narrativeEl = $("dash-ai-narrative");
+            if (narrativeEl && data.narrative) {
+                narrativeEl.textContent = data.narrative;
+            }
+
             // ── Blood Panel — D3 range bars ───────────────────
             if (data.latest_labs && data.latest_labs.length > 0 && hasDC) {
                 DashboardCharts.renderLabRangeBars("dash-blood-panel", data.latest_labs, { maxItems: 10 });
@@ -1824,6 +1830,15 @@ var App = {
                     evidenceHtml = '<div style="margin-top:8px;">' + evidenceHtml + "</div>";
                 }
 
+                var questionHtml = "";
+                if (f.question_for_doctor) {
+                    questionHtml = '<div style="margin-top:10px; padding:10px 14px; background:rgba(94,140,255,0.07); border-left:3px solid var(--accent-blue, #5b8cff); border-radius:4px; font-size:14px; line-height:1.5;">'
+                        + '<span style="font-weight:600;">Ask your doctor: </span>'
+                        + escapeHtml(f.question_for_doctor)
+                        + ' <span class="badge badge-info" style="margin-left:6px; font-size:10px; vertical-align:middle;">in Visit Prep</span>'
+                        + "</div>";
+                }
+
                 html += '<div style="padding:16px 0; border-bottom:1px solid var(--border-faint);">'
                     + '<div style="display:flex; align-items:center; gap:12px; margin-bottom:8px;">'
                     + severityBadge(f.severity)
@@ -1833,6 +1848,7 @@ var App = {
                     + '<div style="color:var(--text-secondary); font-size:14px; line-height:1.6;">'
                     + escapeHtml(f.description || "") + "</div>"
                     + evidenceHtml
+                    + questionHtml
                     + "</div>";
             }
             safeSetHtml(container, html);
@@ -1869,14 +1885,40 @@ var App = {
             var html = "";
             for (var i = 0; i < insights.length; i++) {
                 var ci = insights[i];
+
+                var mechanismHtml = ci.cross_disciplinary_context
+                    ? '<div style="margin:8px 0; padding:8px 12px; background:rgba(240,197,80,0.06); border-left:3px solid var(--accent-yellow, #f0c550); border-radius:4px; font-size:13px; line-height:1.5;">'
+                        + '<span style="font-weight:600;">Possible connection (AI-suggested, unverified): </span>'
+                        + escapeHtml(ci.cross_disciplinary_context) + "</div>"
+                    : "";
+
+                var metaParts = [];
+                if (ci.subreddit) {
+                    metaParts.push("r/" + escapeHtml(ci.subreddit) + " | " + escapeHtml(ci.upvotes || 0) + " upvotes");
+                } else if (ci.source) {
+                    metaParts.push("Source: " + escapeHtml(ci.source));
+                }
+                if (ci.post_url) {
+                    metaParts.push('<a href="' + escapeHtml(ci.post_url) + '" target="_blank" rel="noopener noreferrer" style="color:var(--accent-teal);">View original post</a>');
+                }
+                var metaHtml = metaParts.length
+                    ? '<div style="font-size:12px; color:var(--text-muted); margin-bottom:6px;">' + metaParts.join(" &nbsp;|&nbsp; ") + "</div>"
+                    : "";
+
+                var disclaimerHtml = '<div style="font-size:11px; color:var(--text-muted); font-style:italic;">'
+                    + escapeHtml(ci.disclaimer || "Unverified community report — NOT clinical data. For discussion with your doctor only.")
+                    + "</div>";
+
                 html += '<div style="padding:16px 0; border-bottom:1px solid var(--border-faint);">'
-                    + '<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px;">'
+                    + '<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:8px;">'
                     + "<strong>" + escapeHtml(ci.title || "Community Report") + "</strong>"
-                    + '<span class="badge badge-warning">Unverified</span>'
+                    + '<span class="badge badge-warning" style="flex-shrink:0;">Unverified Community Report</span>'
                     + "</div>"
                     + '<div style="color:var(--text-secondary); font-size:14px; margin-bottom:8px;">'
                     + escapeHtml(ci.summary || ci.description || "") + "</div>"
-                    + (ci.subreddit ? '<div style="font-size:12px; color:var(--text-muted);">r/' + escapeHtml(ci.subreddit) + " | " + escapeHtml(ci.upvotes || 0) + " upvotes</div>" : "")
+                    + mechanismHtml
+                    + metaHtml
+                    + disclaimerHtml
                     + "</div>";
             }
             safeSetHtml(container, html);
@@ -2476,9 +2518,18 @@ var App = {
                 $("questions-card").style.display = "block";
                 var html = "";
                 for (var i = 0; i < questions.length; i++) {
+                    // Entries may be legacy strings or {question, context, source} objects.
+                    var entry = questions[i];
+                    var qText = (typeof entry === "string") ? entry : ((entry && entry.question) || "");
+                    var qContext = (entry && typeof entry === "object" && entry.context)
+                        ? '<div style="font-size:12px; color:var(--text-muted); margin-top:3px;">' + escapeHtml(entry.context) + "</div>"
+                        : "";
+                    var qChip = (entry && typeof entry === "object" && entry.source === "flag")
+                        ? ' <span class="badge badge-info" style="font-size:10px; vertical-align:middle;">from a flagged finding</span>'
+                        : "";
                     html += '<div style="padding:12px 0; border-bottom:1px solid var(--border-faint); display:flex; gap:12px; align-items:flex-start;">'
                         + '<span style="color:var(--accent-teal); font-weight:600; font-size:16px;">' + (i + 1) + ".</span>"
-                        + '<span style="font-size:14px; line-height:1.6;">' + escapeHtml(questions[i]) + "</span>"
+                        + '<span style="font-size:14px; line-height:1.6;">' + escapeHtml(qText) + qChip + qContext + "</span>"
                         + "</div>";
                 }
                 safeSetHtml(container, html);

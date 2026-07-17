@@ -188,8 +188,14 @@ class VisitPrepGenerator:
                     ),
                 })
 
-        # From clinical flags
+        # From clinical flags — prefer the tailored per-flag question when the
+        # analysis wrote one; fall back to the generic template only for
+        # high/critical flags without one.
         for flag in analysis.get("flags", []):
+            tailored = str(flag.get("question_for_doctor") or "").strip()
+            if tailored:
+                questions.append({"source": "flag", "question": tailored})
+                continue
             sev = flag.get("severity", "").lower()
             if sev in ("high", "critical"):
                 questions.append({
