@@ -175,6 +175,32 @@ def test_text_extractor_merge_handles_bad_data():
     print("✓ TextExtractor handles malformed extraction data gracefully")
 
 
+def test_text_extractor_repair_truncated_json_salvages_complete_items():
+    """Truncated MedGemma JSON should keep every fully closed object."""
+    from src.extraction.text_extractor import TextExtractor
+
+    truncated = """
+    {
+      "medications": [
+        {"name": "Lisinopril", "dosage": "10mg", "status": "active"},
+        {"name": "Metformin", "dosage": "500mg", "status": "active"}
+      ],
+      "labs": [
+        {"name": "A1c", "value": 7.2, "unit": "%"},
+        {"name": "CRP", "value":
+    """.strip()
+
+    repaired = TextExtractor._repair_truncated_json(truncated)
+
+    assert repaired is not None
+    assert len(repaired["medications"]) == 2
+    assert repaired["medications"][0]["name"] == "Lisinopril"
+    assert len(repaired["labs"]) == 1
+    assert repaired["labs"][0]["name"] == "A1c"
+
+    print("✓ TextExtractor salvages complete items from truncated JSON")
+
+
 # ── VisionAnalyzer Tests ────────────────────────────────────
 
 def test_vision_analyzer_prompt_with_context():
@@ -199,6 +225,97 @@ def test_vision_analyzer_prompt_with_context():
     assert "medical image" in prompt
 
     print("✓ VisionAnalyzer prompt building works with all context combinations")
+
+
+def test_vision_analyzer_preflight_requires_configured_model(monkeypatch):
+    """A running Ollama daemon must not pass when the vision model is absent."""
+    from types import SimpleNamespace
+
+    from src.imaging.vision_analyzer import VisionAnalyzer
+
+    fake_ollama = SimpleNamespace(
+        list=lambda: {"models": [{"model": "llama3.2-vision:11b"}]},
+    )
+    monkeypatch.setitem(sys.modules, "ollama", fake_ollama)
+
+    analyzer = VisionAnalyzer(model_name="medgemma:4b")
+
+    assert analyzer._available is False
+    assert "medgemma:4b" in analyzer.availability_error
+    assert "ollama pull" in analyzer.availability_error
+
+
+def test_vision_analyzer_preflight_accepts_exact_model(monkeypatch):
+    """The official pulled MedGemma tag should pass local preflight."""
+    from types import SimpleNamespace
+
+    from src.imaging.vision_analyzer import VisionAnalyzer
+
+    fake_ollama = SimpleNamespace(
+        list=lambda: {"models": [{"model": "medgemma:4b"}]},
+    )
+    monkeypatch.setitem(sys.modules, "ollama", fake_ollama)
+
+    analyzer = VisionAnalyzer(model_name="medgemma:4b")
+
+    assert analyzer._available is True
+    assert analyzer.availability_error is None
+
+
+def test_vision_analyzer_surfaces_inference_failure(tmp_path, monkeypatch):
+    """An Ollama inference failure must be observable by the API safety gate."""
+    from src.imaging.vision_analyzer import VisionAnalyzer
+
+    image_path = tmp_path / "image.png"
+    image_path.write_bytes(b"not-used-by-stub")
+
+    analyzer = VisionAnalyzer.__new__(VisionAnalyzer)
+    analyzer.model_name = "medgemma:4b"
+    analyzer._available = True
+    analyzer.availability_error = None
+    analyzer.last_error = None
+
+    def fail_call(*args, **kwargs):
+        analyzer.last_error = "synthetic inference failure"
+        return None
+
+    monkeypatch.setattr(analyzer, "_call_ollama_vision", fail_call)
+    monkeypatch.setattr(analyzer, "_unload_model", lambda: None)
+
+    result = analyzer.analyze_image(image_path, "record.pdf")
+
+    assert result["_error"] == "synthetic inference failure"
+    assert result["description"] is None
+
+
+def test_image_pipeline_collects_only_displayed_unique_images(tmp_path):
+    """PDF collection should filter logos and deduplicate repeated images."""
+    import fitz
+    from PIL import Image
+
+    from src.imaging.image_pipeline import ImagePipeline
+
+    large_image = tmp_path / "scan.png"
+    logo_image = tmp_path / "logo.png"
+    Image.new("RGB", (256, 256), "white").save(large_image)
+    Image.new("RGB", (250, 42), "navy").save(logo_image)
+
+    pdf_path = tmp_path / "record.pdf"
+    doc = fitz.open()
+    for _ in range(2):
+        page = doc.new_page(width=612, height=792)
+        page.insert_image(fitz.Rect(50, 75, 306, 331), filename=str(large_image))
+        page.insert_image(fitz.Rect(20, 20, 270, 62), filename=str(logo_image))
+    doc.save(pdf_path)
+    doc.close()
+
+    pipeline = ImagePipeline(tmp_path)
+    images = pipeline._extract_pdf_images(pdf_path, "record.pdf")
+
+    assert len(images) == 1
+    assert images[0].source_page == 1
+    assert images[0].image_path.exists()
+    assert pipeline._errors == []
 
 
 # ── ModelManager Tests ──────────────────────────────────────

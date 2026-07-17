@@ -11,7 +11,7 @@ Analyses:
   4. Counter-evidence success rates + verdict
   5. Trigger frequency ranking
   6. Severity distribution per symptom
-  7. AI qualitative insights (Gemini → Ollama → rule-based fallback)
+  7. AI qualitative insights (local LLM → rule-based fallback)
 """
 
 import logging
@@ -19,6 +19,8 @@ import re
 from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta
 from typing import Optional
+
+from src.local_llm import call_local_text_model, parse_json_object_from_text
 
 logger = logging.getLogger("CIH-SymptomAnalytics")
 
@@ -529,7 +531,7 @@ class SymptomAnalytics:
     ) -> dict:
         """
         LLM analyzes qualitative symptom data + clinical context.
-        Cascade: Gemini → rule-based heuristics.
+        Cascade: local model → rule-based heuristics.
 
         Returns structured insights: patterns, connections, narratives,
         suggestions.
@@ -549,17 +551,16 @@ class SymptomAnalytics:
         insights["counter_narratives"] = rule_insights.get("counter_narratives", [])
         insights["suggestions"] = rule_insights.get("suggestions", [])
 
-        # Try Gemini for richer analysis
-        if api_key:
-            try:
-                gemini_insights = self._gemini_insights(
-                    symptoms, profile_data, api_key
-                )
-                if gemini_insights:
-                    insights = gemini_insights
-                    insights["source"] = "gemini"
-            except Exception as e:
-                logger.warning("Gemini insights failed, using rule-based: %s", e)
+        # Try local LLM for richer analysis
+        try:
+            local_insights = self._local_llm_insights(
+                symptoms, profile_data
+            )
+            if local_insights:
+                insights = local_insights
+                insights["source"] = "local_llm"
+        except Exception as e:
+            logger.warning("Local symptom insights failed, using rule-based: %s", e)
 
         return insights
 
@@ -714,17 +715,12 @@ class SymptomAnalytics:
             "suggestions": suggestions,
         }
 
-    def _gemini_insights(
+    def _local_llm_insights(
         self,
         symptoms: list,
         profile_data: dict,
-        api_key: str,
     ) -> Optional[dict]:
-        """Call Gemini for qualitative analysis of symptom text."""
-        import json
-        import urllib.request
-
-        # Build context (redacted — no names/locations)
+        """Call the local model for qualitative analysis of symptom text."""
         episodes_text = []
         for s in symptoms:
             name = s.get("symptom_name", "")
@@ -752,7 +748,7 @@ class SymptomAnalytics:
                     f"(n={sc['episode_count']})"
                 )
 
-        prompt = (
+        raw_prompt = (
             "You are a medical data analyst. Analyze the following symptom "
             "episode descriptions and counter-evidence data. Return JSON with "
             "4 arrays: patterns (recurring themes), connections (cross-symptom "
@@ -764,44 +760,26 @@ class SymptomAnalytics:
             '{"patterns": [{"message": "..."}], "connections": [{"message": "..."}], '
             '"counter_narratives": [{"message": "..."}], "suggestions": [{"message": "..."}]}'
         )
-
-        url = (
-            f"https://generativelanguage.googleapis.com/v1beta/models/"
-            f"gemini-2.0-flash:generateContent?key={api_key}"
+        system_prompt = (
+            "You are a symptom-pattern analyst inside a local-first medical records tool. "
+            "Use only the episode and counter-evidence text you are given. "
+            "Return strict JSON and do not claim to have searched the web."
         )
-
-        payload = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"temperature": 0.3, "maxOutputTokens": 2000},
-        }
-
-        req = urllib.request.Request(
-            url,
-            data=json.dumps(payload).encode(),
-            headers={"Content-Type": "application/json"},
-            method="POST",
+        text = call_local_text_model(
+            raw_prompt,
+            system_prompt=system_prompt,
+            num_predict=1200,
+            temperature=0.3,
+            json_mode=True,
         )
-
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            body = json.loads(resp.read().decode())
-
-        text = (
-            body.get("candidates", [{}])[0]
-            .get("content", {})
-            .get("parts", [{}])[0]
-            .get("text", "")
-        )
-
-        # Extract JSON from response
-        json_match = re.search(r'\{[\s\S]*\}', text)
-        if json_match:
-            result = json.loads(json_match.group())
+        result = parse_json_object_from_text(text or "")
+        if result:
             return {
                 "patterns": result.get("patterns", []),
                 "connections": result.get("connections", []),
                 "counter_narratives": result.get("counter_narratives", []),
                 "suggestions": result.get("suggestions", []),
-                "source": "gemini",
+                "source": "local_llm",
             }
 
         return None

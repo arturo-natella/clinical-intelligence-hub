@@ -10,8 +10,7 @@ Security model:
   - Only redacted text is transmitted
   - API key stored in encrypted vault (AES-256-GCM)
 
-Model: gemini-3.1-pro-preview (NOT gemini-1.5-pro — the old prototype
-used the wrong model everywhere)
+Model: gemini-3-flash-preview
 """
 
 import json
@@ -29,11 +28,16 @@ from src.models import (
     Procedure,
     Provenance,
 )
+from src.analysis.gemini_config import (
+    GEMINI_MODEL_ID,
+    create_client,
+    generate_content,
+)
 
 logger = logging.getLogger("CIH-Gemini")
 
-# Correct model ID — NOT gemini-1.5-pro
-MODEL_ID = "gemini-3.1-pro-preview"
+# Backward-compatible export used by tests and provenance code.
+MODEL_ID = GEMINI_MODEL_ID
 
 
 class GeminiFallback:
@@ -47,7 +51,6 @@ class GeminiFallback:
     def __init__(self, api_key: str):
         self._api_key = api_key
         self._client = None
-        self._model = None
         self._setup_client()
 
     def extract(self, redacted_text: str, source_file: str,
@@ -70,13 +73,12 @@ class GeminiFallback:
         prompt = self._build_extraction_prompt(redacted_text, local_results)
 
         try:
-            response = self._model.generate_content(
+            response = generate_content(
+                self._client,
                 prompt,
-                generation_config={
-                    "temperature": 0.0,
-                    "max_output_tokens": 8192,
-                    "response_mime_type": "application/json",
-                },
+                temperature=0.0,
+                max_output_tokens=8192,
+                response_mime_type="application/json",
             )
 
             result = json.loads(response.text)
@@ -118,12 +120,11 @@ PII-Redacted Document:
 Provide your analysis as a detailed clinical summary."""
 
         try:
-            response = self._model.generate_content(
+            response = generate_content(
+                self._client,
                 prompt,
-                generation_config={
-                    "temperature": 0.1,
-                    "max_output_tokens": 4096,
-                },
+                temperature=0.1,
+                max_output_tokens=4096,
             )
             return response.text
 
@@ -136,17 +137,12 @@ Provide your analysis as a detailed clinical summary."""
     def _setup_client(self):
         """Initialize the Gemini API client."""
         try:
-            import google.generativeai as genai
-
-            genai.configure(api_key=self._api_key)
-            self._client = genai
-            self._model = genai.GenerativeModel(MODEL_ID)
+            self._client = create_client(self._api_key)
             logger.info(f"Gemini client initialized with model: {MODEL_ID}")
 
         except ImportError:
             logger.error(
-                "google-generativeai not installed. "
-                "Run: pip install google-generativeai"
+                "google-genai not installed. Run: pip install google-genai"
             )
         except Exception as e:
             logger.error(f"Failed to initialize Gemini: {e}")
@@ -215,6 +211,6 @@ Output strictly valid JSON with the 7 keys above."""
         for category in results.values():
             for item in category:
                 if hasattr(item, 'provenance'):
-                    item.provenance.extraction_model = "gemini-3.1-pro-preview"
+                    item.provenance.extraction_model = MODEL_ID
 
         return results

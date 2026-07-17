@@ -66,9 +66,10 @@ class Redactor:
         if not text or not text.strip():
             return text
 
-        # Try Presidio first, fall back to regex
+        # Presidio first, then regex as a safety net for anything Presidio missed
         if self._presidio_available:
-            return self._redact_with_presidio(text, source_file)
+            text = self._redact_with_presidio(text, source_file)
+            return self._redact_with_regex(text, source_file)
         else:
             return self._redact_with_regex(text, source_file)
 
@@ -357,3 +358,33 @@ class Redactor:
         elif isinstance(obj, list):
             return [self._walk_and_redact(item, source_file) for item in obj]
         return obj
+
+
+# Alias for backward compatibility — pipeline imports PIIRedactor
+PIIRedactor = Redactor
+
+
+# ── Convenience function for ad-hoc cloud calls ─────────
+
+_shared_redactor: Optional[Redactor] = None
+
+
+def redact_for_cloud(text: str, source: str = "cloud_call") -> str:
+    """
+    Redact PII from text before sending to a cloud API.
+
+    Use this in any code path that sends patient data to Gemini
+    or other external services outside the main pipeline.
+    """
+    global _shared_redactor
+    if _shared_redactor is None:
+        _shared_redactor = Redactor()
+    return _shared_redactor.redact(text, source)
+
+
+def redact_dict_for_cloud(data: dict, source: str = "cloud_call") -> dict:
+    """Redact PII from a dict before sending to a cloud API."""
+    global _shared_redactor
+    if _shared_redactor is None:
+        _shared_redactor = Redactor()
+    return _shared_redactor.redact_dict(data, source)

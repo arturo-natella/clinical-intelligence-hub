@@ -927,7 +927,7 @@ Each PII element is replaced with a token: "[PATIENT]", "[DOB_REDACTED]", "[MRN_
 
 #### Pass 2 — Cloud AI Fallback (Gemini, redacted data only)
 
-If MedGemma couldn't extract something — low confidence score, unusual document format, handwriting it couldn't read, a foreign-language document — the system sends the **PII-redacted** text to Google Gemini 3.1 Pro for a second extraction attempt.
+If MedGemma couldn't extract something — low confidence score, unusual document format, handwriting it couldn't read, a foreign-language document — the system sends the **PII-redacted** text to Google Gemini 3 Flash for a second extraction attempt.
 
 Gemini sees: "[PATIENT] was seen on [DATE_REDACTED]. HbA1c result: [value unclear from local extraction]. Assessment: Type 2 DM, consider adjusting Metformin."
 

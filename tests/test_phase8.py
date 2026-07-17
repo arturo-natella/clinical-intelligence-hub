@@ -10,6 +10,7 @@ import json
 import sqlite3
 import sys
 import tempfile
+from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -57,8 +58,7 @@ def test_pipeline_has_all_passes():
         # Check all pass methods exist
         assert hasattr(pipeline, "_pass_0_preprocess")
         assert hasattr(pipeline, "_pass_1a_text_extraction")
-        assert hasattr(pipeline, "_pass_1b_vision")
-        assert hasattr(pipeline, "_pass_1c_monai")
+        assert hasattr(pipeline, "_pass_image_analysis")
         assert hasattr(pipeline, "_pass_1_5_redaction")
         assert hasattr(pipeline, "_pass_2_4_cloud_analysis")
         assert hasattr(pipeline, "_pass_5_validation")
@@ -66,6 +66,325 @@ def test_pipeline_has_all_passes():
         assert hasattr(pipeline, "run")
         assert hasattr(pipeline, "clear_session")
     print("✓ Pipeline has all pass methods")
+
+
+def test_pipeline_merge_extraction_results_keeps_all_categories():
+    """Pipeline merge helper should not silently drop non-core extraction types."""
+    from src.models import PatientProfile
+    from src.ui.pipeline import Pipeline
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        pipeline = Pipeline(Path(tmpdir), "test-passphrase")
+        pipeline._profile = PatientProfile()
+
+        pipeline._merge_extraction_results(
+            {
+                "medications": [
+                    {
+                        "name": "Lisinopril",
+                        "status": "active",
+                        "provenance": {"source_file": "test.pdf", "source_page": 1},
+                    }
+                ],
+                "procedures": [
+                    {
+                        "name": "Colonoscopy",
+                        "procedure_date": "2024-01-02",
+                        "provenance": {"source_file": "test.pdf", "source_page": 2},
+                    }
+                ],
+                "allergies": [
+                    {
+                        "allergen": "Penicillin",
+                        "reaction": "Rash",
+                        "provenance": {"source_file": "test.pdf", "source_page": 3},
+                    }
+                ],
+                "genetics": [
+                    {
+                        "gene": "CYP2C19",
+                        "phenotype": "Poor Metabolizer",
+                        "provenance": {"source_file": "test.pdf", "source_page": 4},
+                    }
+                ],
+                "notes": [
+                    {
+                        "summary": "Follow-up visit discussed fatigue.",
+                        "note_date": "2024-02-03",
+                        "provenance": {"source_file": "test.pdf", "source_page": 5},
+                    }
+                ],
+            },
+            {},
+        )
+
+        tl = pipeline._profile.clinical_timeline
+        assert len(tl.medications) == 1
+        assert len(tl.procedures) == 1
+        assert tl.procedures[0].procedure_date == date(2024, 1, 2)
+        assert len(tl.allergies) == 1
+        assert len(tl.genetics) == 1
+        assert len(tl.notes) == 1
+
+    print("✓ Pipeline merge helper keeps all extraction categories")
+
+
+def test_pipeline_publish_profile_snapshot_checkpoints_and_counts_all_items():
+    """Publishing a snapshot should save the profile and count all timeline items."""
+    from src.models import (
+        Allergy,
+        ClinicalNote,
+        Diagnosis,
+        GeneticVariant,
+        LabResult,
+        Medication,
+        PatientProfile,
+        Procedure,
+        Provenance,
+    )
+    from src.ui.pipeline import Pipeline
+
+    saved = []
+    progress_events = []
+
+    class StubVault:
+        def save_profile(self, profile_data):
+            saved.append(profile_data)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        pipeline = Pipeline(
+            Path(tmpdir),
+            "test-passphrase",
+            progress_callback=lambda pass_name, message, percent: progress_events.append(
+                (pass_name, message, percent)
+            ),
+            profile_update_callback=lambda snapshot: saved.append({"snapshot": snapshot}),
+        )
+        pipeline._vault = StubVault()
+        pipeline._profile = PatientProfile()
+
+        prov = Provenance(source_file="test.pdf", source_page=1)
+        tl = pipeline._profile.clinical_timeline
+        tl.medications.append(
+            Medication(name="Lisinopril", provenance=prov)
+        )
+        tl.labs.append(
+            LabResult(name="A1c", value=7.2, provenance=prov)
+        )
+        tl.diagnoses.append(
+            Diagnosis(name="Diabetes", provenance=prov)
+        )
+        tl.procedures.append(
+            Procedure(name="Colonoscopy", provenance=prov)
+        )
+        tl.allergies.append(
+            Allergy(allergen="Penicillin", provenance=prov)
+        )
+        tl.genetics.append(
+            GeneticVariant(gene="CYP2C19", provenance=prov)
+        )
+        tl.notes.append(
+            ClinicalNote(summary="Follow-up note", provenance=prov)
+        )
+
+        pipeline._publish_profile_snapshot()
+
+        assert any("snapshot" in entry for entry in saved)
+        assert any("clinical_timeline" in entry for entry in saved if isinstance(entry, dict) and "snapshot" not in entry)
+        assert progress_events[-1][0] == "profile_updated"
+        assert "7 clinical items" in progress_events[-1][1]
+
+    print("✓ Pipeline snapshot publishes, checkpoints, and counts all items")
+
+
+def test_pipeline_runs_external_stages_only_after_local_processing():
+    """Cloud and validation stages must start after every local stage finishes."""
+    import threading
+
+    from src.ui.pipeline import Pipeline
+
+    events = []
+
+    class StubDB:
+        def start_pipeline_run(self, run_id):
+            events.append("run_started")
+
+        def complete_pipeline_run(self, run_id, files_processed, files_failed):
+            events.append("run_completed")
+
+        def update_file_status(self, *args, **kwargs):
+            pass
+
+    class StubVault:
+        def load_profile(self):
+            return None
+
+        def save_profile(self, profile):
+            pass
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        api_calls = threading.Event()
+        api_calls.set()
+        pipeline = Pipeline(
+            Path(tmpdir),
+            "test-passphrase",
+            api_calls_event=api_calls,
+        )
+        pipeline._start_caffeinate = lambda: None
+        pipeline._stop_caffeinate = lambda: None
+
+        def init_components():
+            pipeline._db = StubDB()
+            pipeline._vault = StubVault()
+
+        pipeline._init_components = init_components
+        pipeline._pass_0_preprocess = lambda files: [
+            {"file_id": "file-1", "filename": "record.pdf"}
+        ]
+        pipeline._pass_1a_text_extraction = lambda items: events.append("local_text")
+        pipeline._pass_image_analysis = lambda items: events.append("local_imaging")
+        pipeline._pass_1_5_redaction = lambda: events.append("redaction") or True
+        pipeline._pass_2_4_cloud_analysis = lambda: events.append("cloud")
+        pipeline._pass_5_validation = lambda: events.append("validation")
+        pipeline._pass_6_report = lambda: events.append("report")
+
+        pipeline.run([Path(tmpdir) / "record.pdf"])
+
+    assert events.index("redaction") < events.index("cloud")
+    assert events.index("cloud") < events.index("validation")
+    assert events.index("local_text") < events.index("cloud")
+    assert events.index("local_imaging") < events.index("cloud")
+
+    print("✓ External stages run only after local processing")
+
+
+def test_pipeline_skips_external_stages_when_local_processing_is_incomplete():
+    """A local preprocessing failure must prevent every external API stage."""
+    from src.ui.pipeline import Pipeline
+
+    events = []
+
+    class StubDB:
+        def start_pipeline_run(self, run_id):
+            pass
+
+        def complete_pipeline_run(self, run_id, files_processed, files_failed):
+            pass
+
+    class StubVault:
+        def load_profile(self):
+            return None
+
+        def save_profile(self, profile):
+            pass
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        pipeline = Pipeline(Path(tmpdir), "test-passphrase")
+        pipeline._start_caffeinate = lambda: None
+        pipeline._stop_caffeinate = lambda: None
+
+        def init_components():
+            pipeline._db = StubDB()
+            pipeline._vault = StubVault()
+
+        pipeline._init_components = init_components
+        pipeline._pass_0_preprocess = lambda files: []
+        pipeline._pass_1a_text_extraction = lambda items: None
+        pipeline._pass_image_analysis = lambda items: None
+        pipeline._pass_1_5_redaction = lambda: True
+        pipeline._pass_2_4_cloud_analysis = lambda: events.append("cloud")
+        pipeline._pass_5_validation = lambda: events.append("validation")
+        pipeline._pass_6_report = lambda: events.append("report")
+
+        pipeline.run([Path(tmpdir) / "bad-record.pdf"])
+
+    assert "cloud" not in events
+    assert "validation" not in events
+    assert events == ["report"]
+
+    print("✓ Incomplete local processing blocks external stages")
+
+
+def test_pipeline_pdf_image_failure_blocks_paid_api_gate(monkeypatch):
+    """An embedded-image failure in a PDF must fail the local safety gate."""
+    from types import SimpleNamespace
+
+    from src.models import PatientProfile
+    from src.ui.pipeline import Pipeline
+
+    class FailingImagePipeline:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def process(self, preprocessed, profile):
+            return SimpleNamespace(
+                images_found=1,
+                vision_succeeded=0,
+                vision_failed=1,
+                errors=["MedGemma vision inference failed"],
+            )
+
+    monkeypatch.setitem(
+        sys.modules,
+        "src.imaging.image_pipeline",
+        SimpleNamespace(ImagePipeline=FailingImagePipeline),
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        pipeline = Pipeline(Path(tmpdir), "test-passphrase")
+        pipeline._profile = PatientProfile()
+        pipeline._publish_profile_snapshot = lambda: None
+
+        pipeline._pass_image_analysis([
+            {
+                "filename": "record.pdf",
+                "file_type": "pdf_text",
+            }
+        ])
+
+        assert pipeline._local_processing_errors == [
+            "Local image processing: MedGemma vision inference failed"
+        ]
+        assert not pipeline._local_processing_ready(
+            [{"filename": "record.pdf"}],
+            expected_file_count=1,
+            redaction_ok=True,
+        )
+
+
+def test_pipeline_waits_at_api_boundary_while_api_calls_are_paused():
+    """The API event must block external work without blocking local passes."""
+    import threading
+
+    from src.ui.pipeline import Pipeline
+
+    api_calls = threading.Event()
+    started = threading.Event()
+    finished = threading.Event()
+    progress = []
+    pipeline = Pipeline(
+        Path(tempfile.gettempdir()),
+        "test-passphrase",
+        progress_callback=lambda *event: progress.append(event),
+        api_calls_event=api_calls,
+    )
+
+    def wait_at_boundary():
+        started.set()
+        pipeline._wait_for_api_calls("test cloud stage", 75)
+        finished.set()
+
+    worker = threading.Thread(target=wait_at_boundary)
+    worker.start()
+    assert started.wait(timeout=1)
+    assert not finished.wait(timeout=0.05)
+    assert progress[-1][0] == "api_waiting"
+
+    api_calls.set()
+    assert finished.wait(timeout=1)
+    worker.join(timeout=1)
+
+    print("✓ Paused API event blocks at the external-call boundary")
 
 
 # ── Flask App Tests ─────────────────────────────────────────
@@ -201,6 +520,10 @@ def test_flask_app_routes_exist():
         "/api/chat",
         "/api/keys",
         "/api/keys/status",
+        "/api/pipeline/api-calls",
+        "/api/profiles",
+        "/api/profiles/<profile_id>/activate",
+        "/api/profiles/<profile_id>",
     ]
 
     for route in expected_routes:
@@ -223,6 +546,50 @@ def test_flask_test_client():
         assert "pipeline_running" in data
 
     print("✓ Flask test client works, session status returns correct fields")
+
+
+def test_api_call_pause_control_is_independent_of_pipeline_pause(monkeypatch):
+    """The API control should pause cloud stages without pausing local work."""
+    import src.ui.app as app_module
+
+    original_api_state = app_module._api_calls_allowed.is_set()
+    original_pipeline_state = app_module._pipeline_paused.is_set()
+    monkeypatch.setattr(app_module, "_pipeline_thread", None)
+
+    try:
+        app_module._api_calls_allowed.set()
+        app_module._pipeline_paused.set()
+
+        with app_module.app.test_client() as client:
+            pause_resp = client.post(
+                "/api/pipeline/api-calls",
+                data=json.dumps({"paused": True}),
+                content_type="application/json",
+            )
+            status_resp = client.get("/api/pipeline/status")
+
+            assert pause_resp.status_code == 200
+            assert json.loads(pause_resp.data)["api_calls_paused"] is True
+            assert json.loads(status_resp.data)["api_calls_paused"] is True
+            assert app_module._pipeline_paused.is_set() is True
+
+            resume_resp = client.post(
+                "/api/pipeline/api-calls",
+                data=json.dumps({"paused": False}),
+                content_type="application/json",
+            )
+            assert json.loads(resume_resp.data)["api_calls_paused"] is False
+    finally:
+        if original_api_state:
+            app_module._api_calls_allowed.set()
+        else:
+            app_module._api_calls_allowed.clear()
+        if original_pipeline_state:
+            app_module._pipeline_paused.set()
+        else:
+            app_module._pipeline_paused.clear()
+
+    print("✓ API calls can pause independently while local processing continues")
 
 
 def test_api_returns_empty_without_profile():
@@ -292,6 +659,65 @@ def test_api_chat_requires_profile():
     print("✓ Chat requires loaded profile")
 
 
+def test_api_chat_uses_local_assistant_model(monkeypatch):
+    """Chat should use the local assistant model when available."""
+    import src.ui.app as app_module
+
+    original = app_module._profile_data
+    try:
+        app_module._profile_data = app_module._build_demo_profile()
+        monkeypatch.setattr(
+            app_module,
+            "_call_local_assistant_model",
+            lambda *args, **kwargs: "Local assistant answer",
+        )
+
+        with app_module.app.test_client() as client:
+            resp = client.post(
+                "/api/chat",
+                data=json.dumps({"message": "What stands out most in my records?"}),
+                content_type="application/json",
+            )
+
+        assert resp.status_code == 200
+        data = json.loads(resp.data)
+        assert data["response"] == "Local assistant answer"
+    finally:
+        app_module._profile_data = original
+
+    print("✓ Chat uses local assistant model when available")
+
+
+def test_api_chat_falls_back_to_deterministic_summary(monkeypatch):
+    """Chat should fall back safely when the local assistant model is unavailable."""
+    import src.ui.app as app_module
+
+    original = app_module._profile_data
+    try:
+        app_module._profile_data = app_module._build_demo_profile()
+        monkeypatch.setattr(
+            app_module,
+            "_call_local_assistant_model",
+            lambda *args, **kwargs: None,
+        )
+
+        with app_module.app.test_client() as client:
+            resp = client.post(
+                "/api/chat",
+                data=json.dumps({"message": "What medications am I taking?"}),
+                content_type="application/json",
+            )
+
+        assert resp.status_code == 200
+        data = json.loads(resp.data)
+        assert "active medications are" in data["response"]
+        assert "Metformin" in data["response"]
+    finally:
+        app_module._profile_data = original
+
+    print("✓ Chat falls back to deterministic summary when local model is unavailable")
+
+
 def test_api_report_generate_requires_profile():
     """Report generation requires a loaded profile."""
     from src.ui.app import app
@@ -351,6 +777,13 @@ def test_index_html_structure():
     assert "passphrase-modal" in html
     assert "passphrase-input" in html
 
+    # Check profile selector modal
+    assert "profile-modal" in html
+    assert "profile-list" in html
+    assert "profile-indicator" in html
+    assert "data-api-pause-button" in html
+    assert "Pause API Calls" in html
+
     # Check chat entry point
     assert "dashboard-chat" in html or "view-chat" in html
 
@@ -391,6 +824,12 @@ def test_app_js_structure():
     assert "sendChat" in js, "Missing sendChat method"
     assert "generateReport" in js, "Missing generateReport method"
     assert "clearSession" in js, "Missing clearSession method"
+    assert "showProfileSelector" in js, "Missing showProfileSelector method"
+    assert "createProfile" in js, "Missing createProfile method"
+    assert "activateProfile" in js, "Missing activateProfile method"
+    assert "deleteProfile" in js, "Missing deleteProfile method"
+    assert "toggleApiCalls" in js, "Missing API call pause controller"
+    assert "api_calls_paused" in js, "Missing API call pause state handling"
 
     print("✓ app.js has all required controllers and methods")
 

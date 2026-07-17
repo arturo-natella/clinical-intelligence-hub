@@ -220,7 +220,7 @@ class CrossDisciplinaryEngine:
         """
         Build the comprehensive Deep Research prompt from queries.
 
-        This is the prompt sent to gemini-deep-research-pro-preview-12-2025
+        This is the prompt sent to Gemini 3 Flash for research synthesis.
         for Pass 3 (pattern detection) and Pass 4 (literature search).
         """
         query_sections = []

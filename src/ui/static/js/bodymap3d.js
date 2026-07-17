@@ -3632,7 +3632,7 @@ var BodyMap3D = {
                 severity: lab.severity || "moderate",
                 source: lab.source_file || "",
                 page: lab.source_page || "",
-                date: lab.date || lab.collected_date || "",
+                date: lab.test_date || lab.date || lab.collected_date || "",
                 text: flagText
             });
         }

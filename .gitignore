@@ -21,8 +21,11 @@ data/processed/
 data/databases/
 data/reports/
 data/environmental/
+data/extracted_images/
 data/*.json
 data/*.db
+data/*.db-shm
+data/*.db-wal
 data/*.sqlite
 data/*.enc
 data/.encryption_key
@@ -43,6 +46,7 @@ data/chroma_db/
 
 # macOS
 .DS_Store
+Icon?
 *.swp
 *~
 

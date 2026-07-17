@@ -18,6 +18,8 @@ Algorithm:
 import re
 from collections import defaultdict
 
+from src.local_llm import call_local_text_model, parse_json_array_from_text
+
 
 # ---------------------------------------------------------------
 #  CONDITION KNOWLEDGE BASE
@@ -1900,15 +1902,14 @@ class SnowballEngine:
     def _discover_conditions(self, corpus: list, already_scored: dict) -> dict:
         """Use LLM to discover conditions not in the curated database.
 
-        Sends the patient's finding corpus to Gemini (or Ollama fallback)
-        and asks for additional differential diagnoses beyond what the
+        Sends the patient's finding corpus to the local model and asks for
+        additional differential diagnoses beyond what the
         curated CONDITION_DB already covers.
 
         Returns a dict of condition_id -> scored result dicts in the same
         format as _score_condition() output, ready to merge.
         """
-        if not self._matcher or not self._matcher._api_key:
-            # Try Ollama as fallback even without Gemini key
+        if not self._matcher:
             return self._discover_via_ollama(corpus, already_scored)
 
         # Build a summary of patient findings for the prompt
@@ -1951,40 +1952,33 @@ class SnowballEngine:
             "- Return ONLY valid JSON, no explanation outside the array"
         )
 
-        discovered = {}
-
-        # Try Gemini first
         try:
-            import json
-            import google.generativeai as genai
-
-            genai.configure(api_key=self._matcher._api_key)
-            model = genai.GenerativeModel("gemini-2.0-flash")
-
-            response = model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json",
-                    temperature=0.3,
-                ),
+            system_prompt = (
+                "You are a differential-diagnosis assistant inside a local-first medical "
+                "records tool. Use only the findings you are given. Return strict JSON and "
+                "do not claim to have searched the web."
             )
-
-            conditions = json.loads(response.text)
+            response = call_local_text_model(
+                prompt,
+                system_prompt=system_prompt,
+                num_predict=1400,
+                temperature=0.3,
+                json_mode=True,
+            )
+            conditions = parse_json_array_from_text(response or "")
             if isinstance(conditions, list):
-                discovered = self._parse_discovered(conditions, corpus)
+                return self._parse_discovered(conditions, corpus)
 
         except Exception as e:
             import logging
             logging.getLogger("CIH-Snowball").debug(
-                "Gemini discovery failed: %s", e
+                "Local condition discovery failed: %s", e
             )
-            # Fall back to Ollama
-            discovered = self._discover_via_ollama(corpus, already_scored)
 
-        return discovered
+        return self._discover_via_ollama(corpus, already_scored)
 
     def _discover_via_ollama(self, corpus: list, already_scored: dict) -> dict:
-        """Fallback: discover conditions via local Ollama/Qwen."""
+        """Fallback: discover conditions via the local assistant model."""
         finding_texts = [
             item["original"] for item in corpus
             if item["type"] not in ("counter_evidence",)
@@ -2004,36 +1998,21 @@ class SnowballEngine:
         )
 
         try:
-            import json
-            import urllib.request
-
-            payload = json.dumps({
-                "model": "qwen2.5:32b",
-                "prompt": prompt,
-                "stream": False,
-                "format": "json",
-            }).encode()
-
-            req = urllib.request.Request(
-                "http://127.0.0.1:11434/api/generate",
-                data=payload,
-                headers={"Content-Type": "application/json"},
+            system_prompt = (
+                "You are a differential-diagnosis assistant inside a local-first medical "
+                "records tool. Use only the findings you are given. Return strict JSON and "
+                "do not claim to have searched the web."
             )
-
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                data = json.loads(resp.read().decode())
-                raw = json.loads(data.get("response", "[]"))
-
-                # Handle both array and object-with-array responses
-                if isinstance(raw, dict):
-                    for v in raw.values():
-                        if isinstance(v, list):
-                            raw = v
-                            break
-
-                if isinstance(raw, list):
-                    return self._parse_discovered(raw, corpus)
-
+            text = call_local_text_model(
+                prompt,
+                system_prompt=system_prompt,
+                num_predict=1200,
+                temperature=0.3,
+                json_mode=True,
+            )
+            raw = parse_json_array_from_text(text or "")
+            if isinstance(raw, list):
+                return self._parse_discovered(raw, corpus)
         except Exception:
             pass
 

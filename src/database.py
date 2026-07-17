@@ -27,6 +27,7 @@ class Database:
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn: Optional[sqlite3.Connection] = None
+        self._vec_conn = None  # apsw connection for vector ops (macOS fallback)
         self._initialize()
 
     def _get_conn(self) -> sqlite3.Connection:
@@ -99,26 +100,50 @@ class Database:
         logger.info(f"Database initialized at {self.db_path}")
 
     def _init_vector_storage(self, conn: sqlite3.Connection):
-        """Initializes sqlite-vec for RAG chat vector storage."""
+        """Initializes sqlite-vec for RAG chat vector storage.
+
+        Tries stdlib sqlite3 first.  On macOS the module lacks
+        enable_load_extension, so we fall back to apsw which ships
+        its own SQLite with extension-loading enabled.
+        """
+        vec_table_ddl = """
+            CREATE VIRTUAL TABLE IF NOT EXISTS clinical_vectors
+            USING vec0(
+                embedding float[384],
+                +record_id TEXT,
+                +record_type TEXT,
+                +content TEXT
+            )
+        """
+
+        # ── Attempt 1: stdlib sqlite3 (works on Linux / Homebrew Python) ──
         try:
             import sqlite_vec
             conn.enable_load_extension(True)
             sqlite_vec.load(conn)
             conn.enable_load_extension(False)
-
-            # Vector table for clinical record embeddings
-            # Using 384 dimensions (all-MiniLM-L6-v2 output size)
-            conn.execute("""
-                CREATE VIRTUAL TABLE IF NOT EXISTS clinical_vectors
-                USING vec0(
-                    embedding float[384],
-                    +record_id TEXT,
-                    +record_type TEXT,
-                    +content TEXT
-                )
-            """)
+            conn.execute(vec_table_ddl)
             self._vec_available = True
             logger.info("sqlite-vec loaded — vector search available")
+            return
+        except (AttributeError, Exception):
+            pass  # enable_load_extension missing or load failed
+
+        # ── Attempt 2: apsw fallback (macOS) ──
+        try:
+            import apsw
+            import sqlite_vec
+
+            vec_conn = apsw.Connection(str(self.db_path))
+            vec_conn.pragma("journal_mode", "WAL")
+            vec_conn.enableloadextension(True)
+            vec_conn.loadextension(sqlite_vec.loadable_path())
+            vec_conn.enableloadextension(False)
+            vec_conn.execute(vec_table_ddl)
+            self._vec_conn = vec_conn
+            self._vec_available = True
+            logger.info("sqlite-vec loaded via apsw — vector search available")
+            return
         except Exception as e:
             self._vec_available = False
             logger.warning(f"sqlite-vec not available: {e}. RAG chat will be limited.")
@@ -254,38 +279,67 @@ class Database:
 
     # ── Vector Storage (RAG Chat) ──────────────────────────
 
+    def _get_vec_conn(self):
+        """Returns the connection for vector operations.
+
+        Uses the dedicated apsw connection if sqlite-vec was loaded via the
+        macOS fallback path, otherwise falls back to the main sqlite3 conn.
+        """
+        if self._vec_conn is not None:
+            return self._vec_conn
+        return self._get_conn()
+
+    def _vec_exec(self, sql: str, params=None):
+        """Execute a write statement on the vector connection.
+
+        apsw's execute() returns a lazy iterator — statements only run when
+        consumed.  This helper forces execution for INSERT/DELETE/UPDATE.
+        """
+        conn = self._get_vec_conn()
+        if params is not None:
+            list(conn.execute(sql, params))
+        else:
+            list(conn.execute(sql))
+
     def upsert_vector(self, record_id: str, record_type: str,
                       content: str, embedding: list[float]):
         """Store or update a vector embedding for RAG retrieval."""
         if not self._vec_available:
             return
 
-        conn = self._get_conn()
-        # Delete existing entry if present
-        conn.execute(
+        self._vec_exec(
             "DELETE FROM clinical_vectors WHERE record_id = ?",
             (record_id,)
         )
-        conn.execute(
+        self._vec_exec(
             "INSERT INTO clinical_vectors (record_id, record_type, content, embedding) VALUES (?, ?, ?, ?)",
             (record_id, record_type, content, json.dumps(embedding))
         )
-        conn.commit()
+        # stdlib sqlite3 needs explicit commit; apsw auto-commits outside a transaction
+        if self._vec_conn is None:
+            self._get_conn().commit()
 
     def search_vectors(self, query_embedding: list[float], n_results: int = 5) -> list[dict]:
         """Find the most similar vectors to a query embedding."""
         if not self._vec_available:
             return []
 
-        conn = self._get_conn()
+        conn = self._get_vec_conn()
         rows = conn.execute("""
             SELECT record_id, record_type, content, distance
             FROM clinical_vectors
             WHERE embedding MATCH ?
             ORDER BY distance
             LIMIT ?
-        """, (json.dumps(query_embedding), n_results)).fetchall()
-        return [dict(r) for r in rows]
+        """, (json.dumps(query_embedding), n_results))
+
+        if self._vec_conn is not None:
+            # apsw yields tuples — convert to dicts
+            return [
+                {"record_id": r[0], "record_type": r[1], "content": r[2], "distance": r[3]}
+                for r in rows
+            ]
+        return [dict(r) for r in rows.fetchall()]
 
     # ── Pipeline Run Tracking ──────────────────────────────
 
@@ -326,15 +380,18 @@ class Database:
         conn.execute("DELETE FROM redaction_log")
         conn.execute("DELETE FROM monitoring_alerts")
         conn.execute("DELETE FROM pipeline_runs")
-        if self._vec_available:
-            conn.execute("DELETE FROM clinical_vectors")
         conn.commit()
+        if self._vec_available:
+            self._vec_exec("DELETE FROM clinical_vectors")
         logger.info("All patient data cleared from database — ready for new session")
 
     # ── Cleanup ────────────────────────────────────────────
 
     def close(self):
-        """Close the database connection."""
+        """Close all database connections."""
+        if self._vec_conn is not None:
+            self._vec_conn.close()
+            self._vec_conn = None
         if self._conn:
             self._conn.close()
             self._conn = None

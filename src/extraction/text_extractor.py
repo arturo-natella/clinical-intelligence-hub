@@ -15,6 +15,7 @@ Salvaged Ollama call pattern from old medgemma_text.py.
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -35,17 +36,30 @@ logger = logging.getLogger("CIH-TextExtractor")
 # MedGemma 27B model (Q8 quantization for highest local quality)
 MODEL_NAME = "jwang580/medgemma_27b_q8_0"
 
-# Maximum characters per chunk (approximate 8K token window)
-MAX_CHUNK_CHARS = 24000
+# Maximum characters per chunk — smaller chunks produce less output,
+# reducing the chance of hitting the num_predict token ceiling mid-JSON.
+MAX_CHUNK_CHARS = 12000
+EXTRACTION_KEYS = (
+    "medications",
+    "labs",
+    "diagnoses",
+    "procedures",
+    "allergies",
+    "genetics",
+    "notes",
+)
+MAX_TRUNCATION_RETRY_DEPTH = 2
 
 
 class TextExtractor:
     """Pass 1a: Extracts structured clinical data from text using MedGemma 27B."""
 
-    def __init__(self, progress_callback=None, pause_event=None):
-        self._available = self._check_ollama()
+    def __init__(self, progress_callback=None, pause_event=None,
+                 on_chunk_complete=None):
         self._progress = progress_callback or (lambda *a: None)
         self._pause_event = pause_event
+        self._on_chunk_complete = on_chunk_complete
+        self._available = self._check_ollama()
 
     def extract(self, pages: list[dict], source_file: str) -> dict:
         """
@@ -61,20 +75,17 @@ class TextExtractor:
         """
         if not self._available:
             logger.warning("Ollama not available — skipping MedGemma extraction")
+            self._progress(
+                "log",
+                "  MedGemma extraction skipped — see preflight warning above.",
+                -1,
+            )
             return {}
 
         if not pages:
             return {}
 
-        results = {
-            "medications": [],
-            "labs": [],
-            "diagnoses": [],
-            "procedures": [],
-            "allergies": [],
-            "genetics": [],
-            "notes": [],
-        }
+        results = self._empty_result()
 
         # Chunk pages to fit model context window
         chunks = self._build_chunks(pages)
@@ -89,6 +100,7 @@ class TextExtractor:
 
             page_range = f"pp.{chunk_pages[0]['page']}-{chunk_pages[-1]['page']}"
             self._progress("log", f"  Chunk {i}/{len(chunks)} ({page_range}) — sending to MedGemma...", -1)
+            logger.info(f"Chunk {i} text preview (first 300 chars): {chunk_text[:300]}")
 
             extracted = self._extract_chunk(chunk_text)
             if not extracted:
@@ -99,12 +111,26 @@ class TextExtractor:
             page_nums = [p["page"] for p in chunk_pages]
             first_page = page_nums[0] if page_nums else None
 
+            # Track counts before merge to extract the delta
+            prev_counts = {k: len(v) for k, v in results.items()}
             self._merge_results(results, extracted, source_file, first_page)
 
             chunk_items = sum(len(v) for v in extracted.values() if isinstance(v, list))
             self._progress("log",
                            f"  Chunk {i}/{len(chunks)} — extracted {chunk_items} clinical items",
                            -1)
+
+            # Fire per-chunk callback with only the newly added items
+            if self._on_chunk_complete:
+                try:
+                    delta = {}
+                    for k, v in results.items():
+                        start = prev_counts.get(k, 0)
+                        if len(v) > start:
+                            delta[k] = v[start:]
+                    self._on_chunk_complete(delta)
+                except Exception as e:
+                    logger.warning(f"Chunk completion callback failed: {e}")
 
         # Unload model from memory
         self._unload_model()
@@ -115,12 +141,14 @@ class TextExtractor:
         self._progress("log", f"  Total: {total} clinical items from {source_file}", -1)
         return results
 
-    def _extract_chunk(self, text: str) -> Optional[dict]:
+    def _extract_chunk(self, text: str, retry_depth: int = 0) -> Optional[dict]:
         """Send a text chunk to MedGemma 27B for extraction."""
+        result_text = ""
         try:
             import ollama
 
             prompt = self._build_prompt(text)
+            logger.info(f"Sending {len(text)} chars to MedGemma (prompt total: {len(prompt)} chars)")
 
             response = ollama.chat(
                 model=MODEL_NAME,
@@ -128,19 +156,69 @@ class TextExtractor:
                 format="json",
                 options={
                     "temperature": 0.0,
-                    "num_predict": 4096,
+                    "num_predict": 16384,
                 },
                 keep_alive="0",
             )
 
             result_text = response["message"]["content"]
-            return json.loads(result_text)
+            logger.info(f"MedGemma raw response length: {len(result_text)} chars")
+            logger.debug(f"MedGemma raw response (first 500): {result_text[:500]}")
+
+            parsed = json.loads(result_text)
+
+            # Empty dict {} is falsy — detect and warn explicitly
+            if not parsed:
+                logger.warning(f"MedGemma returned empty JSON object: {result_text[:200]}")
+                self._progress("log", "    WARNING: MedGemma returned empty JSON — model may not understand this document format", -1)
+                return None
+
+            # Check if all arrays are empty (valid JSON but no extractions)
+            if all(
+                isinstance(v, list) and len(v) == 0
+                for v in parsed.values()
+            ):
+                logger.warning("MedGemma returned valid JSON but all categories are empty arrays")
+                self._progress("log", "    WARNING: MedGemma found 0 clinical items — text may be unreadable or non-clinical", -1)
+                return None
+
+            return parsed
 
         except json.JSONDecodeError as e:
             logger.warning(f"MedGemma returned invalid JSON: {e}")
+            logger.warning(f"Raw response was: {result_text[:500]}")
+            # Attempt to salvage truncated JSON (common when num_predict is hit)
+            repaired = self._repair_truncated_json(result_text)
+            if repaired:
+                items = sum(len(v) for v in repaired.values() if isinstance(v, list))
+                logger.info(f"Salvaged {items} items from truncated JSON")
+                self._progress("log", f"    WARNING: MedGemma JSON was truncated — salvaged {items} items", -1)
+                if retry_depth < MAX_TRUNCATION_RETRY_DEPTH:
+                    retried = self._retry_truncated_chunk(text, retry_depth + 1)
+                    if retried:
+                        recovered = self._merge_extracted_results(repaired, retried)
+                        recovered_items = sum(
+                            len(v) for v in recovered.values() if isinstance(v, list)
+                        )
+                        if recovered_items >= items:
+                            logger.info(
+                                "Recovered %s items by retrying truncated chunk in "
+                                "smaller slices (depth=%s)",
+                                recovered_items,
+                                retry_depth + 1,
+                            )
+                            self._progress(
+                                "log",
+                                f"    Retried truncated chunk in smaller slices — recovered {recovered_items} items",
+                                -1,
+                            )
+                            return recovered
+                return repaired
+            self._progress("log", f"    WARNING: MedGemma returned invalid JSON — {e}", -1)
             return None
         except Exception as e:
             logger.error(f"MedGemma extraction failed: {e}")
+            self._progress("log", f"    ERROR: MedGemma call failed — {e}", -1)
             return None
 
     def _build_prompt(self, text: str) -> str:
@@ -190,6 +268,102 @@ Output strictly valid JSON:"""
 
         return chunks
 
+    @staticmethod
+    def _empty_result() -> dict:
+        """Return the canonical empty extraction result shape."""
+        return {key: [] for key in EXTRACTION_KEYS}
+
+    @classmethod
+    def _merge_extracted_results(cls, *payloads: Optional[dict]) -> dict:
+        """Merge multiple extraction payloads and drop exact duplicates."""
+        merged = cls._empty_result()
+
+        for payload in payloads:
+            if not isinstance(payload, dict):
+                continue
+            for key in EXTRACTION_KEYS:
+                values = payload.get(key, [])
+                if isinstance(values, list):
+                    merged[key].extend(v for v in values if isinstance(v, dict))
+
+        for key in EXTRACTION_KEYS:
+            deduped = []
+            seen = set()
+            for item in merged[key]:
+                fingerprint = json.dumps(item, sort_keys=True, default=str)
+                if fingerprint in seen:
+                    continue
+                seen.add(fingerprint)
+                deduped.append(item)
+            merged[key] = deduped
+
+        return merged
+
+    def _retry_truncated_chunk(self, text: str, retry_depth: int) -> Optional[dict]:
+        """
+        Retry a truncated extraction by splitting the chunk into smaller slices.
+
+        This favors data completeness over speed only when the primary response
+        was malformed, so normal chunks stay on the fast path.
+        """
+        parts = self._split_text_for_retry(text)
+        if len(parts) < 2:
+            return None
+
+        repaired_parts = []
+        for index, part in enumerate(parts, 1):
+            self._progress(
+                "log",
+                f"    Retrying truncated chunk slice {index}/{len(parts)}...",
+                -1,
+            )
+            extracted = self._extract_chunk(part, retry_depth=retry_depth)
+            if extracted:
+                repaired_parts.append(extracted)
+
+        if not repaired_parts:
+            return None
+
+        return self._merge_extracted_results(*repaired_parts)
+
+    @staticmethod
+    def _split_text_for_retry(text: str) -> list[str]:
+        """Split a chunk near page boundaries before falling back to midpoint."""
+        page_blocks = []
+        parts = re.split(r"(\n--- Page \d+ ---\n)", text)
+        pending_marker = None
+
+        for part in parts:
+            if not part:
+                continue
+            if re.fullmatch(r"\n--- Page \d+ ---\n", part):
+                pending_marker = part
+                continue
+
+            if pending_marker:
+                page_blocks.append(f"{pending_marker}{part}".strip())
+                pending_marker = None
+            elif part.strip():
+                page_blocks.append(part.strip())
+
+        if len(page_blocks) >= 2:
+            midpoint = len(page_blocks) // 2
+            return [
+                "\n".join(page_blocks[:midpoint]).strip(),
+                "\n".join(page_blocks[midpoint:]).strip(),
+            ]
+
+        midpoint = len(text) // 2
+        split_at = text.rfind("\n", 0, midpoint)
+        if split_at < max(1, midpoint // 2):
+            split_at = text.find("\n", midpoint)
+        if split_at == -1:
+            split_at = midpoint
+
+        left = text[:split_at].strip()
+        right = text[split_at:].strip()
+        return [part for part in (left, right) if part]
+
     def _merge_results(self, results: dict, extracted: dict,
                        source_file: str, first_page: Optional[int]):
         """Merge extracted data into results with provenance."""
@@ -218,7 +392,7 @@ Output strictly valid JSON:"""
                         provenance=provenance,
                     ))
                 except Exception as e:
-                    logger.debug(f"Failed to parse medication: {e}")
+                    logger.warning(f"Dropped medication item (parse failed): {e} — raw: {med_data}")
 
         for lab_data in extracted.get("labs", []):
             if isinstance(lab_data, dict) and lab_data.get("name"):
@@ -241,7 +415,7 @@ Output strictly valid JSON:"""
                         provenance=provenance,
                     ))
                 except Exception as e:
-                    logger.debug(f"Failed to parse lab: {e}")
+                    logger.warning(f"Dropped lab item (parse failed): {e} — raw: {lab_data}")
 
         for dx_data in extracted.get("diagnoses", []):
             if isinstance(dx_data, dict) and dx_data.get("name"):
@@ -253,7 +427,7 @@ Output strictly valid JSON:"""
                         provenance=provenance,
                     ))
                 except Exception as e:
-                    logger.debug(f"Failed to parse diagnosis: {e}")
+                    logger.warning(f"Dropped diagnosis item (parse failed): {e} — raw: {dx_data}")
 
         for proc_data in extracted.get("procedures", []):
             if isinstance(proc_data, dict) and proc_data.get("name"):
@@ -265,7 +439,7 @@ Output strictly valid JSON:"""
                         provenance=provenance,
                     ))
                 except Exception as e:
-                    logger.debug(f"Failed to parse procedure: {e}")
+                    logger.warning(f"Dropped procedure item (parse failed): {e} — raw: {proc_data}")
 
         for allergy_data in extracted.get("allergies", []):
             if isinstance(allergy_data, dict) and allergy_data.get("allergen"):
@@ -277,7 +451,7 @@ Output strictly valid JSON:"""
                         provenance=provenance,
                     ))
                 except Exception as e:
-                    logger.debug(f"Failed to parse allergy: {e}")
+                    logger.warning(f"Dropped allergy item (parse failed): {e} — raw: {allergy_data}")
 
         for gen_data in extracted.get("genetics", []):
             if isinstance(gen_data, dict) and gen_data.get("gene"):
@@ -291,7 +465,7 @@ Output strictly valid JSON:"""
                         provenance=provenance,
                     ))
                 except Exception as e:
-                    logger.debug(f"Failed to parse genetic: {e}")
+                    logger.warning(f"Dropped genetic item (parse failed): {e} — raw: {gen_data}")
 
         for note_data in extracted.get("notes", []):
             if isinstance(note_data, dict) and note_data.get("summary"):
@@ -304,7 +478,7 @@ Output strictly valid JSON:"""
                         provenance=provenance,
                     ))
                 except Exception as e:
-                    logger.debug(f"Failed to parse note: {e}")
+                    logger.warning(f"Dropped note item (parse failed): {e} — raw: {note_data}")
 
     def _unload_model(self):
         """Explicitly unload MedGemma 27B from memory."""
@@ -312,8 +486,8 @@ Output strictly valid JSON:"""
             import ollama
             ollama.generate(model=MODEL_NAME, prompt="", keep_alive="0")
             logger.info("MedGemma 27B unloaded from memory")
-        except Exception:
-            pass  # Best effort
+        except Exception as e:
+            logger.warning(f"Failed to unload MedGemma from memory: {e}")
 
     @staticmethod
     def _try_parse_date(date_str):
@@ -330,11 +504,138 @@ Output strictly valid JSON:"""
         return None
 
     @staticmethod
-    def _check_ollama() -> bool:
-        """Check if Ollama is running."""
+    def _repair_truncated_json(text: str) -> Optional[dict]:
+        """
+        Attempt to salvage a truncated JSON response.
+
+        When the model hits its token limit, the JSON is often cut off mid-item.
+        Strategy: scan each known top-level array and keep only complete objects
+        that finished before the truncation point.
+        """
+        if not text or not text.strip().startswith("{"):
+            return None
+
+        repaired = TextExtractor._empty_result()
+
+        for key in EXTRACTION_KEYS:
+            items = TextExtractor._extract_complete_array_items(text, key)
+            if items:
+                repaired[key] = items
+
+        if any(repaired.values()):
+            return repaired
+
+        return None
+
+    @staticmethod
+    def _extract_complete_array_items(text: str, key: str) -> list[dict]:
+        """Extract complete JSON objects from one top-level array in a cut-off response."""
+        key_pos = text.find(f'"{key}"')
+        if key_pos == -1:
+            return []
+
+        array_start = text.find("[", key_pos)
+        if array_start == -1:
+            return []
+
+        items = []
+        in_string = False
+        escape = False
+        bracket_depth = 1
+        brace_depth = 0
+        object_start = None
+
+        for idx in range(array_start + 1, len(text)):
+            char = text[idx]
+
+            if in_string:
+                if escape:
+                    escape = False
+                elif char == "\\":
+                    escape = True
+                elif char == '"':
+                    in_string = False
+                continue
+
+            if char == '"':
+                in_string = True
+                continue
+
+            if char == "[":
+                bracket_depth += 1
+                continue
+
+            if char == "]":
+                bracket_depth -= 1
+                if bracket_depth == 0:
+                    break
+                continue
+
+            if char == "{":
+                brace_depth += 1
+                if brace_depth == 1 and bracket_depth == 1:
+                    object_start = idx
+                continue
+
+            if char == "}":
+                if brace_depth == 0:
+                    continue
+                brace_depth -= 1
+                if brace_depth == 0 and bracket_depth == 1 and object_start is not None:
+                    raw_object = text[object_start:idx + 1]
+                    try:
+                        parsed = json.loads(raw_object)
+                    except json.JSONDecodeError:
+                        object_start = None
+                        continue
+                    if isinstance(parsed, dict):
+                        items.append(parsed)
+                    object_start = None
+
+        return items
+
+    def _check_ollama(self) -> bool:
+        """Verify Ollama daemon is reachable AND the required model is pulled.
+
+        A bare daemon ping passes even when the model is missing, which
+        produces 1 silent 404 per chunk at extraction time. Checking the
+        model list here surfaces the problem once at startup with an
+        actionable message.
+        """
         try:
             import ollama
-            ollama.list()
-            return True
-        except Exception:
+            listing = ollama.list()
+        except Exception as e:
+            msg = (
+                f"Ollama daemon is not reachable ({e}). "
+                "Start it with `ollama serve` or launch the Ollama app."
+            )
+            logger.warning(msg)
+            self._progress("log", f"  WARNING: {msg}", -1)
             return False
+
+        entries = getattr(listing, "models", None)
+        if entries is None and isinstance(listing, dict):
+            entries = listing.get("models", [])
+        entries = entries or []
+
+        available: set[str] = set()
+        for entry in entries:
+            name = getattr(entry, "model", None)
+            if name is None and isinstance(entry, dict):
+                name = entry.get("model") or entry.get("name")
+            if name:
+                available.add(name)
+                available.add(name.split(":", 1)[0])
+
+        candidates = {MODEL_NAME, f"{MODEL_NAME}:latest", MODEL_NAME.split(":", 1)[0]}
+        if not (candidates & available):
+            msg = (
+                f"Ollama is running but model '{MODEL_NAME}' is not pulled. "
+                f"Run: ollama pull {MODEL_NAME}"
+            )
+            logger.warning(msg)
+            self._progress("log", f"  WARNING: {msg}", -1)
+            return False
+
+        return True

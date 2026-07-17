@@ -8,7 +8,7 @@ specialties to identify hidden systemic diseases.
 Refactored from SQLite to profile_data dict input.
 Expanded from 5 → 22 systemic disease triads.
 Includes symptom logger data in the analysis corpus.
-Optional Gemini/Ollama layer for unexpected pattern discovery.
+Optional local LLM layer for unexpected pattern discovery.
 
 Results feed into:
   - Cross-Disciplinary view
@@ -18,6 +18,8 @@ Results feed into:
 
 import logging
 from typing import Optional
+
+from src.local_llm import call_local_text_model, parse_json_array_from_text
 
 logger = logging.getLogger("CIH-CrossSpecialty")
 
@@ -935,7 +937,7 @@ class CrossSpecialtyEngine:
     multiple specialties by correlating all available patient data.
 
     Accepts profile_data dict (vault-based architecture, no SQLite).
-    Optionally uses Gemini/Ollama for unexpected pattern discovery.
+    Optionally uses a local LLM for unexpected pattern discovery.
     """
 
     def __init__(self, api_key: str = None):
@@ -1021,9 +1023,9 @@ class CrossSpecialtyEngine:
         # Sort by hit count descending
         alerts.sort(key=lambda a: -a["total_hits"])
 
-        # Optional: Gemini-powered pattern discovery for unexpected connections
-        if self._api_key and corpus:
-            ai_alerts = self._gemini_pattern_discovery(corpus, alerts)
+        # Optional: local-model pattern discovery for unexpected connections
+        if corpus:
+            ai_alerts = self._local_pattern_discovery(corpus, alerts)
             alerts.extend(ai_alerts)
 
         logger.info(
@@ -1115,23 +1117,20 @@ class CrossSpecialtyEngine:
             logger.debug("PubMed client unavailable for verification")
             return None
 
-    # ── Gemini Pattern Discovery ──────────────────────────
+    # ── Local Pattern Discovery ───────────────────────────
 
-    def _gemini_pattern_discovery(
+    def _local_pattern_discovery(
         self, corpus: list[str], existing_alerts: list[dict],
     ) -> list[dict]:
         """
-        Use Gemini to look for unexpected cross-specialty connections
+        Use the local assistant model to look for unexpected cross-specialty connections
         beyond the known triads. Returns additional alerts.
         """
-        if not self._api_key:
-            return []
-
         # Don't send to LLM if corpus is too small
         if len(corpus) < 5:
             return []
 
-        # Build a condensed corpus summary
+        # Build a condensed local corpus summary
         corpus_summary = ", ".join(set(corpus))[:3000]
         already_found = [a["disease"] for a in existing_alerts]
 
@@ -1166,25 +1165,25 @@ class CrossSpecialtyEngine:
         )
 
         try:
-            import google.generativeai as genai
-            import json
-            import re
-
-            genai.configure(api_key=self._api_key)
-            model = genai.GenerativeModel("gemini-2.0-flash")
-            response = model.generate_content(prompt)
-            text = response.text
-
-            # Parse JSON from response
-            json_match = re.search(r"\[.*\]", text, re.DOTALL)
-            if not json_match:
+            system_prompt = (
+                "You are a cross-specialty correlation assistant inside a local-first "
+                "medical records tool. Use only the findings you are given. Return strict "
+                "JSON and do not claim to have searched the web."
+            )
+            text = call_local_text_model(
+                prompt,
+                system_prompt=system_prompt,
+                num_predict=1400,
+                temperature=0.2,
+                json_mode=True,
+            )
+            suggestions = parse_json_array_from_text(text or "")
+            if not suggestions:
                 return []
-
-            suggestions = json.loads(json_match.group())
             ai_alerts = []
 
             # PubMed verification — check if real literature supports
-            # each Gemini suggestion (filters to reviews + trials only)
+            # each local-model suggestion (filters to reviews + trials only)
             pubmed = self._get_pubmed_client()
 
             for s in suggestions[:3]:  # Cap at 3 AI-discovered conditions
@@ -1198,7 +1197,7 @@ class CrossSpecialtyEngine:
                 strength = s.get("evidence_strength", "moderate")
                 source_text = (
                     ", ".join(sources) if sources
-                    else "Gemini medical literature analysis"
+                    else "Local pattern analysis"
                 )
 
                 # ── PubMed Verification ──────────────────────
@@ -1253,7 +1252,7 @@ class CrossSpecialtyEngine:
             return ai_alerts
 
         except Exception as e:
-            logger.debug("Gemini cross-specialty discovery failed: %s", e)
+            logger.warning("Local cross-specialty discovery failed: %s", e)
             return []
 
 

@@ -21,6 +21,7 @@ import sys
 import threading
 import time
 import uuid
+import gc
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -44,14 +45,47 @@ app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024  # 500MB max upload
 
 # Global state
 _pipeline_thread: threading.Thread = None
-_progress_queue: queue.Queue = queue.Queue()
+_sse_listeners: list = []  # Per-connection queues for SSE broadcast
+_sse_listeners_lock = threading.Lock()
 _passphrase: str = None
 _profile_data: dict = None
+_active_profile_id: str = None
 _environmental_sync_worker = None
 _pipeline_paused: threading.Event = threading.Event()
 _pipeline_paused.set()  # Not paused by default (set = running)
+_api_calls_allowed: threading.Event = threading.Event()
+_api_calls_allowed.set()  # Local processing always runs; external stages may be paused
+
+# Persistent pipeline progress — survives page refresh / SSE reconnect
+_pipeline_progress: dict = {
+    "pass": None,
+    "message": "",
+    "percent": 0,
+    "timestamp": 0,
+    "terminal_log": [],   # Recent log lines for terminal restore
+}
+
+def _broadcast_progress(event: dict):
+    """Send a progress event to all active SSE listeners and update persistent state."""
+    with _sse_listeners_lock:
+        for listener_q in _sse_listeners:
+            try:
+                listener_q.put_nowait(event)
+            except queue.Full:
+                pass
+    # Update persistent state
+    _pipeline_progress["pass"] = event.get("pass")
+    _pipeline_progress["message"] = event.get("message", "")
+    if event.get("percent", -1) >= 0:
+        _pipeline_progress["percent"] = event["percent"]
+    _pipeline_progress["timestamp"] = event.get("timestamp", time.time())
+    _pipeline_progress["terminal_log"].append(event)
+    if len(_pipeline_progress["terminal_log"]) > 200:
+        _pipeline_progress["terminal_log"] = _pipeline_progress["terminal_log"][-200:]
+
 
 _DEV_BYPASS_SENTINEL = "__medprep_local_dev_bypass__"
+LOCAL_ASSISTANT_MODEL = os.environ.get("MEDPREP_ASSISTANT_MODEL", "gpt-oss:20b").strip() or "gpt-oss:20b"
 
 
 def _passphrase_bypass_enabled() -> bool:
@@ -87,14 +121,14 @@ def _purge_local_patient_data() -> dict:
     Wipes:
       - uploaded source files copied into MedPrep
       - generated reports saved under data/reports
-      - encrypted patient profile
+      - encrypted patient profiles (legacy + multi-profile)
       - SQLite patient-state database and WAL/SHM sidecars
 
     Preserves:
       - encrypted API key vault
       - downloaded model assets bundled with the app
     """
-    global _profile_data
+    global _profile_data, _active_profile_id
 
     from src.database import Database
     from src.encryption import EncryptedVault
@@ -104,10 +138,19 @@ def _purge_local_patient_data() -> dict:
 
     removed = []
 
+    # Delete legacy single-file profile
     vault = EncryptedVault(DATA_DIR, _passphrase)
     if (DATA_DIR / "patient_profile.enc").exists():
         vault.clear_patient_profile()
         removed.append("patient_profile.enc")
+
+    # Delete all multi-profile data (encrypted profiles + index)
+    profiles_dir = DATA_DIR / "profiles"
+    if profiles_dir.exists():
+        shutil.rmtree(profiles_dir)
+        removed.append("profiles")
+
+    _active_profile_id = None
 
     for directory, label in (
         (UPLOAD_DIR, "uploads"),
@@ -235,7 +278,7 @@ def static_files(filename):
 @app.route("/api/unlock", methods=["POST"])
 def unlock_vault():
     """Unlock the encrypted vault with a passphrase."""
-    global _passphrase, _profile_data
+    global _passphrase, _profile_data, _active_profile_id
 
     data = request.get_json(silent=True) or {}
     passphrase = data.get("passphrase", "")
@@ -246,6 +289,7 @@ def unlock_vault():
             "status": "unlocked",
             "has_profile": _profile_data is not None,
             "bypassed": True,
+            "profiles": [],
         })
 
     if not passphrase:
@@ -261,14 +305,26 @@ def unlock_vault():
 
         _passphrase = passphrase
 
-        # Load existing profile if available
-        profile = vault.load_profile()
-        if profile:
-            _profile_data = profile
+        # Migrate legacy single-file profile if it exists
+        migrated_id = vault.migrate_legacy_profile()
+        if migrated_id:
+            logger.info(f"Migrated legacy profile to multi-profile system: {migrated_id}")
+
+        profiles = vault.list_profiles()
+
+        # Auto-activate if there's exactly one profile
+        if len(profiles) == 1:
+            _active_profile_id = profiles[0]["id"]
+            vault.active_profile_id = _active_profile_id
+            profile = vault.load_profile(_active_profile_id)
+            if profile:
+                _profile_data = profile
 
         return jsonify({
             "status": "unlocked",
-            "has_profile": profile is not None,
+            "has_profile": _profile_data is not None,
+            "profiles": profiles,
+            "active_profile_id": _active_profile_id,
         })
 
     except Exception as e:
@@ -276,13 +332,141 @@ def unlock_vault():
         return jsonify({"error": str(e)}), 500
 
 
+# ── Profile Management ───────────────────────────────────────
+
+@app.route("/api/profiles")
+def list_profiles():
+    """List all patient profiles (metadata only, no PII)."""
+    if not _passphrase:
+        return jsonify({"error": "Vault not unlocked"}), 401
+
+    from src.encryption import EncryptedVault
+    vault = EncryptedVault(DATA_DIR, _passphrase)
+    profiles = vault.list_profiles()
+    return jsonify({
+        "profiles": profiles,
+        "active_profile_id": _active_profile_id,
+    })
+
+
+@app.route("/api/profiles", methods=["POST"])
+def create_profile():
+    """Create a new patient profile."""
+    global _active_profile_id, _profile_data
+
+    if not _passphrase:
+        return jsonify({"error": "Vault not unlocked"}), 401
+
+    data = request.get_json(silent=True) or {}
+    name = data.get("name", "").strip()
+    if not name:
+        return jsonify({"error": "Profile name is required"}), 400
+
+    from src.encryption import EncryptedVault
+    vault = EncryptedVault(DATA_DIR, _passphrase)
+
+    profile_id = vault.create_profile(name)
+
+    # Activate the new profile
+    _active_profile_id = profile_id
+    vault.active_profile_id = profile_id
+    _profile_data = {}
+
+    # Save empty profile to vault
+    vault.save_profile(_profile_data, profile_id)
+
+    return jsonify({
+        "status": "created",
+        "profile_id": profile_id,
+        "name": name,
+    })
+
+
+@app.route("/api/profiles/<profile_id>/activate", methods=["POST"])
+def activate_profile(profile_id):
+    """Switch to a different patient profile."""
+    global _active_profile_id, _profile_data
+
+    if not _passphrase:
+        return jsonify({"error": "Vault not unlocked"}), 401
+
+    if _pipeline_thread and _pipeline_thread.is_alive():
+        return jsonify({"error": "Cannot switch profiles while analysis is running"}), 409
+
+    # Save current profile before switching
+    if _active_profile_id and _profile_data:
+        _save_profile_to_vault()
+
+    from src.encryption import EncryptedVault
+    vault = EncryptedVault(DATA_DIR, _passphrase)
+
+    # Verify the target profile exists
+    profiles = vault.list_profiles()
+    if not any(p["id"] == profile_id for p in profiles):
+        return jsonify({"error": "Profile not found"}), 404
+
+    # Load the new profile
+    vault.active_profile_id = profile_id
+    _active_profile_id = profile_id
+    profile = vault.load_profile(profile_id)
+    _profile_data = profile or {}
+
+    return jsonify({
+        "status": "activated",
+        "profile_id": profile_id,
+        "has_data": bool(profile),
+    })
+
+
+@app.route("/api/profiles/<profile_id>", methods=["DELETE"])
+def delete_profile_endpoint(profile_id):
+    """Delete a patient profile."""
+    global _active_profile_id, _profile_data
+
+    if not _passphrase:
+        return jsonify({"error": "Vault not unlocked"}), 401
+
+    if _pipeline_thread and _pipeline_thread.is_alive():
+        return jsonify({"error": "Cannot delete profile while analysis is running"}), 409
+
+    from src.encryption import EncryptedVault
+    vault = EncryptedVault(DATA_DIR, _passphrase)
+    vault.delete_profile(profile_id)
+
+    # Clear active state if we deleted the active profile
+    if _active_profile_id == profile_id:
+        _active_profile_id = None
+        _profile_data = None
+
+    return jsonify({"status": "deleted"})
+
+
+@app.route("/api/profiles/<profile_id>", methods=["PUT"])
+def rename_profile_endpoint(profile_id):
+    """Rename a patient profile."""
+    if not _passphrase:
+        return jsonify({"error": "Vault not unlocked"}), 401
+
+    data = request.get_json(silent=True) or {}
+    new_name = data.get("name", "").strip()
+    if not new_name:
+        return jsonify({"error": "Name is required"}), 400
+
+    from src.encryption import EncryptedVault
+    vault = EncryptedVault(DATA_DIR, _passphrase)
+    vault.rename_profile(profile_id, new_name)
+
+    return jsonify({"status": "renamed", "name": new_name})
+
+
 @app.route("/api/vault/reset", methods=["POST"])
 def reset_vault():
     """Delete encrypted vault files so the user can start fresh."""
-    global _passphrase, _profile_data
+    global _passphrase, _profile_data, _active_profile_id
 
     _passphrase = _DEV_BYPASS_SENTINEL if _passphrase_bypass_enabled() else None
     _profile_data = None
+    _active_profile_id = None
 
     removed = []
     for fname in ["patient_profile.enc", "api_vault.enc"]:
@@ -290,6 +474,12 @@ def reset_vault():
         if fpath.exists():
             fpath.unlink()
             removed.append(fname)
+
+    # Delete all multi-profile encrypted data
+    profiles_dir = DATA_DIR / "profiles"
+    if profiles_dir.exists():
+        shutil.rmtree(profiles_dir)
+        removed.append("profiles")
 
     logger.info(f"Vault reset — removed: {removed}")
     return jsonify({"status": "reset", "removed": removed})
@@ -790,6 +980,12 @@ def upload_files():
     if "files" not in request.files:
         return jsonify({"error": "No files provided"}), 400
 
+    if _pipeline_thread and _pipeline_thread.is_alive():
+        return jsonify({"error": "Cannot upload while analysis is running"}), 409
+
+    # Clear previous uploads so only the current batch is analyzed
+    if UPLOAD_DIR.exists():
+        shutil.rmtree(UPLOAD_DIR)
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     uploaded = []
 
@@ -828,17 +1024,10 @@ def start_analysis():
         return jsonify({"error": "No files uploaded"}), 400
 
     input_files = list(UPLOAD_DIR.glob("*"))
-    input_files = [f for f in input_files if f.is_file()]
+    input_files = [f for f in input_files if f.is_file() and not f.name.startswith(".")]
 
     if not input_files:
         return jsonify({"error": "No files to analyze"}), 400
-
-    # Clear progress queue
-    while not _progress_queue.empty():
-        try:
-            _progress_queue.get_nowait()
-        except queue.Empty:
-            break
 
     # Start pipeline in background thread
     _pipeline_thread = threading.Thread(
@@ -858,26 +1047,60 @@ def _run_pipeline(input_files: list[Path]):
     """Run the pipeline in a background thread."""
     global _profile_data
 
+    # Reset progress state for new run
+    _pipeline_progress["pass"] = "starting"
+    _pipeline_progress["message"] = "Preparing analysis..."
+    _pipeline_progress["percent"] = 0
+    _pipeline_progress["timestamp"] = time.time()
+    _pipeline_progress["terminal_log"] = []
+
     try:
         from src.ui.pipeline import Pipeline
 
         def progress_callback(pass_name, message, percent):
-            _progress_queue.put({
+            _broadcast_progress({
                 "pass": pass_name,
                 "message": message,
                 "percent": percent,
                 "timestamp": time.time(),
             })
 
-        pipeline = Pipeline(DATA_DIR, _passphrase, progress_callback,
-                            pause_event=_pipeline_paused)
+        def profile_update_callback(snapshot):
+            """Called after each MedGemma chunk — update dashboard data.
+
+            Merges pipeline-owned keys (clinical_timeline, analysis,
+            processed_files) into the existing _profile_data rather than
+            replacing it wholesale.  This preserves user additions made
+            through the UI (symptoms, vitals, demographics) during the run.
+
+            Auto-saves to the encrypted vault after each merge so progress
+            survives crashes or browser refreshes.
+            """
+            global _profile_data
+            if _profile_data is None:
+                _profile_data = snapshot
+            else:
+                for key in ("clinical_timeline", "analysis", "processed_files"):
+                    if key in snapshot:
+                        _profile_data[key] = snapshot[key]
+            _save_profile_to_vault()
+
+        pipeline = Pipeline(
+            DATA_DIR,
+            _passphrase,
+            progress_callback,
+            profile_update_callback=profile_update_callback,
+            pause_event=_pipeline_paused,
+            api_calls_event=_api_calls_allowed,
+        )
         profile = pipeline.run(input_files)
 
         _profile_data = profile.model_dump(mode="json")
+        _save_profile_to_vault()
 
     except Exception as e:
         logger.error(f"Pipeline thread failed: {e}")
-        _progress_queue.put({
+        _broadcast_progress({
             "pass": "error",
             "message": f"Analysis failed: {str(e)}",
             "percent": -1,
@@ -887,19 +1110,33 @@ def _run_pipeline(input_files: list[Path]):
 
 @app.route("/api/progress")
 def progress_stream():
-    """Server-Sent Events stream for pipeline progress."""
+    """Server-Sent Events stream for pipeline progress.
+
+    Each connection gets its own queue so page refreshes don't lose
+    events and multiple browser tabs work correctly.
+    """
+    listener_q = queue.Queue(maxsize=500)
+    with _sse_listeners_lock:
+        _sse_listeners.append(listener_q)
+
     def generate():
-        while True:
-            try:
-                event = _progress_queue.get(timeout=30)
-                yield f"data: {json.dumps(event)}\n\n"
+        try:
+            while True:
+                try:
+                    event = listener_q.get(timeout=30)
+                    yield f"data: {json.dumps(event)}\n\n"
 
-                if event.get("pass") in ("complete", "error"):
-                    break
+                    if event.get("pass") in ("complete", "error"):
+                        break
 
-            except queue.Empty:
-                # Send keepalive
-                yield f"data: {json.dumps({'pass': 'heartbeat', 'message': 'waiting', 'percent': -1})}\n\n"
+                except queue.Empty:
+                    # Send keepalive
+                    yield f"data: {json.dumps({'pass': 'heartbeat', 'message': 'waiting', 'percent': -1})}\n\n"
+        finally:
+            # Clean up when client disconnects
+            with _sse_listeners_lock:
+                if listener_q in _sse_listeners:
+                    _sse_listeners.remove(listener_q)
 
     return Response(
         generate(),
@@ -911,13 +1148,30 @@ def progress_stream():
     )
 
 
+@app.route("/api/pipeline/status")
+def pipeline_status():
+    """Return persisted pipeline progress so the UI can restore on refresh."""
+    running = _pipeline_running()
+    paused = not _pipeline_paused.is_set()
+    return jsonify({
+        "running": running,
+        "paused": paused,
+        "api_calls_paused": not _api_calls_allowed.is_set(),
+        "pass": _pipeline_progress["pass"],
+        "message": _pipeline_progress["message"],
+        "percent": _pipeline_progress["percent"],
+        "timestamp": _pipeline_progress["timestamp"],
+        "terminal_log": _pipeline_progress["terminal_log"] if running else [],
+    })
+
+
 @app.route("/api/pipeline/pause", methods=["POST"])
 def toggle_pause():
     """Toggle pipeline pause/resume. When paused, safe to close laptop."""
     if _pipeline_paused.is_set():
         # Currently running → pause
         _pipeline_paused.clear()
-        _progress_queue.put({
+        _broadcast_progress({
             "pass": "paused",
             "message": "Pipeline paused — safe to close laptop",
             "percent": -1,
@@ -928,7 +1182,7 @@ def toggle_pause():
     else:
         # Currently paused → resume
         _pipeline_paused.set()
-        _progress_queue.put({
+        _broadcast_progress({
             "pass": "log",
             "message": "Pipeline resumed",
             "percent": -1,
@@ -936,6 +1190,43 @@ def toggle_pause():
         })
         logger.info("Pipeline resumed by user")
         return jsonify({"state": "running"})
+
+
+@app.route("/api/pipeline/api-calls", methods=["POST"])
+def set_api_call_state():
+    """Pause or resume external API stages without stopping local processing."""
+    data = request.get_json(silent=True) or {}
+    requested_paused = data.get("paused")
+    if not isinstance(requested_paused, bool):
+        requested_paused = _api_calls_allowed.is_set()
+
+    if requested_paused:
+        _api_calls_allowed.clear()
+        state = "paused"
+        message = (
+            "API calls paused — local record processing will continue. "
+            "Any in-flight request will finish."
+        )
+        event_name = "api_calls_paused"
+    else:
+        _api_calls_allowed.set()
+        state = "enabled"
+        message = "API calls enabled — they will start only after local processing passes."
+        event_name = "api_calls_resumed"
+
+    if _pipeline_running():
+        _broadcast_progress({
+            "pass": event_name,
+            "message": message,
+            "percent": -1,
+            "timestamp": time.time(),
+        })
+    logger.info(message)
+    return jsonify({
+        "state": state,
+        "api_calls_paused": requested_paused,
+        "pipeline_running": _pipeline_running(),
+    })
 
 
 # ── Profile Data API ──────────────────────────────────────────
@@ -1288,7 +1579,16 @@ def _get_latest_labs(labs):
     latest = {}
     for lab in labs:
         name = lab.get("test_name") or lab.get("name") or "Unknown"
-        date = lab.get("date") or lab.get("collected_date") or ""
+        # The canonical field is `test_date` (LabResult model). The legacy
+        # `date` / `collected_date` fallbacks kept us from silently breaking
+        # on older payloads, but without `test_date` here every lab looked
+        # undated, so "latest" collapsed to "first seen in list order".
+        date = (
+            lab.get("test_date")
+            or lab.get("date")
+            or lab.get("collected_date")
+            or ""
+        )
         if name not in latest or date > latest[name].get("_sort_date", ""):
             entry = dict(lab)
             entry["_sort_date"] = date
@@ -1301,20 +1601,49 @@ def _get_latest_labs(labs):
     return result
 
 
+def _normalize_lab_name(raw: str) -> str:
+    """Collapse whitespace, underscores, and casing so that
+    'Avg HR', 'AvgHR', 'Avg_HR', 'avg hr' all map to the same key.
+    Returns a human-friendly display form (title-cased, single spaces).
+    """
+    import re
+    # Insert space before capital letters in camelCase: "AvgHR" -> "Avg HR"
+    s = re.sub(r'([a-z])([A-Z])', r'\1 \2', raw)
+    # Replace underscores and multiple spaces with single space
+    s = re.sub(r'[_\s]+', ' ', s).strip()
+    # Title-case for display
+    return s.title() if s else raw
+
+
 def _get_lab_trends(labs):
     """Return labs that have 3+ data points, suitable for sparkline rendering."""
     from collections import defaultdict
     by_name = defaultdict(list)
+    # Map normalized keys -> display name (use first occurrence as canonical)
+    display_names = {}
     for lab in labs:
-        name = lab.get("test_name") or lab.get("name") or "Unknown"
+        raw_name = lab.get("test_name") or lab.get("name") or "Unknown"
+        norm = _normalize_lab_name(raw_name)
+        if norm not in display_names:
+            display_names[norm] = norm  # use the normalized title-case form
         value = lab.get("value")
-        date = lab.get("date") or lab.get("collected_date") or ""
+        date = (
+            lab.get("test_date")
+            or lab.get("date")
+            or lab.get("collected_date")
+            or ""
+        )
+        # Time-scale rendering (d3.scaleTime) needs real dates; empty-string
+        # dates parse to Invalid Date and collapse every point onto the same
+        # x coordinate, which looks like "several Low readings on one day".
+        if not date:
+            continue
         if value is not None:
             try:
                 numeric_val = float(str(value).replace(",", ""))
             except (ValueError, TypeError):
                 continue
-            by_name[name].append({
+            by_name[norm].append({
                 "date": date,
                 "value": numeric_val,
                 "unit": lab.get("unit", ""),
@@ -1323,9 +1652,9 @@ def _get_lab_trends(labs):
             })
     # Only return tests with 3+ data points, sorted by date
     trends = {}
-    for name, points in by_name.items():
+    for norm, points in by_name.items():
         if len(points) >= 3:
-            trends[name] = sorted(points, key=lambda p: p["date"])
+            trends[display_names[norm]] = sorted(points, key=lambda p: p["date"])
     return trends
 
 
@@ -1360,10 +1689,31 @@ def get_dashboard():
     # Active medications — list for donut breakdown
     meds = clinical.get("medications", [])
     active_meds = [m for m in meds if (m.get("status") or "").lower() != "discontinued"]
+
+    # Normalize medication routes so "by mouth", "by_mouth", "mouth",
+    # "oral", "BY MOUTH", "Oral" etc. all collapse into one category.
+    _ROUTE_ALIASES = {
+        "by mouth": "Oral", "by_mouth": "Oral", "mouth": "Oral",
+        "oral": "Oral", "po": "Oral",
+        "tablet": "Oral", "capsule": "Oral",
+        "by": "Oral",  # truncated "by mouth"
+        "iv": "IV", "intravenous": "IV",
+        "topical": "Topical", "transdermal": "Topical",
+        "subcutaneous": "Subcutaneous", "sq": "Subcutaneous", "subq": "Subcutaneous",
+        "intramuscular": "Intramuscular", "im": "Intramuscular",
+        "inhaled": "Inhaled", "inhalation": "Inhaled",
+        "sublingual": "Sublingual",
+        "rectal": "Rectal", "ophthalmic": "Ophthalmic",
+        "nasal": "Nasal", "otic": "Otic",
+    }
+
     meds_by_route = {}
     for m in active_meds:
-        route = m.get("route") or m.get("category") or "Other"
-        meds_by_route[route] = meds_by_route.get(route, 0) + 1
+        raw_route = (m.get("route") or m.get("category") or "").strip()
+        normalized = _ROUTE_ALIASES.get(raw_route.lower(), raw_route) if raw_route else "Other"
+        if not normalized:
+            normalized = "Other"
+        meds_by_route[normalized] = meds_by_route.get(normalized, 0) + 1
     meds_breakdown = [{"label": k, "value": v} for k, v in meds_by_route.items()]
     meds_list = [{"name": m.get("name") or "Unknown", "dose": m.get("dose", ""),
                   "route": m.get("route", "")} for m in active_meds]
@@ -1467,17 +1817,8 @@ def get_cross_disciplinary():
     # Run cross-specialty systemic disease correlation on demand
     try:
         from src.analysis.diagnostic_engine.cross_specialty import CrossSpecialtyEngine
-        from src.encryption import EncryptedVault
 
-        api_key = None
-        try:
-            vault = EncryptedVault(DATA_DIR, _passphrase)
-            keys = vault.load_api_keys() or {}
-            api_key = keys.get("gemini")
-        except Exception:
-            pass
-
-        engine = CrossSpecialtyEngine(api_key=api_key)
+        engine = CrossSpecialtyEngine()
         correlations = engine.analyze(_profile_data)
 
         for c in correlations:
@@ -2214,6 +2555,7 @@ def _save_profile_to_vault():
     try:
         from src.encryption import EncryptedVault
         vault = EncryptedVault(DATA_DIR, _passphrase)
+        vault.active_profile_id = _active_profile_id
         vault.save_profile(_profile_data)
     except Exception as e:
         logger.error(f"Failed to save profile to vault: {e}")
@@ -2440,24 +2782,11 @@ def symptom_analytics_insights():
     timeline = profile.get("clinical_timeline", {})
     symptoms = timeline.get("symptoms", [])
 
-    # Get Gemini key if available
-    api_key = None
-    try:
-        from src.encryption import EncryptedVault
-
-        vault = EncryptedVault(DATA_DIR, _passphrase)
-        keys = vault.load_api_keys() or {}
-        api_key = keys.get("gemini")
-    except Exception:
-        pass
-
     try:
         from src.analysis.symptom_analytics import SymptomAnalytics
 
         engine = SymptomAnalytics()
-        result = engine.generate_ai_insights(
-            symptoms, profile_data=profile, api_key=api_key
-        )
+        result = engine.generate_ai_insights(symptoms, profile_data=profile)
         return jsonify(result)
 
     except Exception as e:
@@ -2477,18 +2806,8 @@ def visit_prep():
 
     try:
         from src.analysis.visit_prep import VisitPrepGenerator
-        from src.encryption import EncryptedVault
 
-        # Try to get Gemini key for narrative
-        api_key = None
-        try:
-            vault = EncryptedVault(DATA_DIR, _passphrase)
-            keys = vault.load_api_keys() or {}
-            api_key = keys.get("gemini")
-        except Exception:
-            pass
-
-        generator = VisitPrepGenerator(api_key=api_key)
+        generator = VisitPrepGenerator()
         result = generator.generate(profile)
         return jsonify(result)
 
@@ -2507,17 +2826,8 @@ def visit_prep_download():
 
     try:
         from src.analysis.visit_prep import VisitPrepGenerator
-        from src.encryption import EncryptedVault
 
-        api_key = None
-        try:
-            vault = EncryptedVault(DATA_DIR, _passphrase)
-            keys = vault.load_api_keys() or {}
-            api_key = keys.get("gemini")
-        except Exception:
-            pass
-
-        generator = VisitPrepGenerator(api_key=api_key)
+        generator = VisitPrepGenerator()
         sections = generator.generate(profile)
 
         REPORTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -2539,7 +2849,7 @@ def visit_prep_download():
 
 @app.route("/api/chat", methods=["POST"])
 def chat():
-    """Handle chat messages (RAG clinical assistant)."""
+    """Handle profile-grounded chat using a local assistant model."""
     if not _profile_data:
         return jsonify({"error": "No profile loaded"}), 400
 
@@ -2549,10 +2859,7 @@ def chat():
     if not user_message:
         return jsonify({"error": "Empty message"}), 400
 
-    # Simple context-grounded response
-    # In full implementation, this uses sqlite-vec for RAG retrieval
-    # and Gemini for response generation
-    response = _simple_chat_response(user_message)
+    response = _generate_chat_response(user_message)
     return jsonify({"response": response})
 
 
@@ -2586,7 +2893,6 @@ def body_translation():
         f"'explanation' (string) and 'action_items' (array of strings)."
     )
 
-    # Try Gemini first, then Ollama, then static fallback
     explanation = _generate_body_translation(prompt, region_name, findings)
     return jsonify(explanation)
 
@@ -2605,17 +2911,8 @@ def snowball_diagnoses():
     try:
         from src.analysis.snowball_engine import SnowballEngine
 
-        # Load Gemini key + demographics for AI-enhanced matching
-        api_key = None
+        # Load demographics for local AI-enhanced matching
         demographics = {}
-        try:
-            from src.security.vault import SecureVault
-            vault = SecureVault()
-            if _passphrase:
-                keys = vault.load_api_keys() or {}
-                api_key = keys.get("gemini")
-        except Exception:
-            pass
 
         timeline = _profile_data.get("clinical_timeline", {})
         demo = timeline.get("demographics", {})
@@ -2625,7 +2922,7 @@ def snowball_diagnoses():
                 "sex": demo.get("sex"),
             }
 
-        engine = SnowballEngine(api_key=api_key, demographics=demographics)
+        engine = SnowballEngine(demographics=demographics)
         graph = engine.analyze(_profile_data)
         return jsonify(graph)
 
@@ -3426,62 +3723,310 @@ def missing_negatives():
         return jsonify({"error": str(e)}), 500
 
 
+def _release_local_model_memory():
+    """Release Python and MPS memory after local model calls."""
+    gc.collect()
+    gc.collect()
+
+    try:
+        import torch
+
+        if hasattr(torch, "mps") and hasattr(torch.mps, "empty_cache"):
+            torch.mps.empty_cache()
+    except Exception:
+        pass
+
+
+def _coerce_record(value) -> dict:
+    """Normalize Pydantic models and plain objects into dicts."""
+    if isinstance(value, dict):
+        return value
+
+    if hasattr(value, "model_dump"):
+        try:
+            return value.model_dump(mode="json")
+        except Exception:
+            return value.model_dump()
+
+    if hasattr(value, "__dict__"):
+        return dict(value.__dict__)
+
+    return {}
+
+
+def _record_name(record: dict, *keys: str) -> str:
+    """Return the first non-empty display name from a clinical record."""
+    for key in keys:
+        value = record.get(key)
+        if value:
+            return str(value).strip()
+    return ""
+
+
+def _record_date(record: dict) -> str:
+    """Return the most relevant date-like field from a clinical record."""
+    for key in (
+        "date",
+        "study_date",
+        "episode_date",
+        "procedure_date",
+        "start_date",
+        "date_created",
+        "date_diagnosed",
+    ):
+        value = record.get(key)
+        if value:
+            return str(value)
+    return ""
+
+
+def _latest_unique_records(records, *, name_keys: tuple[str, ...], limit: int, require_flag: bool = False) -> list[dict]:
+    """Return latest unique records keyed by their display name."""
+    normalized = []
+    for item in records or []:
+        record = _coerce_record(item)
+        if not record:
+            continue
+
+        if require_flag:
+            flag = str(record.get("flag") or "").strip().lower()
+            if flag in {"", "normal", "n"}:
+                continue
+
+        normalized.append(record)
+
+    normalized.sort(key=_record_date, reverse=True)
+
+    selected = []
+    seen = set()
+    for record in normalized:
+        name = _record_name(record, *name_keys).lower()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        selected.append(record)
+        if len(selected) >= limit:
+            break
+
+    return selected
+
+
+def _call_local_assistant_model(
+    user_prompt: str,
+    *,
+    system_prompt: str,
+    num_predict: int = 768,
+    temperature: float = 0.2,
+) -> str | None:
+    """Call the local assistant model through Ollama and unload it afterward."""
+    try:
+        import ollama
+
+        response = ollama.chat(
+            model=LOCAL_ASSISTANT_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            options={
+                "temperature": temperature,
+                "num_predict": num_predict,
+            },
+            keep_alive="0",
+        )
+
+        text = response.get("message", {}).get("content", "").strip()
+        if text:
+            logger.info("Local assistant response generated with %s", LOCAL_ASSISTANT_MODEL)
+            return text
+    except Exception as e:
+        logger.warning("Local assistant model %s unavailable: %s", LOCAL_ASSISTANT_MODEL, e)
+    finally:
+        _release_local_model_memory()
+
+    return None
+
+
+def _parse_json_object_from_text(text: str) -> dict | None:
+    """Extract the first JSON object from model text output."""
+    if not text:
+        return None
+
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return None
+
+    try:
+        parsed = json.loads(text[start:end + 1])
+        if isinstance(parsed, dict):
+            return parsed
+    except Exception:
+        return None
+
+    return None
+
+
+def _build_chat_profile_context(profile: dict) -> str:
+    """Build a compact, record-grounded summary for local chat prompts."""
+    profile = _coerce_record(profile)
+    demographics = _coerce_record(profile.get("demographics", {}))
+    timeline = _coerce_record(profile.get("clinical_timeline", {}))
+    analysis = _coerce_record(profile.get("analysis", {}))
+
+    lines = []
+
+    demo_parts = []
+    if demographics.get("age"):
+        demo_parts.append(f"age {demographics['age']}")
+    if demographics.get("biological_sex"):
+        demo_parts.append(f"sex {demographics['biological_sex']}")
+    if demographics.get("location"):
+        demo_parts.append(f"location {demographics['location']}")
+    if demographics.get("bmi"):
+        demo_parts.append(f"BMI {demographics['bmi']}")
+    if demo_parts:
+        lines.append("Demographics: " + ", ".join(demo_parts))
+
+    diagnoses = [
+        _coerce_record(item)
+        for item in timeline.get("diagnoses", [])
+        if str(_coerce_record(item).get("status") or "").lower() in {"active", "chronic"}
+    ]
+    diagnoses.sort(key=_record_date, reverse=True)
+    if diagnoses:
+        dx_bits = []
+        for item in diagnoses[:6]:
+            name = _record_name(item, "name", "diagnosis")
+            severity = item.get("severity")
+            if name:
+                dx_bits.append(f"{name} ({severity})" if severity else name)
+        if dx_bits:
+            lines.append("Active diagnoses: " + "; ".join(dx_bits))
+
+    meds = []
+    for item in timeline.get("medications", []):
+        record = _coerce_record(item)
+        if str(record.get("status") or "").lower() not in {"active", "prn"}:
+            continue
+        name = _record_name(record, "name", "medication_name")
+        if not name:
+            continue
+        bits = [name]
+        if record.get("dose") or record.get("dosage"):
+            bits.append(str(record.get("dose") or record.get("dosage")))
+        if record.get("frequency"):
+            bits.append(str(record.get("frequency")))
+        if record.get("reason"):
+            bits.append(f"for {record['reason']}")
+        meds.append(", ".join(bits))
+    if meds:
+        lines.append("Active medications: " + "; ".join(meds[:8]))
+
+    flagged_labs = _latest_unique_records(
+        timeline.get("labs", []),
+        name_keys=("test_name", "name"),
+        limit=8,
+        require_flag=True,
+    )
+    if flagged_labs:
+        lab_bits = []
+        for item in flagged_labs:
+            name = _record_name(item, "test_name", "name")
+            value = item.get("value")
+            unit = item.get("unit")
+            flag = item.get("flag")
+            item_date = _record_date(item)
+            detail = f"{name} {value or ''} {unit or ''}".strip()
+            qualifiers = [part for part in (flag, item_date) if part]
+            if qualifiers:
+                detail = f"{detail} ({', '.join(str(part) for part in qualifiers)})"
+            lab_bits.append(detail)
+        if lab_bits:
+            lines.append("Flagged labs: " + "; ".join(lab_bits))
+
+    symptoms = []
+    for item in timeline.get("symptoms", []):
+        symptom = _coerce_record(item)
+        name = _record_name(symptom, "symptom_name", "name")
+        if not name:
+            continue
+
+        episodes = [_coerce_record(ep) for ep in symptom.get("episodes", [])]
+        episodes.sort(key=_record_date, reverse=True)
+        if episodes:
+            latest = episodes[0]
+            detail_parts = [name]
+            if latest.get("intensity"):
+                detail_parts.append(f"intensity {latest['intensity']}")
+            if latest.get("episode_date"):
+                detail_parts.append(f"latest {latest['episode_date']}")
+            symptoms.append(", ".join(detail_parts))
+        else:
+            symptoms.append(name)
+    if symptoms:
+        lines.append("Recent symptoms: " + "; ".join(symptoms[:6]))
+
+    interactions = []
+    for item in analysis.get("drug_interactions", [])[:4]:
+        record = _coerce_record(item)
+        title = _record_name(record, "title")
+        if not title:
+            left = record.get("drug1") or record.get("medication_1")
+            right = record.get("drug2") or record.get("medication_2")
+            if left and right:
+                title = f"{left} + {right}"
+        if not title:
+            continue
+        severity = record.get("severity")
+        detail = record.get("detail") or record.get("description")
+        text = title
+        if severity:
+            text = f"{text} ({severity})"
+        if detail:
+            text = f"{text}: {detail}"
+        interactions.append(text)
+    if interactions:
+        lines.append("Drug interaction alerts: " + "; ".join(interactions))
+
+    cross_disciplinary = []
+    for item in analysis.get("cross_disciplinary", [])[:4]:
+        record = _coerce_record(item)
+        title = _record_name(record, "title", "disease")
+        detail = record.get("description") or ""
+        if title:
+            cross_disciplinary.append(f"{title}: {detail}".strip())
+    if cross_disciplinary:
+        lines.append("Cross-disciplinary findings: " + "; ".join(cross_disciplinary))
+
+    return "\n".join(lines) if lines else "No structured patient summary available."
+
+
 def _generate_body_translation(
     prompt: str, region_name: str, findings: list[str],
 ) -> dict:
-    """Generate body translation via Gemini, Ollama, or static fallback."""
-    # 1. Try Gemini API
-    try:
-        from src.encryption import EncryptedVault
-        vault = EncryptedVault(DATA_DIR, _passphrase)
-        keys = vault.load_api_keys()
-        gemini_key = keys.get("gemini")
+    """Generate body translation locally, then fall back to a static explanation."""
+    system_prompt = (
+        "You are a patient health educator inside a local-first medical records tool. "
+        "Use only the findings in the prompt. Do not claim to have searched the web. "
+        "Return strict JSON with keys explanation and action_items. "
+        "Keep the explanation clear, calm, and non-diagnostic."
+    )
 
-        if gemini_key:
-            import google.generativeai as genai
+    text = _call_local_assistant_model(
+        prompt,
+        system_prompt=system_prompt,
+        num_predict=512,
+        temperature=0.1,
+    )
+    parsed = _parse_json_object_from_text(text or "")
+    if parsed:
+        return {
+            "explanation": parsed.get("explanation", text),
+            "action_items": parsed.get("action_items", []),
+        }
 
-            genai.configure(api_key=gemini_key)
-            model = genai.GenerativeModel("gemini-2.0-flash")
-            response = model.generate_content(prompt)
-            text = response.text
-
-            # Try to parse JSON from response
-            import re
-            json_match = re.search(r"\{.*\}", text, re.DOTALL)
-            if json_match:
-                parsed = json.loads(json_match.group())
-                return {
-                    "explanation": parsed.get("explanation", text),
-                    "action_items": parsed.get("action_items", []),
-                }
-            return {"explanation": text, "action_items": []}
-    except Exception as e:
-        logger.debug(f"Gemini body translation failed: {e}")
-
-    # 2. Try local Ollama (MedGemma or any available model)
-    try:
-        import requests as req
-
-        ollama_response = req.post(
-            "http://localhost:11434/api/generate",
-            json={"model": "medgemma", "prompt": prompt, "stream": False},
-            timeout=30,
-        )
-        if ollama_response.status_code == 200:
-            text = ollama_response.json().get("response", "")
-            import re
-            json_match = re.search(r"\{.*\}", text, re.DOTALL)
-            if json_match:
-                parsed = json.loads(json_match.group())
-                return {
-                    "explanation": parsed.get("explanation", text),
-                    "action_items": parsed.get("action_items", []),
-                }
-            return {"explanation": text, "action_items": []}
-    except Exception as e:
-        logger.debug(f"Ollama body translation failed: {e}")
-
-    # 3. Static fallback — no AI available
+    # Static fallback — no AI available
     findings_str = ", ".join(findings)
     return {
         "explanation": (
@@ -3499,21 +4044,13 @@ def _generate_body_translation(
 
 
 def _simple_chat_response(message: str) -> str:
-    """
-    Simple chat response using profile context.
-
-    In the full implementation, this would:
-    1. Embed the query with sentence-transformers
-    2. Search sqlite-vec for relevant clinical records
-    3. Build a context-grounded prompt
-    4. Call Gemini 3.1 Pro Preview for the response
-    """
+    """Deterministic fallback when the local assistant model is unavailable."""
     msg_lower = message.lower()
     timeline = _profile_data.get("clinical_timeline", {})
 
     if "medication" in msg_lower or "med" in msg_lower:
         meds = timeline.get("medications", [])
-        active = [m for m in meds if m.get("status") in ("active", "prn")]
+        active = [m for m in meds if str(m.get("status") or "").lower() in ("active", "prn")]
         if active:
             med_list = ", ".join(m["name"] for m in active)
             return f"Based on your records, your active medications are: {med_list}. Would you like details about any of these?"
@@ -3521,15 +4058,21 @@ def _simple_chat_response(message: str) -> str:
 
     if "lab" in msg_lower or "test" in msg_lower:
         labs = timeline.get("labs", [])
-        flagged = [l for l in labs if l.get("flag") and l["flag"].lower() not in ("normal", "")]
+        flagged = [
+            l for l in labs
+            if l.get("flag") and str(l["flag"]).lower() not in ("normal", "")
+        ]
         if flagged:
-            lab_list = ", ".join(f"{l['name']} ({l.get('flag', '')})" for l in flagged[:5])
+            lab_list = ", ".join(
+                f"{l.get('test_name') or l.get('name', 'Unknown')} ({l.get('flag', '')})"
+                for l in flagged[:5]
+            )
             return f"Your flagged lab results include: {lab_list}. Would you like to know more about any of these?"
         return "Your lab results are all within normal range based on available records."
 
     if "diagnosis" in msg_lower or "condition" in msg_lower:
         dxs = timeline.get("diagnoses", [])
-        active = [d for d in dxs if d.get("status", "").lower() in ("active", "chronic")]
+        active = [d for d in dxs if str(d.get("status") or "").lower() in ("active", "chronic")]
         if active:
             dx_list = ", ".join(d["name"] for d in active)
             return f"Your active conditions include: {dx_list}."
@@ -3544,6 +4087,37 @@ def _simple_chat_response(message: str) -> str:
         "• Cross-disciplinary connections\n\n"
         "What would you like to know?"
     )
+
+
+def _generate_chat_response(message: str) -> str:
+    """Answer chat questions with the local assistant model, then fall back safely."""
+    profile_context = _build_chat_profile_context(_profile_data or {})
+    system_prompt = (
+        "You are the local clinical record assistant inside Clinical Intelligence Hub. "
+        "Answer only from the patient summary you are given. "
+        "Do not claim to have searched the web, reviewed literature, or seen source files beyond this summary. "
+        "If the user asks for latest studies, web results, or external evidence, say that external research belongs in the research pipeline. "
+        "Use plain language for a non-technical adult. "
+        "Do not diagnose or prescribe. Frame next steps as questions for the clinician when appropriate. "
+        "Keep answers concise and grounded."
+    )
+    user_prompt = (
+        "PATIENT RECORD SUMMARY\n"
+        f"{profile_context}\n\n"
+        "USER QUESTION\n"
+        f"{message}"
+    )
+
+    response = _call_local_assistant_model(
+        user_prompt,
+        system_prompt=system_prompt,
+        num_predict=768,
+        temperature=0.2,
+    )
+    if response:
+        return response
+
+    return _simple_chat_response(message)
 
 
 # ── API Key Management ────────────────────────────────────────

@@ -325,8 +325,7 @@ def test_pipeline_end_to_end_structure():
         passes = [
             "_pass_0_preprocess",
             "_pass_1a_text_extraction",
-            "_pass_1b_vision",
-            "_pass_1c_monai",
+            "_pass_image_analysis",
             "_pass_1_5_redaction",
             "_pass_2_4_cloud_analysis",
             "_pass_5_validation",
@@ -384,6 +383,7 @@ def test_flask_app_full_route_coverage():
         "/api/chat",
         "/api/keys",
         "/api/keys/status",
+        "/api/pipeline/api-calls",
     ]
 
     missing = [r for r in expected if r not in rules]

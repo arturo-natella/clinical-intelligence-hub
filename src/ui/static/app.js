@@ -206,6 +206,10 @@ function updateSettingStatus(elementId, configured, configuredLabel) {
 
 var App = {
     uploadedFiles: [],
+    _activeProfileId: null,
+    _activeProfileName: null,
+    _profiles: [],
+    _apiCallsPaused: false,
 
     // ── Initialization ────────────────────────────────
 
@@ -225,15 +229,36 @@ var App = {
             if (e.key === "Enter") App.unlock();
         });
 
+        // Enter key on new profile name input
+        $("new-profile-name").addEventListener("keydown", function(e) {
+            if (e.key === "Enter") App.createProfile();
+        });
+
         // Check if already unlocked (page refresh)
         try {
             var status = await api("/api/session/status");
             if (status.unlocked) {
                 $("passphrase-modal").style.display = "none";
-                $("sidebar").style.display = "flex";
-                $("main-content").style.display = "block";
+
+                // Restore profile state
+                try {
+                    var profileData = await api("/api/profiles");
+                    App._profiles = profileData.profiles || [];
+                    App._activeProfileId = profileData.active_profile_id;
+                    if (App._activeProfileId) {
+                        var p = App._profiles.find(function(p) { return p.id === App._activeProfileId; });
+                        App._activeProfileName = p ? p.name : "Profile";
+                    }
+                } catch (e2) { /* profiles not available in bypass mode */ }
+
+                App._showMainUI();
                 if (status.has_profile) {
                     App.loadAllData();
+                }
+
+                // Restore progress bar if a pipeline is currently running
+                if (status.pipeline_running) {
+                    App._restorePipelineProgress();
                 }
             }
         } catch (e) {
@@ -259,15 +284,149 @@ var App = {
             });
 
             $("passphrase-modal").style.display = "none";
-            $("sidebar").style.display = "flex";
-            $("main-content").style.display = "block";
 
-            if (result.has_profile) {
+            App._profiles = result.profiles || [];
+
+            if (result.active_profile_id) {
+                // Single profile auto-activated
+                App._activeProfileId = result.active_profile_id;
+                var p = App._profiles.find(function(p) { return p.id === result.active_profile_id; });
+                App._activeProfileName = p ? p.name : "Profile";
+                App._showMainUI();
                 App.loadAllData();
+            } else if (App._profiles.length > 1) {
+                // Multiple profiles — show selector
+                App.showProfileSelector();
+            } else if (App._profiles.length === 0) {
+                // No profiles yet — show selector to create one
+                App.showProfileSelector();
+            } else {
+                // Bypass mode or single profile already loaded
+                App._showMainUI();
+                if (result.has_profile) {
+                    App.loadAllData();
+                }
             }
         } catch (e) {
             $("passphrase-error").textContent = e.message || "Failed to unlock vault";
             $("passphrase-error").style.display = "block";
+        }
+    },
+
+    _showMainUI: function() {
+        $("sidebar").style.display = "flex";
+        $("main-content").style.display = "block";
+        App._updateProfileIndicator();
+        App.refreshApiCallState();
+    },
+
+    _updateProfileIndicator: function() {
+        var indicator = $("profile-indicator");
+        var nameEl = $("profile-name-display");
+        if (App._activeProfileName) {
+            indicator.style.display = "block";
+            nameEl.textContent = App._activeProfileName;
+        } else {
+            indicator.style.display = "none";
+        }
+    },
+
+    // ── Profile Management ───────────────────────────
+
+    showProfileSelector: async function() {
+        // Refresh profile list from server
+        try {
+            var data = await api("/api/profiles");
+            App._profiles = data.profiles || [];
+            App._activeProfileId = data.active_profile_id;
+        } catch (e) {
+            // Use cached list
+        }
+
+        var list = $("profile-list");
+        if (App._profiles.length === 0) {
+            list.innerHTML = '<div style="text-align:center; color:var(--text-muted); padding:20px; font-size:14px;">'
+                + 'No profiles yet. Create one below to get started.</div>';
+        } else {
+            var html = '';
+            for (var i = 0; i < App._profiles.length; i++) {
+                var p = App._profiles[i];
+                var isActive = p.id === App._activeProfileId;
+                html += '<div style="display:flex; align-items:center; gap:10px; padding:10px 14px; border-radius:var(--radius-sm); margin-bottom:6px; cursor:pointer; border:1px solid '
+                    + (isActive ? 'var(--heat)' : 'var(--border-muted)')
+                    + '; background:' + (isActive ? 'var(--heat-8)' : 'var(--bg-card)')
+                    + ';" onclick="App.activateProfile(\'' + escapeHtml(p.id) + '\')">'
+                    + '<svg class="w-5 h-5" style="color:' + (isActive ? 'var(--heat)' : 'var(--text-muted)') + '; flex-shrink:0;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/></svg>'
+                    + '<div style="flex:1; min-width:0;">'
+                    + '<div style="font-size:14px; font-weight:500; color:var(--text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + escapeHtml(p.name) + '</div>'
+                    + '<div style="font-size:11px; color:var(--text-muted);">Created ' + escapeHtml(p.created || '') + '</div>'
+                    + '</div>'
+                    + '<button onclick="event.stopPropagation(); App.deleteProfile(\'' + escapeHtml(p.id) + '\', \'' + escapeHtml(p.name) + '\')" style="background:none; border:none; cursor:pointer; color:var(--text-muted); padding:4px;" title="Delete profile">'
+                    + '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/></svg>'
+                    + '</button>'
+                    + '</div>';
+            }
+            list.innerHTML = html;
+        }
+
+        $("profile-modal").style.display = "flex";
+        $("new-profile-name").focus();
+    },
+
+    createProfile: async function() {
+        var nameInput = $("new-profile-name");
+        var name = nameInput.value.trim();
+        if (!name) {
+            $("profile-modal-error").textContent = "Please enter a profile name";
+            $("profile-modal-error").style.display = "block";
+            return;
+        }
+
+        try {
+            var result = await api("/api/profiles", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name: name }),
+            });
+
+            App._activeProfileId = result.profile_id;
+            App._activeProfileName = name;
+            nameInput.value = "";
+            $("profile-modal-error").style.display = "none";
+            $("profile-modal").style.display = "none";
+            App._showMainUI();
+        } catch (e) {
+            $("profile-modal-error").textContent = e.message || "Failed to create profile";
+            $("profile-modal-error").style.display = "block";
+        }
+    },
+
+    activateProfile: async function(profileId) {
+        try {
+            await api("/api/profiles/" + profileId + "/activate", { method: "POST" });
+            var p = App._profiles.find(function(p) { return p.id === profileId; });
+            App._activeProfileId = profileId;
+            App._activeProfileName = p ? p.name : "Profile";
+            $("profile-modal").style.display = "none";
+            App._showMainUI();
+            App.loadAllData();
+        } catch (e) {
+            $("profile-modal-error").textContent = e.message || "Failed to activate profile";
+            $("profile-modal-error").style.display = "block";
+        }
+    },
+
+    deleteProfile: async function(profileId, profileName) {
+        if (!confirm("Delete profile \"" + profileName + "\"? This cannot be undone.")) {
+            return;
+        }
+        try {
+            await api("/api/profiles/" + profileId, { method: "DELETE" });
+            // Refresh the selector
+            App.showProfileSelector();
+        } catch (e) {
+            $("profile-modal-error").textContent = e.message || "Failed to delete profile";
+            $("profile-modal-error").style.display = "block";
         }
     },
 
@@ -290,7 +449,10 @@ var App = {
 
     // ── View Navigation ───────────────────────────────
 
+    _activeView: "dashboard",
+
     navigateTo: function(view) {
+        App._activeView = view;
         // Hide all views
         var views = document.querySelectorAll(".view");
         for (var i = 0; i < views.length; i++) views[i].classList.remove("active");
@@ -428,6 +590,63 @@ var App = {
 
     // ── Analysis Pipeline ─────────────────────────────
 
+    _restorePipelineProgress: async function() {
+        /**
+         * Called on page load when a pipeline is running.
+         * Fetches persisted progress state and restores the progress bar,
+         * terminal log, and SSE listener so the user sees continuity.
+         */
+        try {
+            var status = await api("/api/pipeline/status");
+            App._updateApiCallControls(Boolean(status.api_calls_paused));
+            if (!status.running) return;
+
+            // Show the progress card, hide upload/actions
+            $("upload-card").style.display = "none";
+            if ($("files-card")) $("files-card").style.display = "none";
+            $("progress-card").style.display = "block";
+            $("actions-card").style.display = "none";
+
+            // Restore progress bar position
+            if (status.percent >= 0) {
+                $("progress-fill").style.width = status.percent + "%";
+                $("progress-text").textContent = status.message || "Resuming...";
+            }
+
+            // Restore pause button state
+            if (status.paused) {
+                var btn = $("pause-btn");
+                if (btn) {
+                    btn.textContent = "Resume Processing";
+                    btn.style.background = "var(--accent-green, #3fb950)";
+                }
+                $("progress-text").textContent = "Paused \u2014 safe to close laptop";
+            }
+
+            // Replay terminal log from server
+            var terminal = $("pipeline-terminal");
+            if (terminal && status.terminal_log) {
+                terminal.textContent = "";
+                for (var i = 0; i < status.terminal_log.length; i++) {
+                    var entry = status.terminal_log[i];
+                    var ts = new Date(entry.timestamp * 1000);
+                    var timeStr = ts.toLocaleTimeString("en-US", {hour12:false, hour:"2-digit", minute:"2-digit", second:"2-digit"});
+                    var color = "#8b949e";
+                    if (entry.pass === "error") color = "#f85149";
+                    else if (entry.pass === "complete") color = "#3fb950";
+                    else if (entry.pass === "log") color = "#7d8590";
+                    else if (entry.pass && entry.pass.startsWith("pass_")) color = "#58a6ff";
+                    App._appendTerminalLine(timeStr, entry.message, color);
+                }
+            }
+
+            // Reconnect to SSE for future progress events (skip terminal clear)
+            App.listenProgress(true);
+        } catch (e) {
+            console.error("Failed to restore pipeline progress:", e);
+        }
+    },
+
     startAnalysis: async function() {
         try {
             await api("/api/analyze", {
@@ -464,10 +683,13 @@ var App = {
         terminal.scrollTop = terminal.scrollHeight;
     },
 
-    listenProgress: function() {
+    listenProgress: function(skipTerminalClear) {
+        if (App._evtSource) {
+            try { App._evtSource.close(); } catch(e) {}
+        }
         App._evtSource = new EventSource("/api/progress");
         var terminal = $("pipeline-terminal");
-        if (terminal) terminal.textContent = "";
+        if (terminal && !skipTerminalClear) terminal.textContent = "";
 
         App._evtSource.onmessage = function(event) {
             var data = JSON.parse(event.data);
@@ -490,8 +712,22 @@ var App = {
             else if (data.pass && data.pass.startsWith("pass_")) color = "#58a6ff";
             App._appendTerminalLine(timeStr, data.message, color);
 
+            if (data.pass === "profile_updated") {
+                App.loadAllData();
+                return;
+            }
+
+            if (data.pass === "api_calls_paused" || data.pass === "api_waiting") {
+                App._updateApiCallControls(true);
+                if (data.pass === "api_waiting") {
+                    $("progress-text").textContent = data.message;
+                }
+            } else if (data.pass === "api_calls_resumed") {
+                App._updateApiCallControls(false);
+            }
+
             if (data.pass === "paused") {
-                $("pause-btn").textContent = "Resume";
+                $("pause-btn").textContent = "Resume Processing";
                 $("pause-btn").style.background = "var(--accent-green, #3fb950)";
                 $("progress-text").textContent = "Paused \u2014 safe to close laptop";
             }
@@ -511,7 +747,11 @@ var App = {
         };
 
         App._evtSource.onerror = function() {
-            App._evtSource.close();
+            // SSE auto-reconnects by default in EventSource.
+            // Only close permanently if the pipeline finished.
+            if (App._evtSource && App._evtSource.readyState === 2) {
+                App._evtSource.close();
+            }
         };
     },
 
@@ -521,10 +761,10 @@ var App = {
             var data = await resp.json();
             var btn = $("pause-btn");
             if (data.state === "paused") {
-                btn.textContent = "Resume";
+                btn.textContent = "Resume Processing";
                 btn.style.background = "var(--accent-green, #3fb950)";
             } else {
-                btn.textContent = "Pause";
+                btn.textContent = "Pause Processing";
                 btn.style.background = "var(--accent-amber, #f59e0b)";
             }
         } catch (e) {
@@ -532,11 +772,60 @@ var App = {
         }
     },
 
+    _updateApiCallControls: function(paused) {
+        App._apiCallsPaused = Boolean(paused);
+
+        var buttons = document.querySelectorAll("[data-api-pause-button]");
+        for (var i = 0; i < buttons.length; i++) {
+            buttons[i].textContent = paused ? "Resume API Calls" : "Pause API Calls";
+            buttons[i].setAttribute("aria-pressed", paused ? "true" : "false");
+            buttons[i].style.color = paused
+                ? "var(--accent-green, #3fb950)"
+                : "var(--accent-amber, #f59e0b)";
+            buttons[i].style.borderColor = paused
+                ? "var(--accent-green, #3fb950)"
+                : "var(--accent-amber, #f59e0b)";
+        }
+
+        var statuses = document.querySelectorAll("[data-api-pause-status]");
+        for (var j = 0; j < statuses.length; j++) {
+            statuses[j].textContent = paused
+                ? "API calls paused — local record processing continues"
+                : "APIs enabled after local processing";
+            statuses[j].style.color = paused
+                ? "var(--accent-amber, #f59e0b)"
+                : "var(--accent-green, #3fb950)";
+        }
+    },
+
+    refreshApiCallState: async function() {
+        try {
+            var status = await api("/api/pipeline/status");
+            App._updateApiCallControls(Boolean(status.api_calls_paused));
+        } catch (e) {
+            console.error("Failed to load API call state:", e);
+        }
+    },
+
+    toggleApiCalls: async function() {
+        var shouldPause = !App._apiCallsPaused;
+        try {
+            var result = await api("/api/pipeline/api-calls", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ paused: shouldPause }),
+            });
+            App._updateApiCallControls(Boolean(result.api_calls_paused));
+        } catch (e) {
+            alert("Could not change API call state: " + e.message);
+        }
+    },
+
     // ── Load All Data ─────────────────────────────────
 
     loadAllData: async function() {
-        App.loadDashboard();
-        // Other views load on demand when navigated to
+        // Reload whichever view is active so incremental data shows everywhere
+        App.navigateTo(App._activeView || "dashboard");
     },
 
     // ── Dashboard ─────────────────────────────────────
@@ -848,16 +1137,20 @@ var App = {
                 return App._normalizeLabRecord(lab, index);
             });
 
-            // Sort: flagged first, then by date
-            var sorted = normalizedLabs.slice().sort(function(a, b) {
-                var aFlag = App._isFlaggedLab(a.flag) ? 0 : 1;
-                var bFlag = App._isFlaggedLab(b.flag) ? 0 : 1;
+            // Group by canonical lab name so repeated measurements collapse
+            // into a single row with a trend, instead of N separate alerts.
+            var groups = App._groupLabsByName(normalizedLabs);
+
+            // Sort: groups whose latest reading is flagged first, then by latest date.
+            groups.sort(function(a, b) {
+                var aFlag = App._isFlaggedLab(a.latest.flag) ? 0 : 1;
+                var bFlag = App._isFlaggedLab(b.latest.flag) ? 0 : 1;
                 if (aFlag !== bFlag) return aFlag - bFlag;
-                return (b.test_date || "").localeCompare(a.test_date || "");
+                return (b.latest.test_date || "").localeCompare(a.latest.test_date || "");
             });
 
-            for (var i = 0; i < sorted.length; i++) {
-                App._appendLabRows(tbody, sorted[i], normalizedLabs);
+            for (var i = 0; i < groups.length; i++) {
+                App._appendGroupedLabRow(tbody, groups[i], normalizedLabs);
             }
         } catch (e) { /* no data */ }
     },
@@ -926,7 +1219,40 @@ var App = {
         return normalized;
     },
 
-    _appendLabRows: function(tbody, lab, allLabs) {
+    _groupLabsByName: function(normalizedLabs) {
+        var buckets = {};
+        var order = [];
+        for (var i = 0; i < normalizedLabs.length; i++) {
+            var lab = normalizedLabs[i];
+            var key = normalizeLabGlossaryKey(lab.name);
+            if (!key) key = "lab:" + i;
+            if (!buckets[key]) {
+                buckets[key] = { key: key, entries: [] };
+                order.push(key);
+            }
+            buckets[key].entries.push(lab);
+        }
+        var out = [];
+        for (var oi = 0; oi < order.length; oi++) {
+            var g = buckets[order[oi]];
+            g.entries.sort(function(a, b) {
+                var ad = a.test_date || "";
+                var bd = b.test_date || "";
+                if (ad === bd) return 0;
+                if (!ad) return 1;
+                if (!bd) return -1;
+                return bd.localeCompare(ad);
+            });
+            g.latest = g.entries[0];
+            g.prior = g.entries.length > 1 ? g.entries[1] : null;
+            g.history = g.entries;
+            out.push(g);
+        }
+        return out;
+    },
+
+    _appendGroupedLabRow: function(tbody, group, allLabs) {
+        var lab = group.latest;
         var mainRow = document.createElement("tr");
         mainRow.className = "lab-row-main";
         mainRow.tabIndex = 0;
@@ -973,11 +1299,35 @@ var App = {
             testWrap.appendChild(tooltip);
         }
         testCell.appendChild(testWrap);
+
+        if (group.entries.length > 1) {
+            var countEl = document.createElement("div");
+            countEl.className = "lab-test-count";
+            countEl.textContent = group.entries.length + " readings";
+            testCell.appendChild(countEl);
+        }
         mainRow.appendChild(testCell);
 
         var valueCell = document.createElement("td");
-        var value = lab.value != null ? lab.value : (lab.value_text || "\u2014");
-        valueCell.textContent = String(value);
+        var valueWrap = document.createElement("div");
+        valueWrap.className = "lab-value-cell";
+
+        var valueMain = document.createElement("div");
+        valueMain.className = "lab-value-main";
+        var rawValue = lab.value != null ? lab.value : (lab.value_text || "\u2014");
+        valueMain.textContent = String(rawValue);
+        valueWrap.appendChild(valueMain);
+
+        var trend = App._buildTrendIndicator(lab, group.prior);
+        var spark = App._buildSparkline(group.history);
+        if (trend || spark) {
+            var meta = document.createElement("div");
+            meta.className = "lab-value-meta";
+            if (trend) meta.appendChild(trend);
+            if (spark) meta.appendChild(spark);
+            valueWrap.appendChild(meta);
+        }
+        valueCell.appendChild(valueWrap);
         mainRow.appendChild(valueCell);
 
         var unitCell = document.createElement("td");
@@ -1016,6 +1366,107 @@ var App = {
 
         tbody.appendChild(mainRow);
         tbody.appendChild(detailRow);
+    },
+
+    _numericLabValue: function(lab) {
+        if (!lab) return null;
+        var raw = lab.value != null ? lab.value : lab.value_text;
+        if (raw == null || raw === "") return null;
+        var num = parseFloat(String(raw).replace(/,/g, ""));
+        return isFinite(num) ? num : null;
+    },
+
+    _monthsAgoLabel: function(laterStr, earlierStr) {
+        if (!laterStr || !earlierStr) return "";
+        var later = new Date(laterStr);
+        var earlier = new Date(earlierStr);
+        if (isNaN(later.getTime()) || isNaN(earlier.getTime())) return "";
+        var diffDays = Math.round((later - earlier) / 86400000);
+        if (diffDays < 0) return "";
+        if (diffDays < 30) return diffDays + "d";
+        var months = Math.round(diffDays / 30.44);
+        if (months < 12) return months + "mo";
+        var years = Math.round(months / 12 * 10) / 10;
+        return years + "y";
+    },
+
+    _buildTrendIndicator: function(latest, prior) {
+        if (!prior) return null;
+        var latestNum = App._numericLabValue(latest);
+        var priorNum = App._numericLabValue(prior);
+        if (latestNum == null || priorNum == null) return null;
+
+        var arrow, label, cls;
+        if (latestNum > priorNum) { arrow = "\u2191"; label = "Up"; cls = "trend-up"; }
+        else if (latestNum < priorNum) { arrow = "\u2193"; label = "Down"; cls = "trend-down"; }
+        else { arrow = "\u2192"; label = "Unchanged"; cls = "trend-flat"; }
+
+        var span = document.createElement("span");
+        span.className = "lab-trend " + cls;
+
+        var arrowEl = document.createElement("span");
+        arrowEl.className = "lab-trend-arrow";
+        arrowEl.setAttribute("aria-label", label + " from previous reading");
+        arrowEl.textContent = arrow;
+        span.appendChild(arrowEl);
+
+        var fromEl = document.createElement("span");
+        fromEl.className = "lab-trend-from";
+        var ago = App._monthsAgoLabel(latest.test_date, prior.test_date);
+        fromEl.textContent = " from " + priorNum + (ago ? " (" + ago + ")" : "");
+        span.appendChild(fromEl);
+
+        return span;
+    },
+
+    _buildSparkline: function(history) {
+        var nums = [];
+        for (var i = history.length - 1; i >= 0; i--) {
+            var n = App._numericLabValue(history[i]);
+            if (n != null) nums.push(n);
+        }
+        if (nums.length < 2) return null;
+
+        var w = 64, h = 18, pad = 2;
+        var min = Math.min.apply(null, nums);
+        var max = Math.max.apply(null, nums);
+        var span = max - min || 1;
+        var step = nums.length > 1 ? (w - 2 * pad) / (nums.length - 1) : 0;
+
+        var coords = nums.map(function(v, i) {
+            var x = pad + i * step;
+            var y = h - pad - ((v - min) / span) * (h - 2 * pad);
+            return x.toFixed(1) + "," + y.toFixed(1);
+        });
+
+        var svgNs = "http://www.w3.org/2000/svg";
+        var svg = document.createElementNS(svgNs, "svg");
+        svg.setAttribute("class", "lab-sparkline");
+        svg.setAttribute("width", w);
+        svg.setAttribute("height", h);
+        svg.setAttribute("viewBox", "0 0 " + w + " " + h);
+        svg.setAttribute("aria-hidden", "true");
+
+        var poly = document.createElementNS(svgNs, "polyline");
+        poly.setAttribute("fill", "none");
+        poly.setAttribute("stroke", "currentColor");
+        poly.setAttribute("stroke-width", "1.4");
+        poly.setAttribute("stroke-linejoin", "round");
+        poly.setAttribute("stroke-linecap", "round");
+        poly.setAttribute("points", coords.join(" "));
+        svg.appendChild(poly);
+
+        var lastIdx = nums.length - 1;
+        var lastX = pad + lastIdx * step;
+        var lastY = h - pad - ((nums[lastIdx] - min) / span) * (h - 2 * pad);
+        var dot = document.createElementNS(svgNs, "circle");
+        dot.setAttribute("cx", lastX.toFixed(1));
+        dot.setAttribute("cy", lastY.toFixed(1));
+        dot.setAttribute("r", "1.6");
+        dot.setAttribute("fill", "currentColor");
+        svg.appendChild(dot);
+
+        return svg;
     },
 
     _populateLabDetail: function(container, lab, allLabs) {

@@ -14,8 +14,10 @@ Pass 4: Literature Search
   - Pharmacogenomics databases
   - Clinical trial matching
 
-Model: gemini-deep-research-pro-preview-12-2025
-Fallback: gemini-3.1-pro-preview (if Deep Research unavailable)
+Model: gemini-3-flash-preview
+
+This module keeps the two-pass research workflow but uses the standard Flash
+model rather than the separately billed managed Deep Research agent.
 """
 
 import json
@@ -29,12 +31,17 @@ from src.models import (
     FindingCategory,
     LiteratureCitation,
 )
+from src.analysis.gemini_config import (
+    GEMINI_MODEL_ID,
+    create_client,
+    generate_content,
+)
 
 logger = logging.getLogger("CIH-DeepResearch")
 
-# Deep Research model ID
-DEEP_RESEARCH_MODEL = "gemini-deep-research-pro-preview-12-2025"
-FALLBACK_MODEL = "gemini-3.1-pro-preview"
+# Backward-compatible names; every paid generation uses the same Flash model.
+DEEP_RESEARCH_MODEL = GEMINI_MODEL_ID
+FALLBACK_MODEL = GEMINI_MODEL_ID
 
 
 class DeepResearch:
@@ -48,9 +55,6 @@ class DeepResearch:
     def __init__(self, api_key: str):
         self._api_key = api_key
         self._client = None
-        self._deep_model = None
-        self._fallback_model = None
-        self._deep_available = False
         self._setup_client()
 
     def analyze(self, profile_summary: str,
@@ -120,17 +124,12 @@ class DeepResearch:
         prompt = engine.get_deep_research_prompt(queries, profile_summary)
 
         try:
-            model = self._deep_model or self._fallback_model
-            if not model:
-                return None
-
-            response = model.generate_content(
+            response = generate_content(
+                self._client,
                 prompt,
-                generation_config={
-                    "temperature": 0.2,
-                    "max_output_tokens": 16384,
-                    "response_mime_type": "application/json",
-                },
+                temperature=0.2,
+                max_output_tokens=16384,
+                response_mime_type="application/json",
             )
 
             raw_findings = json.loads(response.text)
@@ -236,17 +235,12 @@ Output as JSON with:
   "questions": [array of question strings]"""
 
         try:
-            model = self._deep_model or self._fallback_model
-            if not model:
-                return None
-
-            response = model.generate_content(
+            response = generate_content(
+                self._client,
                 prompt,
-                generation_config={
-                    "temperature": 0.1,
-                    "max_output_tokens": 8192,
-                    "response_mime_type": "application/json",
-                },
+                temperature=0.1,
+                max_output_tokens=8192,
+                response_mime_type="application/json",
             )
 
             raw = json.loads(response.text)
@@ -287,31 +281,14 @@ Output as JSON with:
     # ── Setup ───────────────────────────────────────────────
 
     def _setup_client(self):
-        """Initialize Gemini clients (Deep Research + fallback)."""
+        """Initialize the Gemini 3 Flash client."""
         try:
-            import google.generativeai as genai
-
-            genai.configure(api_key=self._api_key)
-            self._client = genai
-
-            # Try Deep Research model first
-            try:
-                self._deep_model = genai.GenerativeModel(DEEP_RESEARCH_MODEL)
-                self._deep_available = True
-                logger.info(f"Deep Research model initialized: {DEEP_RESEARCH_MODEL}")
-            except Exception:
-                logger.warning(
-                    f"Deep Research model unavailable ({DEEP_RESEARCH_MODEL}). "
-                    f"Falling back to {FALLBACK_MODEL}"
-                )
-
-            # Always set up fallback
-            self._fallback_model = genai.GenerativeModel(FALLBACK_MODEL)
+            self._client = create_client(self._api_key)
+            logger.info("Research model initialized: %s", GEMINI_MODEL_ID)
 
         except ImportError:
             logger.error(
-                "google-generativeai not installed. "
-                "Run: pip install google-generativeai"
+                "google-genai not installed. Run: pip install google-genai"
             )
         except Exception as e:
             logger.error(f"Failed to initialize Gemini: {e}")

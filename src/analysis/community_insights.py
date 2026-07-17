@@ -24,8 +24,14 @@ import logging
 from typing import Optional
 
 from src.models import CommunityInsight
+from src.analysis.gemini_config import (
+    GEMINI_MODEL_ID,
+    create_client,
+    generate_content,
+)
 
 logger = logging.getLogger("CIH-Community")
+MODEL_ID = GEMINI_MODEL_ID
 
 
 class CommunityInsights:
@@ -43,7 +49,7 @@ class CommunityInsights:
             api_key: Gemini API key for mechanism explanation (optional)
         """
         self._api_key = api_key
-        self._gemini_model = None
+        self._gemini_client = None
         if api_key:
             self._setup_gemini()
 
@@ -90,7 +96,7 @@ class CommunityInsights:
                 )
 
                 # Add Gemini mechanism explanation if available
-                if self._gemini_model and insight.upvote_count >= 1000:
+                if self._gemini_client and insight.upvote_count >= 1000:
                     mechanism = self._explain_mechanism(
                         insight.description,
                         query_info.get("context", ""),
@@ -211,13 +217,16 @@ class CommunityInsights:
         Use Gemini to explain potential biological mechanism behind
         a community-reported pattern.
         """
-        if not self._gemini_model:
+        if not self._gemini_client:
             return None
+
+        from src.privacy.redactor import redact_for_cloud
+        redacted_context = redact_for_cloud(patient_context, "community_mechanism")
 
         prompt = f"""A patient community on Reddit reports the following pattern:
 "{community_pattern}"
 
-Patient context: {patient_context}
+Patient context: {redacted_context}
 
 If there is a plausible biological or pharmacological mechanism that
 could explain this community-reported pattern, explain it briefly
@@ -228,12 +237,11 @@ If there is NO plausible mechanism, respond with "No established mechanism."
 Note: This is for educational purposes. The community report is unverified."""
 
         try:
-            response = self._gemini_model.generate_content(
+            response = generate_content(
+                self._gemini_client,
                 prompt,
-                generation_config={
-                    "temperature": 0.2,
-                    "max_output_tokens": 256,
-                },
+                temperature=0.2,
+                max_output_tokens=256,
             )
             text = response.text.strip()
             if "no established mechanism" in text.lower():
@@ -241,7 +249,7 @@ Note: This is for educational purposes. The community report is unverified."""
             return text
 
         except Exception as e:
-            logger.debug(f"Mechanism explanation failed: {e}")
+            logger.warning(f"Mechanism explanation failed: {e}")
             return None
 
     # ── Subreddit Mapping ───────────────────────────────────
@@ -299,8 +307,7 @@ Note: This is for educational purposes. The community report is unverified."""
     def _setup_gemini(self):
         """Initialize Gemini for mechanism explanation."""
         try:
-            import google.generativeai as genai
-            genai.configure(api_key=self._api_key)
-            self._gemini_model = genai.GenerativeModel("gemini-3.1-pro-preview")
+            self._gemini_client = create_client(self._api_key)
+            logger.info("Community explanation model initialized: %s", MODEL_ID)
         except Exception as e:
             logger.debug(f"Gemini mechanism explainer not available: {e}")

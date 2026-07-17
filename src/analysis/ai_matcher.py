@@ -4,7 +4,7 @@ Clinical Intelligence Hub — AI-Enhanced Clinical Matcher
 Provides semantic matching for clinical findings, resolving synonyms
 and abbreviations that substring matching misses.
 
-Cascade: Gemini (cloud) -> Ollama/Qwen (local) -> built-in synonym table
+Cascade: local Ollama model -> built-in synonym table
 
 Examples of what this catches that substring matching misses:
   - "SOB" matches "dyspnea" / "shortness of breath"
@@ -13,9 +13,10 @@ Examples of what this catches that substring matching misses:
   - "low platelets" matches "thrombocytopenia"
 """
 
-import json
 import logging
 from typing import Optional
+
+from src.local_llm import call_local_text_model, parse_json_array_from_text
 
 logger = logging.getLogger("CIH-AIMatcher")
 
@@ -161,8 +162,7 @@ class AIMatcher:
 
     Cascade order:
       1. Built-in synonym table (instant, always available)
-      2. Gemini cloud API (best quality, needs API key)
-      3. Ollama/Qwen local (good quality, needs local setup)
+      2. Local Ollama assistant model (good quality, on-device)
 
     The synonym table handles ~80% of cases. LLM calls only fire
     for unmatched patterns where semantic understanding is needed.
@@ -216,8 +216,8 @@ class AIMatcher:
                 if s != term_lower
             ]
 
-        # LLM expansion for terms not in our table
-        if not result and self._api_key:
+        # Local LLM expansion for terms not in our table
+        if not result:
             result = self._llm_synonyms(term_lower)
 
         self._cache[term_lower] = result
@@ -293,83 +293,36 @@ class AIMatcher:
         return False
 
     def _llm_synonyms(self, term: str) -> list:
-        """Resolve synonyms via LLM cascade: Gemini -> Ollama/Qwen."""
-        # Try Gemini
-        if self._api_key:
-            result = self._gemini_synonyms(term)
-            if result:
-                return result
-
-        # Try Ollama (Qwen 2.5)
-        result = self._ollama_synonyms(term)
+        """Resolve synonyms via the local assistant model."""
+        result = self._local_model_synonyms(term)
         if result:
             return result
 
         return []
 
-    def _gemini_synonyms(self, term: str) -> list:
-        """Resolve clinical synonyms via Gemini."""
-        try:
-            import google.generativeai as genai
-
-            genai.configure(api_key=self._api_key)
-            model = genai.GenerativeModel("gemini-2.0-flash")
-
-            prompt = (
-                f"List clinical synonyms, abbreviations, and alternate names "
-                f"for the medical term: \"{term}\". "
-                f"Return ONLY a JSON array of strings, no explanation. "
-                f"Include common abbreviations, ICD names, and patient-facing terms. "
-                f"Maximum 10 synonyms."
-            )
-
-            response = model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json",
-                    temperature=0.1,
-                ),
-            )
-
-            result = json.loads(response.text)
-            if isinstance(result, list):
-                return [s.lower().strip() for s in result if isinstance(s, str)]
-
-        except Exception as e:
-            logger.debug("Gemini synonym resolution failed: %s", e)
-
-        return []
-
-    def _ollama_synonyms(self, term: str) -> list:
-        """Resolve clinical synonyms via Ollama (Qwen 2.5 32B)."""
-        try:
-            import urllib.request
-
-            payload = json.dumps({
-                "model": "qwen2.5:32b",
-                "prompt": (
-                    f"List clinical synonyms for: \"{term}\". "
-                    f"Return ONLY a JSON array of strings. Max 10."
-                ),
-                "stream": False,
-                "format": "json",
-            }).encode()
-
-            req = urllib.request.Request(
-                "http://127.0.0.1:11434/api/generate",
-                data=payload,
-                headers={"Content-Type": "application/json"},
-            )
-
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                data = json.loads(resp.read().decode())
-                result = json.loads(data.get("response", "[]"))
-                if isinstance(result, list):
-                    return [s.lower().strip() for s in result if isinstance(s, str)]
-
-        except Exception as e:
-            logger.debug("Ollama synonym resolution failed: %s", e)
-
+    def _local_model_synonyms(self, term: str) -> list:
+        """Resolve clinical synonyms via the local assistant model."""
+        prompt = (
+            f"List clinical synonyms, abbreviations, and alternate names "
+            f"for the medical term: \"{term}\". "
+            f"Return ONLY a JSON array of strings, no explanation. "
+            f"Include common abbreviations, ICD-style names, and patient-facing terms. "
+            f"Maximum 10 synonyms."
+        )
+        system_prompt = (
+            "You are a clinical terminology assistant inside a local-first medical records tool. "
+            "Return strict JSON and do not claim to have searched the web."
+        )
+        text = call_local_text_model(
+            prompt,
+            system_prompt=system_prompt,
+            num_predict=300,
+            temperature=0.1,
+            json_mode=True,
+        )
+        result = parse_json_array_from_text(text or "")
+        if isinstance(result, list):
+            return [s.lower().strip() for s in result if isinstance(s, str)]
         return []
 
     def corpus_match(self, pattern: str, corpus: list) -> dict:

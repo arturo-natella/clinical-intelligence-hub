@@ -27,8 +27,9 @@ cd clinical-intelligence-hub
 chmod +x setup.sh && ./setup.sh
 
 # 3. Install the local AI models via Ollama
-ollama pull medgemma:27b-q8_0   # ~28GB — primary text extraction
+ollama pull jwang580/medgemma_27b_q8_0   # ~28GB — primary text extraction
 ollama pull medgemma:4b          # ~4GB  — vision analysis
+ollama pull gpt-oss:20b          # ~13GB — local assistant/chat
 ```
 
 ### Running the App
@@ -53,8 +54,8 @@ ollama pull medgemma:4b          # ~4GB  — vision analysis
    - **Pass 1b** — MedGemma 4B vision analysis (local)
    - **Pass 1c** — MONAI medical image detection (local)
    - **Pass 1.5** — PII redaction (Presidio)
-   - **Pass 2** — Gemini cloud analysis (on redacted data only)
-   - **Pass 3–4** — Deep Research pattern detection
+   - **Pass 2** — Gemini 3 Flash cloud analysis (on redacted data only)
+   - **Pass 3–4** — Gemini 3 Flash pattern detection and literature synthesis
    - **Pass 5** — 26-source clinical validation
    - **Pass 6** — Report generation
 3. Progress updates stream in real-time via SSE on the Dashboard.
@@ -87,7 +88,7 @@ The embedded **Clinical Assistant** (bottom-right of Dashboard) lets you ask que
 
 ### Settings
 
-Click the gear icon in the sidebar to configure your Google API key (needed for Gemini analysis and Deep Research).
+Click the gear icon in the sidebar to configure your Google API key (needed for Gemini 3 Flash analysis).
 
 ## Key Features in Detail
 
@@ -145,7 +146,7 @@ Graph-theory differential diagnosis engine with a 20-condition knowledge base. S
 | Python | 3.12+ | Runtime |
 | Ollama | Latest | Local model inference (MedGemma 27B/4B) |
 | Tesseract | Optional | OCR fallback (Apple Vision is primary) |
-| Google API key | — | Gemini 3.1 Pro analysis + Deep Research |
+| Google API key | — | Gemini 3 Flash cloud analysis |
 
 ### Python Dependencies
 
@@ -153,7 +154,7 @@ Graph-theory differential diagnosis engine with a 20-condition knowledge base. S
 |---------|---------|
 | Flask 3.0+ | Web application server |
 | Pydantic 2.5+ | Data models with clinical provenance |
-| google-genai 1.0+ | Gemini 3.1 Pro + Deep Research |
+| google-genai 1.0+ | Gemini 3 Flash cloud analysis |
 | ollama 0.4+ | Local model inference |
 | monai 1.3+ / torch 2.2+ | Medical image detection (MONAI pre-trained models) |
 | PyMuPDF 1.24+ | PDF text extraction |
@@ -183,7 +184,7 @@ All require free NLM UMLS registration at https://uts.nlm.nih.gov/uts/
 src/
 ├── analysis/           # AI analysis engines
 │   ├── cross_disciplinary.py    # 29-specialty + 7-domain analysis
-│   ├── deep_research.py         # Gemini Deep Research integration
+│   ├── deep_research.py         # Gemini 3 Flash research synthesis
 │   ├── snowball_engine.py       # Differential diagnosis graph engine
 │   ├── symptom_analytics.py     # Symptom pattern analysis
 │   ├── visit_prep.py            # Doctor visit preparation

@@ -1,5 +1,9 @@
 # Clinical Intelligence Hub — Development Standards
 
+## Pinecone / Open Brain
+
+`PINECONE_API_KEY` is a **GLOBAL** env var in `~/.zshrc`, NOT in this project's `.env`. Do not look for it here.
+
 ## Project Overview
 
 Open-source, local-first medical records analysis tool. Ingests patient records (PDFs, DICOM, FHIR JSON, genetic tests) and produces a comprehensive clinical intelligence report through a 6-pass analysis pipeline.
@@ -16,8 +20,8 @@ Open-source, local-first medical records analysis tool. Ingests patient records 
 - **Pass 1b:** MedGemma 4B medical image description (local, Ollama)
 - **Pass 1c:** MONAI pre-trained model inference (local, PyTorch)
 - **Pass 1.5:** PII redaction (Microsoft Presidio) — before ANY cloud API call
-- **Pass 2:** Gemini 3.1 Pro Preview fallback extraction
-- **Pass 3-4:** Gemini Deep Research (pattern detection, cross-disciplinary analysis, literature search)
+- **Pass 2:** Gemini 3 Flash fallback extraction
+- **Pass 3-4:** Gemini 3 Flash pattern detection, cross-disciplinary analysis, and literature synthesis
 - **Pass 5:** Clinical validation (OpenFDA, DrugBank, PubMed, RxNorm)
 - **Pass 6:** 10-section Word document report with provenance
 
@@ -41,8 +45,8 @@ Open-source, local-first medical records analysis tool. Ingests patient records 
 - All patient data encrypted at rest (AES-256-GCM + Argon2id)
 
 ### API Calls
-- Gemini model: `gemini-3.1-pro-preview` (NOT `gemini-1.5-pro`)
-- Deep Research model: `gemini-deep-research-pro-preview-12-2025`
+- Gemini model for every paid cloud generation: `gemini-3-flash-preview`
+- Do not use the separately billed managed Deep Research agent unless explicitly re-enabled
 - All API keys stored in encrypted vault, never plaintext
 - Rate limiting and retry with exponential backoff on all external calls
 
@@ -65,7 +69,7 @@ src/
 ├── extraction/            # Pass 0, 1a: preprocessing + text extraction
 ├── imaging/               # Pass 1b, 1c: vision + MONAI
 ├── privacy/               # Pass 1.5: PII redaction
-├── analysis/              # Pass 2-4: Gemini + Deep Research
+├── analysis/              # Pass 2-4: Gemini 3 Flash cloud analysis
 ├── validation/            # Pass 5: clinical database validation
 ├── standardization/       # LOINC, SNOMED CT, RxNorm lookups
 ├── monitoring/            # Continuous monitoring (daily/weekly)

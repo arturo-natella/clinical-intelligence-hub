@@ -42,8 +42,9 @@ if command -v ollama &> /dev/null; then
 else
     echo "  ✗ Ollama not found."
     echo "    Install from: https://ollama.com"
-    echo "    Then run: ollama pull medgemma:27b-q8_0"
+    echo "    Then run: ollama pull jwang580/medgemma_27b_q8_0"
     echo "              ollama pull medgemma:4b"
+    echo "              ollama pull gpt-oss:20b"
 fi
 
 # ── 4. Model Downloads ────────────────────────────────
@@ -55,7 +56,7 @@ if ollama list 2>/dev/null | grep -q "medgemma.*27b"; then
     echo "  ✓ MedGemma 27B already downloaded"
 else
     echo "  ⚠ MedGemma 27B not found."
-    echo "    Run: ollama pull medgemma:27b-q8_0"
+    echo "    Run: ollama pull jwang580/medgemma_27b_q8_0"
     echo "    (This is ~28GB and will take a while)"
 fi
 
@@ -65,6 +66,14 @@ if ollama list 2>/dev/null | grep -q "medgemma.*4b"; then
 else
     echo "  ⚠ MedGemma 4B not found."
     echo "    Run: ollama pull medgemma:4b"
+fi
+
+# gpt-oss 20B assistant model
+if ollama list 2>/dev/null | grep -q "gpt-oss.*20b"; then
+    echo "  ✓ gpt-oss 20B already downloaded"
+else
+    echo "  ⚠ gpt-oss 20B not found."
+    echo "    Run: ollama pull gpt-oss:20b"
 fi
 
 # ── 5. Data Directories ──────────────────────────────

@@ -209,7 +209,7 @@ def test_gemini_prompt_with_gap_context():
     from src.analysis.gemini_fallback import GeminiFallback, MODEL_ID
 
     # Verify correct model ID
-    assert MODEL_ID == "gemini-3.1-pro-preview", f"Wrong model: {MODEL_ID}"
+    assert MODEL_ID == "gemini-3-flash-preview", f"Wrong model: {MODEL_ID}"
 
     # Test prompt building
     fb = GeminiFallback.__new__(GeminiFallback)
@@ -227,6 +227,50 @@ def test_gemini_prompt_with_gap_context():
     assert "MISSED" in prompt  # Should tell Gemini to fill gaps
 
     print("✓ GeminiFallback prompt includes gap-filling context")
+
+
+def test_all_paid_gemini_paths_share_flash_model():
+    """Every paid cloud generation path must use the approved Flash model."""
+    from src.analysis.community_insights import MODEL_ID as community_model
+    from src.analysis.deep_research import DEEP_RESEARCH_MODEL, FALLBACK_MODEL
+    from src.analysis.gemini_config import GEMINI_MODEL_ID
+    from src.analysis.gemini_fallback import MODEL_ID as fallback_model
+
+    assert GEMINI_MODEL_ID == "gemini-3-flash-preview"
+    assert {
+        community_model,
+        DEEP_RESEARCH_MODEL,
+        FALLBACK_MODEL,
+        fallback_model,
+    } == {GEMINI_MODEL_ID}
+
+
+def test_shared_gemini_generator_uses_flash_model():
+    """The supported SDK call must send the centralized Flash model ID."""
+    from types import SimpleNamespace
+
+    from src.analysis.gemini_config import generate_content
+
+    calls = []
+
+    class FakeModels:
+        def generate_content(self, **kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(text='{"ok": true}')
+
+    client = SimpleNamespace(models=FakeModels())
+    response = generate_content(
+        client,
+        "redacted medical profile",
+        temperature=0.1,
+        max_output_tokens=256,
+        response_mime_type="application/json",
+    )
+
+    assert response.text == '{"ok": true}'
+    assert calls[0]["model"] == "gemini-3-flash-preview"
+    assert calls[0]["contents"] == "redacted medical profile"
+    assert calls[0]["config"].max_output_tokens == 256
 
 
 # ── Session Reset Tests ─────────────────────────────────────

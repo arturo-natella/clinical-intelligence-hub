@@ -11,21 +11,30 @@ Salvaged Ollama vision call pattern from old medgemma_vision.py.
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Optional
 
-from src.models import ImagingFinding, Provenance
+from src.models import ImagingFinding
 
 logger = logging.getLogger("CIH-VisionAnalyzer")
 
-# MedGemma 4B model for vision analysis
-MODEL_NAME = "medgemma:4b-it"
+# Official Ollama tag for the multimodal MedGemma 4B model. The previous
+# ``medgemma:4b-it`` value is a Hugging Face-style name and does not exist in
+# Ollama's registry. Allow an explicit local override for custom builds.
+MODEL_NAME = (
+    os.environ.get("MEDPREP_VISION_MODEL", "medgemma:4b").strip()
+    or "medgemma:4b"
+)
 
 
 class VisionAnalyzer:
     """Pass 1b: Describes medical images using MedGemma 4B vision model."""
 
-    def __init__(self):
+    def __init__(self, model_name: str = None):
+        self.model_name = model_name or MODEL_NAME
+        self.availability_error: Optional[str] = None
+        self.last_error: Optional[str] = None
         self._available = self._check_ollama()
 
     def analyze_image(self, image_path: Path, source_file: str,
@@ -43,12 +52,15 @@ class VisionAnalyzer:
             dict with 'description' and 'findings' list
         """
         if not self._available:
-            logger.warning("Ollama not available — skipping vision analysis")
-            return {"description": None, "findings": []}
+            error = self.availability_error or "Local vision model is not available"
+            logger.warning("%s — skipping vision analysis", error)
+            return {"description": None, "findings": [], "_error": error}
 
         if not image_path.exists():
-            logger.error(f"Image not found: {image_path}")
-            return {"description": None, "findings": []}
+            error = f"Image not found: {image_path}"
+            self.last_error = error
+            logger.error(error)
+            return {"description": None, "findings": [], "_error": error}
 
         prompt = self._build_prompt(modality, body_region)
         result = self._call_ollama_vision(prompt, image_path)
@@ -57,7 +69,8 @@ class VisionAnalyzer:
         self._unload_model()
 
         if not result:
-            return {"description": None, "findings": []}
+            error = self.last_error or "Local vision model returned no result"
+            return {"description": None, "findings": [], "_error": error}
 
         # Parse findings into models
         findings = []
@@ -105,11 +118,12 @@ Output strictly valid JSON with "description" and "findings" keys."""
 
     def _call_ollama_vision(self, prompt: str, image_path: Path) -> Optional[dict]:
         """Call Ollama with an image for vision analysis."""
+        self.last_error = None
         try:
             import ollama
 
             response = ollama.chat(
-                model=MODEL_NAME,
+                model=self.model_name,
                 messages=[{
                     "role": "user",
                     "content": prompt,
@@ -124,30 +138,68 @@ Output strictly valid JSON with "description" and "findings" keys."""
             )
 
             result_text = response["message"]["content"]
-            return json.loads(result_text)
+            result = json.loads(result_text)
+            if not isinstance(result, dict):
+                self.last_error = "Local vision model returned JSON that was not an object"
+                logger.warning(self.last_error)
+                return None
+            return result
 
         except json.JSONDecodeError as e:
-            logger.warning(f"MedGemma 4B returned invalid JSON: {e}")
+            self.last_error = f"MedGemma 4B returned invalid JSON: {e}"
+            logger.warning(self.last_error)
             return None
         except Exception as e:
-            logger.error(f"MedGemma 4B vision analysis failed: {e}")
+            self.last_error = f"MedGemma 4B vision analysis failed: {e}"
+            logger.error(self.last_error)
             return None
 
     def _unload_model(self):
         """Explicitly unload MedGemma 4B from memory."""
         try:
             import ollama
-            ollama.generate(model=MODEL_NAME, prompt="", keep_alive="0")
+            ollama.generate(model=self.model_name, prompt="", keep_alive="0")
             logger.info("MedGemma 4B unloaded from memory")
         except Exception:
             pass
 
-    @staticmethod
-    def _check_ollama() -> bool:
-        """Check if Ollama is running."""
+    def _check_ollama(self) -> bool:
+        """Verify both the Ollama daemon and the configured vision model."""
         try:
             import ollama
-            ollama.list()
-            return True
-        except Exception:
+            listing = ollama.list()
+        except Exception as e:
+            self.availability_error = (
+                f"Ollama daemon is not reachable ({e}). Start it with "
+                "`ollama serve` or launch the Ollama app."
+            )
+            logger.warning(self.availability_error)
             return False
+
+        entries = getattr(listing, "models", None)
+        if entries is None and isinstance(listing, dict):
+            entries = listing.get("models", [])
+        entries = entries or []
+
+        available = set()
+        for entry in entries:
+            name = getattr(entry, "model", None)
+            if name is None and isinstance(entry, dict):
+                name = entry.get("model") or entry.get("name")
+            if name:
+                available.add(str(name))
+
+        requested = self.model_name
+        candidates = {requested}
+        if ":" not in requested:
+            candidates.add(f"{requested}:latest")
+
+        if not (candidates & available):
+            self.availability_error = (
+                f"Ollama is running but vision model '{requested}' is not pulled. "
+                f"Run: ollama pull {requested}"
+            )
+            logger.warning(self.availability_error)
+            return False
+
+        return True

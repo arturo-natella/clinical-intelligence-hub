@@ -466,6 +466,58 @@ a, button, input, textarea, select {
     color: var(--text-muted);
 }
 
+.lab-test-count {
+    margin-top: 2px;
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.02em;
+}
+
+.lab-value-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 120px;
+}
+
+.lab-value-main {
+    font-weight: 500;
+    line-height: 1.2;
+}
+
+.lab-value-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1;
+}
+
+.lab-trend {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 2px;
+    white-space: nowrap;
+}
+
+.lab-trend-arrow {
+    font-weight: 600;
+}
+
+.lab-trend.trend-up .lab-trend-arrow { color: #f59e0b; }
+.lab-trend.trend-down .lab-trend-arrow { color: #38bdf8; }
+.lab-trend.trend-flat .lab-trend-arrow { color: var(--text-muted); }
+
+.lab-trend-from {
+    color: var(--text-muted);
+}
+
+.lab-sparkline {
+    color: var(--text-secondary);
+    flex-shrink: 0;
+}
+
 .lab-detail-panel {
     padding: 16px 4px 0;
     display: grid;

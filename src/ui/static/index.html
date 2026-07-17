@@ -77,12 +77,43 @@
 </div>
 
 <!-- ═══════════════════════════════════════════════════════
+     Profile Selector Modal — shown after unlock when multiple profiles exist
+     ═══════════════════════════════════════════════════════ -->
+<div id="profile-modal" class="modal-overlay" style="display:none;">
+    <div class="modal" style="max-width:440px;">
+        <div class="modal-title">Select Patient Profile</div>
+        <p style="text-align:center; color:var(--text-secondary); margin-bottom:20px; font-size:14px;">
+            Choose a profile to load, or create a new one.
+        </p>
+        <div id="profile-list" style="max-height:280px; overflow-y:auto; margin-bottom:16px;"></div>
+        <div style="border-top:1px solid var(--border-muted); padding-top:16px;">
+            <div style="display:flex; gap:8px;">
+                <input type="text" id="new-profile-name" placeholder="New profile name" style="flex:1; padding:10px 14px; border-radius:var(--radius-sm); border:1px solid var(--border-muted); background:var(--bg-card); color:var(--text-primary); font-size:14px;">
+                <button class="btn btn-primary" onclick="App.createProfile()" style="white-space:nowrap;">Create</button>
+            </div>
+        </div>
+        <div id="profile-modal-error" class="modal-error" style="margin-top:12px;"></div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
      Sidebar Navigation
      ═══════════════════════════════════════════════════════ -->
 <nav id="sidebar" class="fixed left-0 top-0 h-screen w-56 bg-surface-secondary border-r border-border-faint flex flex-col z-50 transition-all duration-200" style="display:none;">
     <!-- Brand -->
     <div class="px-4 py-5 border-b border-border-faint">
         <div class="text-lg font-semibold text-white tracking-tight">Clinical Intelligence Hub</div>
+    </div>
+
+    <!-- Active Profile Indicator -->
+    <div id="profile-indicator" class="px-4 py-3 border-b border-border-faint" style="display:none; cursor:pointer;" onclick="App.showProfileSelector()">
+        <div style="display:flex; align-items:center; gap:8px;">
+            <svg class="w-4 h-4" style="color:var(--heat); flex-shrink:0;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/></svg>
+            <div style="min-width:0;">
+                <div id="profile-name-display" style="font-size:13px; font-weight:500; color:var(--text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">No profile</div>
+                <div style="font-size:11px; color:var(--text-muted);">Click to switch</div>
+            </div>
+        </div>
     </div>
 
     <!-- Nav items -->
@@ -334,16 +365,28 @@
                     Load Demo Patient
                 </button>
             </div>
+            <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border-faint); display:flex; align-items:center; justify-content:center; gap:12px; flex-wrap:wrap;">
+                <button class="btn btn-outline btn-sm" data-api-pause-button
+                        onclick="App.toggleApiCalls();">Pause API Calls</button>
+                <span data-api-pause-status style="font-size:12px; color:var(--accent-green);">
+                    APIs enabled after local processing
+                </span>
+            </div>
         </div>
 
         <!-- Uploaded Files -->
         <div class="card" id="files-card" style="display:none;">
             <div class="card-title">Uploaded Files</div>
             <div id="file-list"></div>
-            <div style="margin-top:16px;">
+            <div style="margin-top:16px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
                 <button class="btn btn-primary" onclick="App.startAnalysis();">
                     Analyze Records
                 </button>
+                <button class="btn btn-outline btn-sm" data-api-pause-button
+                        onclick="App.toggleApiCalls();">Pause API Calls</button>
+                <span data-api-pause-status style="font-size:12px; color:var(--accent-green);">
+                    APIs enabled after local processing
+                </span>
             </div>
         </div>
 
@@ -351,16 +394,31 @@
         <div class="card" id="progress-card" style="display:none;">
             <div style="display:flex; align-items:center; justify-content:space-between;">
                 <div class="card-title" style="margin:0;">Analyzing Your Records</div>
-                <button id="pause-btn" onclick="App.togglePause()" style="
-                    background: var(--accent-amber, #f59e0b);
-                    color: #000;
-                    border: none;
-                    padding: 6px 16px;
-                    border-radius: 6px;
-                    font-size: 0.85rem;
-                    font-weight: 600;
-                    cursor: pointer;
-                ">Pause</button>
+                <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
+                    <button data-api-pause-button onclick="App.toggleApiCalls()" style="
+                        background: transparent;
+                        color: var(--accent-amber, #f59e0b);
+                        border: 1px solid var(--accent-amber, #f59e0b);
+                        padding: 6px 12px;
+                        border-radius: 6px;
+                        font-size: 0.82rem;
+                        font-weight: 600;
+                        cursor: pointer;
+                    ">Pause API Calls</button>
+                    <button id="pause-btn" onclick="App.togglePause()" style="
+                        background: var(--accent-amber, #f59e0b);
+                        color: #000;
+                        border: none;
+                        padding: 6px 12px;
+                        border-radius: 6px;
+                        font-size: 0.82rem;
+                        font-weight: 600;
+                        cursor: pointer;
+                    ">Pause Processing</button>
+                </div>
+            </div>
+            <div data-api-pause-status style="font-size:12px; color:var(--accent-green); margin-top:8px;">
+                APIs enabled after local processing
             </div>
             <div class="progress-container">
                 <div class="progress-bar">

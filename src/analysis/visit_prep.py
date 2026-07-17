@@ -14,9 +14,12 @@ Can produce on-screen JSON or a formatted Word doc for printing.
 """
 
 import logging
+import json
 from datetime import datetime, date, timedelta
 from pathlib import Path
 from typing import Optional
+
+from src.local_llm import call_local_text_model
 
 logger = logging.getLogger("CIH-VisitPrep")
 
@@ -44,11 +47,8 @@ class VisitPrepGenerator:
             "patterns": self._symptom_patterns(timeline),
         }
 
-        # Gemini narrative summary (optional)
-        if self._api_key:
-            sections["narrative"] = self._generate_narrative(sections)
-        else:
-            sections["narrative"] = None
+        # Local narrative summary (optional)
+        sections["narrative"] = self._generate_narrative(sections)
 
         return sections
 
@@ -463,34 +463,31 @@ class VisitPrepGenerator:
 
         return result
 
-    # ── Gemini Narrative ─────────────────────────────────
+    # ── Local Narrative ──────────────────────────────────
 
     def _generate_narrative(self, sections: dict) -> Optional[str]:
-        """Use Gemini to write a plain-English visit prep summary."""
-        try:
-            import google.generativeai as genai
-            import json
+        """Use the local assistant model to write a plain-English visit summary."""
+        data_text = json.dumps(sections, default=str)[:6000]
+        prompt = (
+            "Visit prep data:\n"
+            f"{data_text}\n\n"
+            "Write a concise, empathetic 3-4 paragraph summary the patient can "
+            "read before their appointment. Use plain language at about a 6th grade "
+            "reading level. Focus on key concerns, counter-evidence that may challenge "
+            "assumptions, and questions to ask. Do not diagnose or prescribe."
+        )
+        system_prompt = (
+            "You are a patient visit-prep writer inside a local-first medical records tool. "
+            "Use only the structured data provided. Do not claim to have searched the web."
+        )
 
-            genai.configure(api_key=self._api_key)
-            model = genai.GenerativeModel("gemini-2.0-flash")
-
-            prompt = (
-                "You are helping a patient prepare for a doctor visit. "
-                "Write a concise, empathetic 3-4 paragraph summary they can "
-                "read before their appointment. Use plain language (6th grade "
-                "reading level). Focus on:\n"
-                "1. Key concerns to bring up\n"
-                "2. Counter-evidence that challenges doctor assumptions\n"
-                "3. Questions to ask\n\n"
-                f"Data:\n{json.dumps(sections, default=str)[:6000]}"
-            )
-
-            response = model.generate_content(prompt)
-            return response.text
-
-        except Exception as e:
-            logger.warning("Gemini narrative failed: %s", e)
-            return None
+        text = call_local_text_model(
+            prompt,
+            system_prompt=system_prompt,
+            num_predict=700,
+            temperature=0.2,
+        )
+        return text or None
 
     # ── Word Document Export ─────────────────────────────
 
