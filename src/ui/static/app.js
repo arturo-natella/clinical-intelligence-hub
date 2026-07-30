@@ -302,6 +302,12 @@ var App = {
         // which is exactly when a broken local stack needs to be visible.
         App.loadSystemHealth();
 
+        // Sync the text-size control to the stored preference (zoom itself
+        // was already applied pre-paint by the head script).
+        try {
+            App.applyTextScale(localStorage.getItem("medprep_text_scale") || "1");
+        } catch (e) { /* default size */ }
+
         // Enter key on passphrase input
         $("passphrase-input").addEventListener("keydown", function(e) {
             if (e.key === "Enter") App.unlock();
@@ -910,6 +916,37 @@ var App = {
     },
 
     // ── Dashboard ─────────────────────────────────────
+
+    TEXT_SCALE_STEPS: [
+        { value: "1", label: "Standard" },
+        { value: "1.15", label: "Large" },
+        { value: "1.3", label: "Extra large" }
+    ],
+
+    applyTextScale: function(value) {
+        var step = null;
+        for (var i = 0; i < App.TEXT_SCALE_STEPS.length; i++) {
+            if (App.TEXT_SCALE_STEPS[i].value === value) { step = App.TEXT_SCALE_STEPS[i]; break; }
+        }
+        if (!step) step = App.TEXT_SCALE_STEPS[0];
+        document.documentElement.style.zoom = step.value === "1" ? "" : step.value;
+        try { localStorage.setItem("medprep_text_scale", step.value); } catch (e) { /* private mode — session-only */ }
+        var label = $("text-size-label");
+        if (label) label.textContent = "Text Size: " + step.label;
+        var btn = $("text-size-btn");
+        if (btn) btn.setAttribute("aria-label", "Text size: " + step.label + " — press to change");
+    },
+
+    cycleTextSize: function() {
+        var current = "1";
+        try { current = localStorage.getItem("medprep_text_scale") || "1"; } catch (e) { /* default */ }
+        var idx = 0;
+        for (var i = 0; i < App.TEXT_SCALE_STEPS.length; i++) {
+            if (App.TEXT_SCALE_STEPS[i].value === current) { idx = i; break; }
+        }
+        var next = App.TEXT_SCALE_STEPS[(idx + 1) % App.TEXT_SCALE_STEPS.length];
+        App.applyTextScale(next.value);
+    },
 
     loadSystemHealth: async function(force) {
         var container = $("dash-health-body");

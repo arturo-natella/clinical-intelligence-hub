@@ -88,8 +88,14 @@ rate-limit, and retry transient failures with bounded exponential backoff.
   plain-language hints. Loads at app init, before unlock — visible exactly when
   the stack is broken. Tests: `tests/test_system_health.py` (9).
   Spec: `docs/superpowers/specs/2026-07-30-system-health-panel-design.md`.
-- Still deferred: text-size toggle, light mode, sidebar density (16 items).
-  None block daily use after the polish pass.
+- **Text-size toggle — DONE 2026-07-30.** Sidebar button cycles
+  Standard/Large/Extra large via root `zoom` (px-based stylesheet rules out
+  rem scaling); stored in `localStorage["medprep_text_scale"]`, applied
+  pre-paint by a whitelisting head script. Static contract tests in
+  `tests/test_text_scale.py`; runtime cycle/persistence verified in browser.
+  Spec: `docs/superpowers/specs/2026-07-30-text-size-toggle-design.md`.
+- Still deferred: light mode, sidebar density (16 items). Neither blocks
+  daily use after the polish pass.
 
 ### Housekeeping
 - Removed the stale `nested-leaping-goose.md` rebuild-plan reference from
