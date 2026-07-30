@@ -1058,7 +1058,10 @@ class EnvironmentalDataSync:
             ) as response:
                 return json.loads(response.read().decode("utf-8"))
         except Exception as exc:
-            logger.warning("Environmental sync fetch failed for %s: %s", url, exc)
+            logger.warning(
+                "Environmental sync fetch failed (error_type=%s)",
+                type(exc).__name__,
+            )
             return None
 
     def _fetch_text(self, url: str, headers: dict[str, str] | None = None) -> str:
@@ -1084,7 +1087,10 @@ class EnvironmentalDataSync:
             ) as response:
                 return response.read()
         except Exception as exc:
-            logger.warning("Environmental sync fetch failed for %s: %s", url, exc)
+            logger.warning(
+                "Environmental sync fetch failed (error_type=%s)",
+                type(exc).__name__,
+            )
             return None
 
     def _write_json_snapshot(
@@ -1206,7 +1212,10 @@ class EnvironmentalAutoSyncWorker:
             try:
                 self._run_once(force=False)
             except Exception as exc:
-                logger.error("Environmental auto-sync loop failed: %s", exc)
+                logger.error(
+                    "Environmental auto-sync loop failed (error_type=%s)",
+                    type(exc).__name__,
+                )
             self._stop_event.wait(self.wake_interval_seconds)
 
     def _run_once(self, force: bool = False) -> dict[str, Any] | None:
@@ -1248,10 +1257,13 @@ class EnvironmentalAutoSyncWorker:
                     "last_run_at": now,
                     "next_run_at": self._next_run_at(settings.get("interval_hours", 24), now),
                     "last_status": "error",
-                    "last_error": str(exc),
+                    "last_error": type(exc).__name__,
                 },
             )
-            logger.error("Environmental auto-sync run failed: %s", exc)
+            logger.error(
+                "Environmental auto-sync run failed (error_type=%s)",
+                type(exc).__name__,
+            )
             return None
         finally:
             self._run_lock.release()

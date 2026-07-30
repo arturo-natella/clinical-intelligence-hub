@@ -1223,8 +1223,8 @@ class CrossSpecialtyEngine:
                             ]
                     except Exception as e:
                         logger.debug(
-                            "PubMed verification failed for %s: %s",
-                            disease, e,
+                            "PubMed verification failed (error_type=%s)",
+                            type(e).__name__,
                         )
 
                 ai_alerts.append({
@@ -1252,7 +1252,10 @@ class CrossSpecialtyEngine:
             return ai_alerts
 
         except Exception as e:
-            logger.warning("Local cross-specialty discovery failed: %s", e)
+            logger.warning(
+                "Local cross-specialty discovery failed (error_type=%s)",
+                type(e).__name__,
+            )
             return []
 
 

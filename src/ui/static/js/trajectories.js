@@ -1228,6 +1228,21 @@ var Trajectories = {
             medHeading.textContent = resp.medication_name + (resp.dosage ? " " + resp.dosage : "");
             medGroup.appendChild(medHeading);
 
+            var medMetaParts = [];
+            if (resp.confidence != null && typeof formatConfidence === "function") {
+                medMetaParts.push(formatConfidence(resp.confidence));
+            }
+            if (typeof provenanceText === "function") {
+                var medSource = provenanceText(resp.provenance);
+                if (medSource) medMetaParts.push("Source: " + medSource);
+            }
+            if (medMetaParts.length > 0) {
+                var medMeta = document.createElement("div");
+                medMeta.className = "finding-metadata treatment-metadata";
+                medMeta.textContent = medMetaParts.join(" • ");
+                medGroup.appendChild(medMeta);
+            }
+
             var summaryBox = document.createElement("div");
             summaryBox.className = "response-summary";
 
@@ -1269,6 +1284,31 @@ var Trajectories = {
                         labItem.className = "response-item";
                         labItem.textContent = lab.lab_name;
                         if (lab.current) labItem.textContent += " at " + lab.current.value + " (no baseline)";
+                    }
+
+                    var labMetaParts = [];
+                    if (lab.regression && lab.regression.confidence && typeof formatConfidence === "function") {
+                        labMetaParts.push(formatConfidence(lab.regression.confidence));
+                    }
+                    var sourceParts = [];
+                    if (lab.baseline && lab.baseline.source_file) {
+                        sourceParts.push(
+                            "baseline: " + lab.baseline.source_file
+                            + (lab.baseline.source_page ? ", p." + lab.baseline.source_page : "")
+                        );
+                    }
+                    if (lab.current && lab.current.source_file) {
+                        sourceParts.push(
+                            "current: " + lab.current.source_file
+                            + (lab.current.source_page ? ", p." + lab.current.source_page : "")
+                        );
+                    }
+                    if (sourceParts.length > 0) labMetaParts.push("Source: " + sourceParts.join("; "));
+                    if (labMetaParts.length > 0) {
+                        var labMeta = document.createElement("div");
+                        labMeta.className = "finding-metadata treatment-lab-metadata";
+                        labMeta.textContent = labMetaParts.join(" • ");
+                        labItem.appendChild(labMeta);
                     }
                     labCol.appendChild(labItem);
                 }

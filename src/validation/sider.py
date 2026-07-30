@@ -146,10 +146,7 @@ class SIDERClient:
                 effects = self._partial_drug_match(drug_key)
 
             if not effects:
-                logger.debug(
-                    f"SIDER: No local data for drug '{drug_name}'. "
-                    f"Drug may not be in the SIDER database."
-                )
+                logger.debug("SIDER has no local data for one requested drug")
                 return []
 
             return effects[:limit]
@@ -182,9 +179,7 @@ class SIDERClient:
                 drugs = self._partial_effect_drug_match(se_key)
 
             if not drugs:
-                logger.debug(
-                    f"SIDER: No drugs found for side effect '{side_effect}'."
-                )
+                logger.debug("SIDER found no drugs for one requested side effect")
                 return []
 
             canonical_name = self._effect_names.get(se_key, side_effect)
@@ -337,10 +332,7 @@ class SIDERClient:
             True if data was loaded successfully, False otherwise.
         """
         if not data_dir or not os.path.isdir(data_dir):
-            logger.warning(
-                f"SIDER data directory not found: {data_dir}. "
-                f"Operating in API-only mode."
-            )
+            logger.warning("SIDER data directory not found; operating in API-only mode")
             return False
 
         # Load frequency data first (so we can enrich side-effect records)
@@ -361,10 +353,8 @@ class SIDERClient:
             return True
 
         logger.warning(
-            f"SIDER: Could not load side-effect data from '{data_dir}'. "
-            f"Download from http://sideeffects.embl.de/download/ or "
-            f"https://github.com/dhimmel/SIDER4 and place files in "
-            f"'{data_dir}'."
+            "SIDER could not load local side-effect data; download the "
+            "dataset from the configured source"
         )
         return False
 
@@ -498,12 +488,13 @@ class SIDERClient:
                         for line in f
                         if line.strip() and not line.startswith("#")
                     ]
-                logger.debug(
-                    f"SIDER: Read {len(lines)} lines from {gz_path}"
-                )
+                logger.debug("SIDER read %d compressed data lines", len(lines))
                 return lines
             except Exception as e:
-                logger.warning(f"SIDER: Error reading {gz_path}: {e}")
+                logger.warning(
+                    "SIDER compressed-data read failed (error_type=%s)",
+                    type(e).__name__,
+                )
 
         # Try uncompressed file
         if os.path.isfile(plain_path):
@@ -514,14 +505,15 @@ class SIDERClient:
                         for line in f
                         if line.strip() and not line.startswith("#")
                     ]
-                logger.debug(
-                    f"SIDER: Read {len(lines)} lines from {plain_path}"
-                )
+                logger.debug("SIDER read %d uncompressed data lines", len(lines))
                 return lines
             except Exception as e:
-                logger.warning(f"SIDER: Error reading {plain_path}: {e}")
+                logger.warning(
+                    "SIDER uncompressed-data read failed (error_type=%s)",
+                    type(e).__name__,
+                )
 
-        logger.debug(f"SIDER: File not found: {gz_path}")
+        logger.debug("SIDER data file not found")
         return None
 
     # ── API Mode (Web Queries) ───────────────────────────────────
@@ -542,11 +534,7 @@ class SIDERClient:
             data = api_get(url, accept="application/json")
 
             if not data:
-                logger.debug(
-                    f"SIDER: No API results for '{drug_name}'. "
-                    f"Consider downloading SIDER data for local lookups: "
-                    f"http://sideeffects.embl.de/download/"
-                )
+                logger.debug("SIDER API returned no results for one drug query")
                 return []
 
             # Parse response — structure depends on endpoint format
@@ -554,7 +542,7 @@ class SIDERClient:
             return effects[:limit]
 
         except Exception as e:
-            logger.debug(f"SIDER API query failed for '{drug_name}': {e}")
+            logger.debug("SIDER API query failed (error_type=%s)", type(e).__name__)
             return []
 
     def _api_side_effect_drugs(
@@ -569,11 +557,7 @@ class SIDERClient:
         try:
             data = api_get(url, accept="application/json")
             if not data:
-                logger.debug(
-                    f"SIDER: No API results for side effect "
-                    f"'{side_effect}'. Consider downloading SIDER data "
-                    f"for local lookups."
-                )
+                logger.debug("SIDER API returned no results for one side-effect query")
                 return []
 
             results = self._parse_api_drug_list(data, side_effect)
@@ -581,8 +565,8 @@ class SIDERClient:
 
         except Exception as e:
             logger.debug(
-                f"SIDER API query failed for side effect "
-                f"'{side_effect}': {e}"
+                "SIDER side-effect query failed (error_type=%s)",
+                type(e).__name__,
             )
             return []
 
@@ -596,11 +580,7 @@ class SIDERClient:
         try:
             data = api_get(url, accept="application/json")
             if not data:
-                logger.debug(
-                    f"SIDER: No API results for side-effect search "
-                    f"'{query}'. Consider downloading SIDER data for "
-                    f"local lookups."
-                )
+                logger.debug("SIDER API returned no side-effect search results")
                 return []
 
             results = self._parse_api_se_search(data)
@@ -608,8 +588,8 @@ class SIDERClient:
 
         except Exception as e:
             logger.debug(
-                f"SIDER API side-effect search failed for "
-                f"'{query}': {e}"
+                "SIDER side-effect search failed (error_type=%s)",
+                type(e).__name__,
             )
             return []
 
@@ -783,9 +763,7 @@ class SIDERClient:
         candidates.sort(key=len)
         best_match = candidates[0]
 
-        logger.debug(
-            f"SIDER: Partial drug match '{drug_key}' -> '{best_match}'"
-        )
+        logger.debug("SIDER used a partial drug-name match")
         return self._drug_effects.get(best_match, [])
 
     def _partial_effect_drug_match(self, se_key: str) -> list[str]:
@@ -807,10 +785,7 @@ class SIDERClient:
         candidates.sort(key=len)
         best_match = candidates[0]
 
-        logger.debug(
-            f"SIDER: Partial side-effect match '{se_key}' -> "
-            f"'{best_match}'"
-        )
+        logger.debug("SIDER used a partial side-effect match")
         return self._effect_drugs.get(best_match, [])
 
     def _get_meddra_id_for_effect(self, se_lower: str) -> str:

@@ -1,14 +1,13 @@
 """
 Clinical Intelligence Hub — SNOMED CT Terminology Validation
 
-Uses the NLM FHIR Terminology Services API to validate that disease names,
-symptom terms, and clinical concepts are real SNOMED CT coded terms.
+Uses the local curated SNOMED CT database first, with optional Snowstorm
+enrichment for terms not present locally.
 
 SNOMED CT is the most comprehensive clinical terminology system in the world
 (350,000+ concepts). If a term exists in SNOMED CT, it's a real clinical concept.
 
-API: https://cts.nlm.nih.gov/fhir/ (free, public, no key required)
-Fallback: https://snowstorm.ihtsdotools.org/fhir/ (SNOMED International public browser)
+Optional enrichment: SNOMED International Snowstorm public browser.
 """
 
 import logging
@@ -19,16 +18,35 @@ from src.validation._http import api_get
 
 logger = logging.getLogger("CIH-SNOMED")
 
-# NLM FHIR Terminology Services (primary — US edition of SNOMED CT)
-NLM_FHIR_BASE = "https://cts.nlm.nih.gov/fhir"
-
-# SNOMED International Snowstorm (fallback — international edition)
+# SNOMED International Snowstorm (optional international-edition enrichment)
 SNOWSTORM_BASE = "https://snowstorm.ihtsdotools.org"
 SNOWSTORM_BRANCH = "MAIN"
 
 
 class SNOMEDClient:
     """Validates clinical terms against SNOMED CT terminology."""
+
+    def __init__(self, local_database=None):
+        if local_database is None:
+            from src.standardization.snomed import SNOMEDDatabase
+
+            local_database = SNOMEDDatabase()
+        self._local = local_database
+
+    def _search_local(self, term: str) -> Optional[dict]:
+        """Resolve common clinical terms without a network dependency."""
+        result = self._local.lookup(term) if self._local else None
+        if not result:
+            return None
+        return {
+            "concept_id": result.get("code"),
+            "preferred_term": result.get("name"),
+            "active": True,
+            "match_term": term,
+            "semantic_tag": result.get("category"),
+            "icd10": result.get("icd10"),
+            "source": "SNOMED CT (local curated database)",
+        }
 
     def validate_term(self, term: str) -> Optional[dict]:
         """
@@ -37,12 +55,11 @@ class SNOMEDClient:
         Returns dict with SNOMED concept ID and preferred term,
         or None if no match found.
         """
-        result = self._search_snowstorm(term)
+        result = self._search_local(term)
         if result:
             return result
 
-        result = self._search_nlm_fhir(term)
-        return result
+        return self._search_snowstorm(term)
 
     def validate_disease(self, disease_name: str) -> Optional[dict]:
         """
@@ -50,22 +67,23 @@ class SNOMEDClient:
 
         More targeted than validate_term — only matches clinical disorders.
         """
-        result = self._search_snowstorm(disease_name, semantic_tag="disorder")
+        result = self._search_local(disease_name)
         if result:
             return result
 
-        # Fallback to general search
-        return self._search_snowstorm(disease_name)
+        result = self._search_snowstorm(disease_name, semantic_tag="disorder")
+        return result or self._search_snowstorm(disease_name)
 
     def validate_symptom(self, symptom: str) -> Optional[dict]:
         """
         Validate a symptom/finding term (semantic tag: finding).
         """
-        result = self._search_snowstorm(symptom, semantic_tag="finding")
+        result = self._search_local(symptom)
         if result:
             return result
 
-        return self._search_snowstorm(symptom)
+        result = self._search_snowstorm(symptom, semantic_tag="finding")
+        return result or self._search_snowstorm(symptom)
 
     def get_concept_details(self, concept_id: str) -> Optional[dict]:
         """
@@ -92,7 +110,7 @@ class SNOMEDClient:
             }
 
         except Exception as e:
-            logger.debug(f"SNOMED concept lookup failed for {concept_id}: {e}")
+            logger.debug("SNOMED concept lookup failed (error_type=%s)", type(e).__name__)
             return None
 
     def get_children(self, concept_id: str) -> list[dict]:
@@ -123,7 +141,7 @@ class SNOMEDClient:
             ]
 
         except Exception as e:
-            logger.debug(f"SNOMED children lookup failed for {concept_id}: {e}")
+            logger.debug("SNOMED child lookup failed (error_type=%s)", type(e).__name__)
             return []
 
     # ── Snowstorm Search (primary) ───────────────────────────
@@ -174,43 +192,5 @@ class SNOMEDClient:
             }
 
         except Exception as e:
-            logger.debug(f"Snowstorm search failed for '{term}': {e}")
+            logger.debug("Snowstorm search failed (error_type=%s)", type(e).__name__)
             return None
-
-    # ── NLM FHIR Search (fallback) ───────────────────────────
-
-    def _search_nlm_fhir(self, term: str) -> Optional[dict]:
-        """Search SNOMED CT via NLM FHIR ValueSet expansion."""
-        params = {
-            "url": "http://snomed.info/sct",
-            "filter": term,
-            "count": "5",
-        }
-
-        url = (
-            f"{NLM_FHIR_BASE}/ValueSet/$expand"
-            f"?{urllib.parse.urlencode(params)}"
-        )
-
-        try:
-            data = api_get(url, accept="application/fhir+json")
-            if not data:
-                return None
-
-            expansion = data.get("expansion", {})
-            contains = expansion.get("contains", [])
-            if not contains:
-                return None
-
-            best = contains[0]
-            return {
-                "concept_id": best.get("code"),
-                "preferred_term": best.get("display"),
-                "active": True,
-                "source": "SNOMED CT (NLM FHIR)",
-            }
-
-        except Exception as e:
-            logger.debug(f"NLM FHIR search failed for '{term}': {e}")
-            return None
-

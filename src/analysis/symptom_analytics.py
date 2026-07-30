@@ -560,7 +560,11 @@ class SymptomAnalytics:
                 insights = local_insights
                 insights["source"] = "local_llm"
         except Exception as e:
-            logger.warning("Local symptom insights failed, using rule-based: %s", e)
+            logger.warning(
+                "Local symptom insights failed; using rule-based fallback "
+                "(error_type=%s)",
+                type(e).__name__,
+            )
 
         return insights
 

@@ -57,7 +57,9 @@ class Database:
                 error_message TEXT,
                 date_added TEXT NOT NULL,
                 date_completed TEXT,
-                page_count INTEGER
+                page_count INTEGER,
+                text_chunks_completed INTEGER NOT NULL DEFAULT 0,
+                text_chunks_total INTEGER NOT NULL DEFAULT 0
             );
 
             -- PII redaction audit log
@@ -93,11 +95,34 @@ class Database:
             );
         """)
 
+        self._migrate_processing_state(conn)
+
         # Try to load sqlite-vec extension for vector search
         self._init_vector_storage(conn)
 
         conn.commit()
-        logger.info(f"Database initialized at {self.db_path}")
+        logger.info("Local clinical database initialized")
+
+    @staticmethod
+    def _migrate_processing_state(conn: sqlite3.Connection):
+        """Add resumable extraction columns to databases created pre-v3."""
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(processing_state)")
+        }
+        migrations = {
+            "text_chunks_completed": (
+                "ALTER TABLE processing_state ADD COLUMN "
+                "text_chunks_completed INTEGER NOT NULL DEFAULT 0"
+            ),
+            "text_chunks_total": (
+                "ALTER TABLE processing_state ADD COLUMN "
+                "text_chunks_total INTEGER NOT NULL DEFAULT 0"
+            ),
+        }
+        for column, statement in migrations.items():
+            if column not in columns:
+                conn.execute(statement)
 
     def _init_vector_storage(self, conn: sqlite3.Connection):
         """Initializes sqlite-vec for RAG chat vector storage.
@@ -146,7 +171,11 @@ class Database:
             return
         except Exception as e:
             self._vec_available = False
-            logger.warning(f"sqlite-vec not available: {e}. RAG chat will be limited.")
+            logger.warning(
+                "sqlite-vec not available; RAG chat will be limited "
+                "(error_type=%s)",
+                type(e).__name__,
+            )
 
     # ── Processing State ───────────────────────────────────
 
@@ -200,6 +229,45 @@ class Database:
             (sha256_hash,)
         ).fetchone()
         return row is not None
+
+    def get_file_state_by_hash(self, sha256_hash: str) -> Optional[dict]:
+        """Return the existing state for a file, including its resume cursor."""
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT * FROM processing_state WHERE sha256_hash = ?",
+            (sha256_hash,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def get_file_state(self, file_id: str) -> Optional[dict]:
+        """Return operational state for one registered file."""
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT * FROM processing_state WHERE file_id = ?",
+            (file_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def update_text_checkpoint(self, file_id: str, chunks_completed: int,
+                               chunks_total: int):
+        """Persist the contiguous MedGemma chunk cursor for one file."""
+        if chunks_completed < 0 or chunks_total < 0:
+            raise ValueError("Text chunk counts cannot be negative")
+        if chunks_completed > chunks_total:
+            raise ValueError("Completed text chunks cannot exceed total chunks")
+
+        conn = self._get_conn()
+        cursor = conn.execute("""
+            UPDATE processing_state SET
+                status = 'extracting',
+                current_pass = 'text_extraction',
+                text_chunks_completed = ?,
+                text_chunks_total = ?
+            WHERE file_id = ?
+        """, (chunks_completed, chunks_total, file_id))
+        if cursor.rowcount != 1:
+            raise RuntimeError("Cannot checkpoint an unregistered file")
+        conn.commit()
 
     def get_pending_files(self) -> list[dict]:
         """Get all files that haven't completed processing."""
@@ -346,6 +414,12 @@ class Database:
     def start_pipeline_run(self, run_id: str):
         """Record the start of a pipeline run."""
         conn = self._get_conn()
+        conn.execute("""
+            UPDATE pipeline_runs SET
+                completed_at = datetime('now'),
+                status = 'interrupted'
+            WHERE status = 'running'
+        """)
         conn.execute(
             "INSERT INTO pipeline_runs (run_id, started_at, status) VALUES (?, datetime('now'), 'running')",
             (run_id,)
@@ -363,6 +437,17 @@ class Database:
                 status = 'complete'
             WHERE run_id = ?
         """, (files_processed, files_failed, run_id))
+        conn.commit()
+
+    def fail_pipeline_run(self, run_id: str):
+        """Mark a started pipeline run as failed after an unhandled error."""
+        conn = self._get_conn()
+        conn.execute("""
+            UPDATE pipeline_runs SET
+                completed_at = datetime('now'),
+                status = 'failed'
+            WHERE run_id = ? AND status = 'running'
+        """, (run_id,))
         conn.commit()
 
     # ── Session Reset ────────────────────────────────────────

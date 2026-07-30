@@ -129,7 +129,10 @@ class ClinicalTrialsClient:
             return self._parse_study(data)
 
         except Exception as e:
-            logger.debug(f"ClinicalTrials.gov lookup failed for {nct_id}: {e}")
+            logger.debug(
+                "ClinicalTrials.gov lookup failed (error_type=%s)",
+                type(e).__name__,
+            )
             return None
 
     def count_trials(self, condition: str) -> int:
@@ -178,7 +181,10 @@ class ClinicalTrialsClient:
             return results
 
         except Exception as e:
-            logger.debug(f"ClinicalTrials.gov search failed: {e}")
+            logger.debug(
+                "ClinicalTrials.gov search failed (error_type=%s)",
+                type(e).__name__,
+            )
             return []
 
     # ── Parsing ──────────────────────────────────────────────
@@ -251,4 +257,3 @@ class ClinicalTrialsClient:
             "url": f"https://clinicaltrials.gov/study/{nct_id}" if nct_id else "",
             "source": "ClinicalTrials.gov",
         }
-

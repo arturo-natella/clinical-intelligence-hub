@@ -53,10 +53,22 @@ class LOINCDatabase:
             code = self._name_index[normalized]
             return self._codes.get(code)
 
-        # Partial match — find the best match
+        # Partial match — prefer the most specific alias rather than whichever
+        # seed row happened to be inserted first (for example, distinguish
+        # "fasting glucose" from the broader "glucose").
+        normalized_tokens = set(normalized.split())
+        matches = []
         for key, code in self._name_index.items():
-            if normalized in key or key in normalized:
-                return self._codes.get(code)
+            key_tokens = set(key.split())
+            if (
+                normalized in key
+                or key in normalized
+                or (key_tokens and key_tokens.issubset(normalized_tokens))
+            ):
+                matches.append((len(key_tokens), len(key), code))
+        if matches:
+            _, _, code = max(matches, key=lambda match: (match[0], match[1]))
+            return self._codes.get(code)
 
         return None
 
@@ -283,7 +295,7 @@ class LOINCDatabase:
                 f"(+{self.count - count_before} from CSV)"
             )
         except Exception as e:
-            logger.warning(f"Failed to load full LOINC CSV: {e}")
+            logger.warning("Failed to load full LOINC CSV (error_type=%s)", type(e).__name__)
 
     # ── Helpers ───────────────────────────────────────────────
 

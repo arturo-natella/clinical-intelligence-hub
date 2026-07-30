@@ -3521,6 +3521,7 @@ var BodyMap3D = {
             fetch("/api/imaging").then(function(r) { return r.ok ? r.json() : []; }).catch(function() { return []; }),
             fetch("/api/labs").then(function(r) { return r.ok ? r.json() : []; }).catch(function() { return []; }),
             fetch("/api/flags").then(function(r) { return r.ok ? r.json() : []; }).catch(function() { return []; }),
+            fetch("/api/cross-disciplinary?stored=1").then(function(r) { return r.ok ? r.json() : []; }).catch(function() { return []; }),
         ]).then(function(results) {
             var parsed = self._buildVisualFindings(results);
             self.cachedRegionFindings = parsed.regionFindings;
@@ -3545,6 +3546,12 @@ var BodyMap3D = {
         var organFindings = {};
         var totalFindings = 0;
 
+        function firstProvenance(item) {
+            var provenance = item && item.provenance;
+            if (Array.isArray(provenance)) return provenance[0] || {};
+            return provenance || {};
+        }
+
         function pushFinding(payload) {
             var fullText = (payload.text || "").toLowerCase().trim();
             if (!fullText) return;
@@ -3566,7 +3573,9 @@ var BodyMap3D = {
                     source: payload.source || "",
                     page: payload.page || "",
                     date: payload.date || "",
-                    text: fullText
+                    confidence: payload.confidence,
+                    text: fullText,
+                    translation_text: payload.translation_text || payload.text || ""
                 });
             }
 
@@ -3575,12 +3584,14 @@ var BodyMap3D = {
 
         var dx = results[0] || [];
         for (var a = 0; a < dx.length; a++) {
+            var dxProv = firstProvenance(dx[a]);
             pushFinding({
                 type: "diagnosis",
                 name: dx[a].name || "Diagnosis",
                 severity: dx[a].severity || "moderate",
-                source: dx[a].source_file || "",
-                page: dx[a].source_page || "",
+                source: dx[a].source_file || dxProv.source_file || "",
+                page: dx[a].source_page || dxProv.source_page || "",
+                confidence: dx[a].confidence != null ? dx[a].confidence : dxProv.confidence,
                 date: dx[a].date_extracted || dx[a].date_diagnosed || dx[a].date || "",
                 text: [dx[a].name, dx[a].status, dx[a].icd10].filter(Boolean).join(" ")
             });
@@ -3588,12 +3599,14 @@ var BodyMap3D = {
 
         var img = results[1] || [];
         for (var b = 0; b < img.length; b++) {
+            var imgProv = firstProvenance(img[b]);
             pushFinding({
                 type: "imaging",
                 name: img[b].modality || img[b].study_type || "Imaging",
                 severity: img[b].severity || "moderate",
-                source: img[b].source_file || "",
-                page: img[b].source_page || "",
+                source: img[b].source_file || imgProv.source_file || "",
+                page: img[b].source_page || imgProv.source_page || "",
+                confidence: img[b].confidence != null ? img[b].confidence : imgProv.confidence,
                 date: img[b].study_date || "",
                 body_region: img[b].body_region || "",
                 text: [
@@ -3609,6 +3622,7 @@ var BodyMap3D = {
         var labs = results[2] || [];
         for (var li = 0; li < labs.length; li++) {
             var lab = labs[li];
+            var labProv = firstProvenance(lab);
             var flagText = [
                 lab.test_name || lab.name || "",
                 lab.interpretation || "",
@@ -3630,8 +3644,9 @@ var BodyMap3D = {
                 type: "lab",
                 name: lab.test_name || lab.name || "Lab",
                 severity: lab.severity || "moderate",
-                source: lab.source_file || "",
-                page: lab.source_page || "",
+                source: lab.source_file || labProv.source_file || "",
+                page: lab.source_page || labProv.source_page || "",
+                confidence: lab.confidence != null ? lab.confidence : labProv.confidence,
                 date: lab.test_date || lab.date || lab.collected_date || "",
                 text: flagText
             });
@@ -3639,18 +3654,43 @@ var BodyMap3D = {
 
         var fl = results[3] || [];
         for (var c = 0; c < fl.length; c++) {
+            var flagProv = firstProvenance(fl[c]);
             pushFinding({
                 type: "flag",
                 name: fl[c].title || fl[c].description || "Flag",
                 severity: fl[c].severity || "high",
-                source: fl[c].source_file || "",
-                page: fl[c].source_page || "",
+                source: fl[c].source_file || flagProv.source_file || "",
+                page: fl[c].source_page || flagProv.source_page || "",
+                confidence: fl[c].confidence != null ? fl[c].confidence : flagProv.confidence,
                 date: fl[c].date || "",
+                translation_text: [fl[c].title, fl[c].description].filter(Boolean).join(": "),
                 text: [
                     fl[c].title,
                     fl[c].description,
                     fl[c].category,
                     (fl[c].evidence || []).join(" ")
+                ].filter(Boolean).join(" ")
+            });
+        }
+
+        var connections = results[4] || [];
+        for (var cd = 0; cd < connections.length; cd++) {
+            var connection = connections[cd];
+            var connectionProv = firstProvenance(connection);
+            pushFinding({
+                type: "cross-disciplinary",
+                name: connection.title || connection.disease || "Cross-disciplinary pattern",
+                severity: connection.severity || "moderate",
+                source: connectionProv.source_file || "",
+                page: connectionProv.source_page || "",
+                confidence: connection.confidence != null ? connection.confidence : connectionProv.confidence,
+                date: connection.date_found || "",
+                translation_text: [connection.title, connection.description || connection.pattern].filter(Boolean).join(": "),
+                text: [
+                    connection.title,
+                    connection.description || connection.pattern,
+                    (connection.patient_data_points || []).join(" "),
+                    (connection.matched_labs || []).join(" ")
                 ].filter(Boolean).join(" ")
             });
         }
@@ -4702,6 +4742,25 @@ var BodyMap3D = {
                 card.appendChild(src);
             }
 
+            if (f.confidence != null && typeof formatConfidence === "function") {
+                var confidenceEl = document.createElement("div");
+                confidenceEl.className = "finding-confidence";
+                confidenceEl.textContent = formatConfidence(f.confidence);
+                card.appendChild(confidenceEl);
+            }
+
+            if (typeof getClinicalGlossaryEntry === "function") {
+                var explanation = getClinicalGlossaryEntry(
+                    (f.name || "") + " " + (f.translation_text || f.text || "")
+                );
+                if (explanation) {
+                    var plainEl = document.createElement("div");
+                    plainEl.className = "plain-language-note";
+                    plainEl.textContent = "In plain English: " + explanation;
+                    card.appendChild(plainEl);
+                }
+            }
+
             if (f.date) {
                 var dateEl = document.createElement("div");
                 dateEl.className = "finding-date";
@@ -4734,7 +4793,12 @@ var BodyMap3D = {
         // Build context for the API
         var findingDescriptions = [];
         for (var i = 0; i < findings.length; i++) {
-            findingDescriptions.push(findings[i].name || findings[i].type || "finding");
+            var finding = findings[i];
+            var description = finding.translation_text || finding.text || "";
+            findingDescriptions.push(
+                (finding.name || finding.type || "finding")
+                + (description ? ": " + description : "")
+            );
         }
 
         fetch("/api/body-translation", {

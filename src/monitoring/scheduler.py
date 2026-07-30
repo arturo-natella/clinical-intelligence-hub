@@ -67,7 +67,11 @@ class MonitoringScheduler:
                 all_alerts.extend(alerts)
                 logger.info(f"  {name}: {len(alerts)} alerts")
             except Exception as e:
-                logger.error(f"  {name} monitor failed: {e}")
+                logger.error(
+                    "  %s monitor failed (error_type=%s)",
+                    name,
+                    type(e).__name__,
+                )
                 logger.debug(traceback.format_exc())
 
         # Assess relevance and store
@@ -105,7 +109,10 @@ class MonitoringScheduler:
         except ImportError:
             logger.info("Playwright not available — skipping guideline monitors")
         except Exception as e:
-            logger.error(f"Guideline monitor failed: {e}")
+            logger.error(
+                "Guideline monitor failed (error_type=%s)",
+                type(e).__name__,
+            )
 
         relevant_alerts = self._process_alerts(all_alerts)
 
@@ -252,7 +259,10 @@ class MonitoringScheduler:
 
             db.close()
         except Exception as e:
-            logger.error(f"Failed to store alerts: {e}")
+            logger.error(
+                "Failed to store alerts (error_type=%s)",
+                type(e).__name__,
+            )
 
     # ── Profile Loading ────────────────────────────────
 
@@ -268,7 +278,10 @@ class MonitoringScheduler:
             if profile_data:
                 self._profile = PatientProfile(**profile_data)
         except Exception as e:
-            logger.error(f"Failed to load patient profile: {e}")
+            logger.error(
+                "Failed to load patient profile (error_type=%s)",
+                type(e).__name__,
+            )
 
     def _load_api_keys(self) -> dict:
         """Load API keys from encrypted vault."""
@@ -277,7 +290,10 @@ class MonitoringScheduler:
             vault = EncryptedVault(self.data_dir, self._passphrase)
             return vault.load_api_keys() or {}
         except Exception as e:
-            logger.debug(f"Failed to load API keys: {e}")
+            logger.debug(
+                "Failed to load API keys (error_type=%s)",
+                type(e).__name__,
+            )
             return {}
 
 

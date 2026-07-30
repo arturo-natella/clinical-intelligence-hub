@@ -1972,7 +1972,8 @@ class SnowballEngine:
         except Exception as e:
             import logging
             logging.getLogger("CIH-Snowball").debug(
-                "Local condition discovery failed: %s", e
+                "Local condition discovery failed (error_type=%s)",
+                type(e).__name__,
             )
 
         return self._discover_via_ollama(corpus, already_scored)

@@ -63,7 +63,7 @@ class HPOClient:
             return results
 
         except Exception as e:
-            logger.debug(f"HPO search failed for '{term}': {e}")
+            logger.debug("HPO search failed (error_type=%s)", type(e).__name__)
             return []
 
     def get_term(self, hpo_id: str) -> Optional[dict]:
@@ -89,7 +89,7 @@ class HPOClient:
             }
 
         except Exception as e:
-            logger.debug(f"HPO term lookup failed for {hpo_id}: {e}")
+            logger.debug("HPO term lookup failed (error_type=%s)", type(e).__name__)
             return None
 
     def get_diseases_for_phenotype(
@@ -127,7 +127,7 @@ class HPOClient:
             return results
 
         except Exception as e:
-            logger.debug(f"HPO diseases for {hpo_id} failed: {e}")
+            logger.debug("HPO disease lookup failed (error_type=%s)", type(e).__name__)
             return []
 
     def get_phenotypes_for_disease(
@@ -169,7 +169,7 @@ class HPOClient:
             return results
 
         except Exception as e:
-            logger.debug(f"HPO phenotypes for {disease_id} failed: {e}")
+            logger.debug("HPO phenotype lookup failed (error_type=%s)", type(e).__name__)
             return []
 
     def phenotype_to_disease_search(
@@ -245,4 +245,3 @@ class HPOClient:
         # Filter out obsolete terms
         active = [r for r in results if not r.get("is_obsolete")]
         return active[0] if active else results[0]
-

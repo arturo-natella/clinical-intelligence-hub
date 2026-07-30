@@ -174,7 +174,7 @@ class FHIRParser:
                 provenance=self._make_provenance(),
             )
         except Exception as e:
-            logger.debug(f"Failed to parse MedicationRequest: {e}")
+            logger.debug("Failed to parse MedicationRequest (error_type=%s)", type(e).__name__)
             return None
 
     def _parse_observation(self, resource: dict):
@@ -236,7 +236,7 @@ class FHIRParser:
                 provenance=self._make_provenance(),
             )
         except Exception as e:
-            logger.debug(f"Failed to parse Observation: {e}")
+            logger.debug("Failed to parse Observation (error_type=%s)", type(e).__name__)
             return None
 
     def _parse_vital(self, resource: dict, name: str, loinc: str) -> Optional[Vital]:
@@ -278,7 +278,7 @@ class FHIRParser:
                 provenance=self._make_provenance(),
             )
         except Exception as e:
-            logger.debug(f"Failed to parse Condition: {e}")
+            logger.debug("Failed to parse Condition (error_type=%s)", type(e).__name__)
             return None
 
     def _parse_allergy(self, resource: dict) -> Optional[Allergy]:
@@ -305,7 +305,7 @@ class FHIRParser:
                 provenance=self._make_provenance(),
             )
         except Exception as e:
-            logger.debug(f"Failed to parse AllergyIntolerance: {e}")
+            logger.debug("Failed to parse AllergyIntolerance (error_type=%s)", type(e).__name__)
             return None
 
     def _parse_procedure(self, resource: dict) -> Optional[Procedure]:
@@ -326,7 +326,7 @@ class FHIRParser:
                 provenance=self._make_provenance(),
             )
         except Exception as e:
-            logger.debug(f"Failed to parse Procedure: {e}")
+            logger.debug("Failed to parse Procedure (error_type=%s)", type(e).__name__)
             return None
 
     def _parse_diagnostic_report(self, resource: dict) -> Optional[ClinicalNote]:
@@ -349,7 +349,7 @@ class FHIRParser:
                 provenance=self._make_provenance(),
             )
         except Exception as e:
-            logger.debug(f"Failed to parse DiagnosticReport: {e}")
+            logger.debug("Failed to parse DiagnosticReport (error_type=%s)", type(e).__name__)
             return None
 
     # ── FHIR Utility Helpers ───────────────────────────────

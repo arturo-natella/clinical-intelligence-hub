@@ -98,7 +98,7 @@ class ClinVarClient:
             return self._parse_variant_detail(uid, entry)
 
         except Exception as e:
-            logger.debug(f"ClinVar get_variant failed for {clinvar_id}: {e}")
+            logger.debug("ClinVar variant lookup failed (error_type=%s)", type(e).__name__)
             return None
 
     def search_gene_variants(
@@ -217,7 +217,7 @@ class ClinVarClient:
             return data.get("esearchresult", {}).get("idlist", [])
 
         except Exception as e:
-            logger.debug(f"ClinVar esearch failed for '{term[:60]}': {e}")
+            logger.debug("ClinVar esearch failed (error_type=%s)", type(e).__name__)
             return []
 
     def _esummary_batch(self, ids: list[str]) -> list[dict]:
@@ -260,7 +260,7 @@ class ClinVarClient:
             return variants
 
         except Exception as e:
-            logger.debug(f"ClinVar esummary failed: {e}")
+            logger.debug("ClinVar esummary failed (error_type=%s)", type(e).__name__)
             return []
 
     # ── Parsing helpers ────────────────────────────────────
@@ -327,7 +327,7 @@ class ClinVarClient:
             }
 
         except Exception as e:
-            logger.debug(f"ClinVar parse failed for UID {uid}: {e}")
+            logger.debug("ClinVar parse failed (error_type=%s)", type(e).__name__)
             return None
 
     def _parse_variant_detail(self, uid: str, entry: dict) -> Optional[dict]:

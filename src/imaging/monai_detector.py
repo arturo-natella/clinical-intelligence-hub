@@ -194,7 +194,11 @@ class MONAIDetector:
                     f"  → {len(findings)} findings from {bundle_info['display_name']}"
                 )
             except Exception as e:
-                logger.error(f"MONAI {task_name} failed: {e}")
+                logger.error(
+                    "MONAI task failed (task=%s, error_type=%s)",
+                    task_name,
+                    type(e).__name__,
+                )
             finally:
                 # Cleanup between models
                 self._cleanup_gpu()
@@ -234,7 +238,11 @@ class MONAIDetector:
             return True
 
         except Exception as e:
-            logger.error(f"Failed to download {task_name}: {e}")
+            logger.error(
+                "Failed to download MONAI task (task=%s, error_type=%s)",
+                task_name,
+                type(e).__name__,
+            )
             return False
 
     # ── Task Selection ──────────────────────────────────────
@@ -319,7 +327,7 @@ class MONAIDetector:
                 else:
                     net.load_state_dict(checkpoint)
             else:
-                logger.error(f"Model weights not found: {weight_path}")
+                logger.error("MONAI model weights not found")
                 return []
 
             net.set_mode("val")  # Use MONAI's method if available, else .eval()
@@ -412,7 +420,7 @@ class MONAIDetector:
                 ))
 
         except Exception as e:
-            logger.error(f"Lung nodule detection error: {e}")
+            logger.error("Lung nodule detection failed (error_type=%s)", type(e).__name__)
 
         return findings
 
@@ -547,7 +555,7 @@ class MONAIDetector:
                     ))
 
         except Exception as e:
-            logger.error(f"Whole body CT segmentation error: {e}")
+            logger.error("Whole-body CT segmentation failed (error_type=%s)", type(e).__name__)
 
         return findings
 
@@ -679,7 +687,7 @@ class MONAIDetector:
                 ))
 
         except Exception as e:
-            logger.error(f"Brain tumor segmentation error: {e}")
+            logger.error("Brain-tumor segmentation failed (error_type=%s)", type(e).__name__)
 
         return findings
 
@@ -794,7 +802,7 @@ class MONAIDetector:
                     ))
 
         except Exception as e:
-            logger.error(f"Pathology nuclei detection error: {e}")
+            logger.error("Pathology nuclei detection failed (error_type=%s)", type(e).__name__)
 
         return findings
 
@@ -840,7 +848,10 @@ class MONAIDetector:
         except ImportError:
             logger.debug("Radiomics module not available — skipping enrichment")
         except Exception as e:
-            logger.warning("Radiomics enrichment failed: %s", e)
+            logger.warning(
+                "Radiomics enrichment failed (error_type=%s)",
+                type(e).__name__,
+            )
 
         return findings
 

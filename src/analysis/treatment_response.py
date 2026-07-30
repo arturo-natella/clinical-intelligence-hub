@@ -76,9 +76,13 @@ class TreatmentResponseAnalyzer:
                             "matched_lab_keys": matched_labs,
                         })
                     else:
-                        logger.info("No lab mapping found for medication: %s", med_name)
+                        logger.info("No lab mapping found for one medication")
         except Exception as e:
-            logger.warning("Med-lab mapping failed, continuing with empty mappings: %s", e)
+            logger.warning(
+                "Med-lab mapping failed; continuing with empty mappings "
+                "(error_type=%s)",
+                type(e).__name__,
+            )
             med_lab_mappings = []
 
         # Step 2: Get side effect scores
@@ -88,7 +92,11 @@ class TreatmentResponseAnalyzer:
                 symptoms, medications, genetics
             )
         except Exception as e:
-            logger.warning("Side effect scoring failed, continuing without tolerability: %s", e)
+            logger.warning(
+                "Side-effect scoring failed; continuing without tolerability "
+                "(error_type=%s)",
+                type(e).__name__,
+            )
             side_effect_results = []
 
         # Index side effects by medication name for lookup
@@ -170,6 +178,8 @@ class TreatmentResponseAnalyzer:
                 "medication_name": med_name,
                 "dosage": dosage,
                 "start_date": str(med_start) if med_start else None,
+                "provenance": self._public_provenance(med.get("provenance")),
+                "confidence": self._provenance_confidence(med.get("provenance")),
                 "lab_effectiveness": lab_results,
                 "tolerability": tolerability,
                 "conversation_guide": guide,
@@ -189,6 +199,13 @@ class TreatmentResponseAnalyzer:
         for se_key, se_data in side_effect_by_med.items():
             if se_key not in analyzed_names:
                 med_name = se_data.get("medication_name", se_key)
+                source_med = next(
+                    (
+                        medication for medication in medications
+                        if str(medication.get("name") or "").lower().strip() == se_key
+                    ),
+                    {},
+                )
                 tolerability = self._compute_tolerability(se_data)
                 guide = self._build_conversation_guide(
                     med_name, "", [], tolerability
@@ -200,6 +217,8 @@ class TreatmentResponseAnalyzer:
                     "medication_name": med_name,
                     "dosage": "",
                     "start_date": se_data.get("medication_start_date"),
+                    "provenance": self._public_provenance(source_med.get("provenance")),
+                    "confidence": self._provenance_confidence(source_med.get("provenance")),
                     "lab_effectiveness": [],
                     "tolerability": tolerability,
                     "conversation_guide": guide,
@@ -219,6 +238,27 @@ class TreatmentResponseAnalyzer:
                 "with_lab_data": len(med_lab_mappings),
             },
         }
+
+    @staticmethod
+    def _public_provenance(provenance) -> dict:
+        """Return source metadata without copying raw clinical text."""
+        if not isinstance(provenance, dict):
+            return {}
+        return {
+            key: provenance.get(key)
+            for key in (
+                "source_file", "source_page", "date_extracted",
+                "extraction_model", "confidence",
+            )
+            if provenance.get(key) is not None
+        }
+
+    @staticmethod
+    def _provenance_confidence(provenance):
+        if not isinstance(provenance, dict):
+            return None
+        value = provenance.get("confidence")
+        return value if isinstance(value, (int, float)) else None
 
     # ── Lab Effectiveness ────────────────────────────────────
 

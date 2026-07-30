@@ -95,7 +95,7 @@ class ICD11Client:
             return results
 
         except Exception as e:
-            logger.debug(f"ICD-11 search failed for '{query}': {e}")
+            logger.debug("ICD-11 search failed (error_type=%s)", type(e).__name__)
             return []
 
     def validate_diagnosis(self, diagnosis: str) -> Optional[dict]:
@@ -139,7 +139,7 @@ class ICD11Client:
             }
 
         except Exception as e:
-            logger.debug(f"ICD-11 code lookup failed for '{code}': {e}")
+            logger.debug("ICD-11 code lookup failed (error_type=%s)", type(e).__name__)
             return None
 
     def get_entity(self, entity_uri: str) -> Optional[dict]:
@@ -188,7 +188,7 @@ class ICD11Client:
             }
 
         except Exception as e:
-            logger.debug(f"ICD-11 entity lookup failed: {e}")
+            logger.debug("ICD-11 entity lookup failed (error_type=%s)", type(e).__name__)
             return None
 
     # ── OAuth Token ──────────────────────────────────────────
@@ -223,7 +223,7 @@ class ICD11Client:
             return self._token
 
         except Exception as e:
-            logger.debug(f"ICD-11 token acquisition failed: {e}")
+            logger.debug("ICD-11 token acquisition failed (error_type=%s)", type(e).__name__)
             return None
 
     # ── Helpers ───────────────────────────────────────────────

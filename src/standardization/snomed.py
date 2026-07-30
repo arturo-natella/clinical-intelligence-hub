@@ -58,10 +58,17 @@ class SNOMEDDatabase:
             code = self._name_index[normalized]
             return self._concepts.get(code)
 
-        # Partial match
+        # Partial match by complete words. Substring matching made short
+        # aliases such as "RA" falsely match unrelated words like "rare".
+        normalized_tokens = set(normalized.split())
+        matches = []
         for key, code in self._name_index.items():
-            if normalized in key or key in normalized:
-                return self._concepts.get(code)
+            key_tokens = set(key.split())
+            if key_tokens and key_tokens.issubset(normalized_tokens):
+                matches.append((len(key_tokens), len(key), code))
+        if matches:
+            _, _, code = max(matches, key=lambda match: (match[0], match[1]))
+            return self._concepts.get(code)
 
         return None
 
@@ -383,7 +390,7 @@ class SNOMEDDatabase:
                 f"(+{self.count - count_before} from RF2)"
             )
         except Exception as e:
-            logger.warning(f"Failed to load full SNOMED CT: {e}")
+            logger.warning("Failed to load full SNOMED CT (error_type=%s)", type(e).__name__)
 
     # ── Helpers ───────────────────────────────────────────────
 

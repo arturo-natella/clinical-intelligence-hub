@@ -204,7 +204,10 @@ class CommunityInsights:
                     })
 
             except Exception as e:
-                logger.debug(f"Reddit search failed for r/{subreddit}: {e}")
+                logger.debug(
+                    "Reddit search failed (error_type=%s)",
+                    type(e).__name__,
+                )
                 continue
 
         return results
@@ -249,7 +252,10 @@ Note: This is for educational purposes. The community report is unverified."""
             return text
 
         except Exception as e:
-            logger.warning(f"Mechanism explanation failed: {e}")
+            logger.warning(
+                "Mechanism explanation failed (error_type=%s)",
+                type(e).__name__,
+            )
             return None
 
     # ── Subreddit Mapping ───────────────────────────────────
@@ -310,4 +316,7 @@ Note: This is for educational purposes. The community report is unverified."""
             self._gemini_client = create_client(self._api_key)
             logger.info("Community explanation model initialized: %s", MODEL_ID)
         except Exception as e:
-            logger.debug(f"Gemini mechanism explainer not available: {e}")
+            logger.debug(
+                "Gemini mechanism explainer not available (error_type=%s)",
+                type(e).__name__,
+            )

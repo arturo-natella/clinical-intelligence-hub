@@ -51,7 +51,7 @@ class PubMedClient:
             return articles
 
         except Exception as e:
-            logger.error(f"PubMed search failed for '{query[:50]}...': {e}")
+            logger.error("PubMed search failed (error_type=%s)", type(e).__name__)
             return []
 
     def search_drug_evidence(self, drug_name: str,
@@ -112,7 +112,7 @@ class PubMedClient:
             return data.get("esearchresult", {}).get("idlist", [])
 
         except Exception as e:
-            logger.error(f"PubMed esearch failed: {e}")
+            logger.error("PubMed esearch failed (error_type=%s)", type(e).__name__)
             return []
 
     def _efetch(self, pmids: list[str]) -> list[LiteratureCitation]:
@@ -142,7 +142,7 @@ class PubMedClient:
             return self._parse_pubmed_xml(xml_data)
 
         except Exception as e:
-            logger.error(f"PubMed efetch failed: {e}")
+            logger.error("PubMed efetch failed (error_type=%s)", type(e).__name__)
             return []
 
     def _parse_pubmed_xml(self, xml_data: str) -> list[LiteratureCitation]:
@@ -204,11 +204,11 @@ class PubMedClient:
                     ))
 
                 except Exception as e:
-                    logger.debug(f"Failed to parse article: {e}")
+                    logger.debug("Failed to parse article (error_type=%s)", type(e).__name__)
                     continue
 
         except ET.ParseError as e:
-            logger.error(f"PubMed XML parse error: {e}")
+            logger.error("PubMed XML parse failed (error_type=%s)", type(e).__name__)
 
         return citations
 

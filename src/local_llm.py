@@ -74,9 +74,9 @@ def call_local_text_model(
 
     except Exception as e:
         logger.warning(
-            "Local model %s unavailable: %s",
+            "Local model unavailable (model=%s, error_type=%s)",
             model or LOCAL_ASSISTANT_MODEL,
-            e,
+            type(e).__name__,
         )
     finally:
         release_local_model_memory()

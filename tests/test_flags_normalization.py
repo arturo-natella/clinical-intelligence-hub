@@ -88,3 +88,37 @@ def test_flags_api_demo_profile_is_render_safe(monkeypatch):
             assert isinstance(item, str), (
                 f"flag {f.get('title')!r} has non-string evidence: {item!r}"
             )
+
+
+def test_flags_api_surfaces_matching_record_provenance_and_confidence(monkeypatch):
+    profile = {
+        "clinical_timeline": {
+            "labs": [{
+                "name": "HbA1c",
+                "value": 8.2,
+                "provenance": {
+                    "source_file": "quest_labs.pdf",
+                    "source_page": 3,
+                    "extraction_model": "medgemma-27b",
+                    "confidence": 0.93,
+                    "raw_text": "must not be copied to derived metadata",
+                },
+            }],
+        },
+        "analysis": {
+            "flags": [{
+                "title": "HbA1c above target",
+                "severity": "high",
+                "category": "Lab Finding",
+                "description": "HbA1c remains elevated.",
+            }],
+        },
+    }
+
+    flags = _flags_for(monkeypatch, profile)
+    match = next(flag for flag in flags if flag["title"] == "HbA1c above target")
+
+    assert match["confidence"] == 0.93
+    assert match["provenance"][0]["source_file"] == "quest_labs.pdf"
+    assert match["provenance"][0]["source_page"] == 3
+    assert "raw_text" not in match["provenance"][0]

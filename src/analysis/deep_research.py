@@ -136,10 +136,16 @@ class DeepResearch:
             return self._parse_pass3_results(raw_findings)
 
         except json.JSONDecodeError as e:
-            logger.warning(f"Pass 3 returned invalid JSON: {e}")
+            logger.warning(
+                "Pass 3 returned invalid JSON (error_type=%s)",
+                type(e).__name__,
+            )
             return None
         except Exception as e:
-            logger.error(f"Pass 3 analysis failed: {e}")
+            logger.error(
+                "Pass 3 analysis failed (error_type=%s)",
+                type(e).__name__,
+            )
             return None
 
     def _parse_pass3_results(self, findings: list | dict) -> dict:
@@ -247,10 +253,16 @@ Output as JSON with:
             return self._parse_pass4_results(raw)
 
         except json.JSONDecodeError as e:
-            logger.warning(f"Pass 4 returned invalid JSON: {e}")
+            logger.warning(
+                "Pass 4 returned invalid JSON (error_type=%s)",
+                type(e).__name__,
+            )
             return None
         except Exception as e:
-            logger.error(f"Pass 4 literature search failed: {e}")
+            logger.error(
+                "Pass 4 literature search failed (error_type=%s)",
+                type(e).__name__,
+            )
             return None
 
     def _parse_pass4_results(self, raw: dict) -> dict:
@@ -291,7 +303,10 @@ Output as JSON with:
                 "google-genai not installed. Run: pip install google-genai"
             )
         except Exception as e:
-            logger.error(f"Failed to initialize Gemini: {e}")
+            logger.error(
+                "Failed to initialize Gemini (error_type=%s)",
+                type(e).__name__,
+            )
 
     # ── Helpers ─────────────────────────────────────────────
 

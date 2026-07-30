@@ -61,7 +61,7 @@ class RxNormClient:
             }
 
         except Exception as e:
-            logger.error(f"RxNorm resolution failed for {name}: {e}")
+            logger.error("RxNorm resolution failed (error_type=%s)", type(e).__name__)
             return None
 
     def get_interactions(self, rxcui: str) -> list[dict]:
@@ -101,7 +101,7 @@ class RxNormClient:
             return interactions
 
         except Exception as e:
-            logger.error(f"RxNorm interaction query failed for {rxcui}: {e}")
+            logger.error("RxNorm interaction query failed (error_type=%s)", type(e).__name__)
             return []
 
     def check_pairwise_interactions(self, rxcuis: list[str]) -> list[dict]:
@@ -143,7 +143,7 @@ class RxNormClient:
             return interactions
 
         except Exception as e:
-            logger.error(f"RxNorm pairwise interaction check failed: {e}")
+            logger.error("RxNorm pairwise check failed (error_type=%s)", type(e).__name__)
             return []
 
     # ── Helpers ──────────────────────────────────────────────
@@ -182,8 +182,8 @@ class RxNormClient:
         except urllib.error.HTTPError as e:
             if e.code == 404:
                 return None
-            logger.warning(f"RxNorm HTTP {e.code}: {e.reason}")
+            logger.warning("RxNorm HTTP error (status=%s)", e.code)
             return None
         except Exception as e:
-            logger.error(f"RxNorm API call failed: {e}")
+            logger.error("RxNorm API call failed (error_type=%s)", type(e).__name__)
             return None

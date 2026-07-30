@@ -254,7 +254,11 @@ class VisitPrepGenerator:
                             ),
                         })
             except Exception as e:
-                logger.debug("Missing negatives in visit prep: %s", e)
+                logger.debug(
+                    "Missing-negative analysis failed in visit prep "
+                    "(error_type=%s)",
+                    type(e).__name__,
+                )
 
         return questions
 
@@ -712,5 +716,5 @@ class VisitPrepGenerator:
         p.runs[0].font.color.rgb = RGBColor(128, 128, 128)
 
         doc.save(str(output_path))
-        logger.info("Visit prep saved to %s", output_path)
+        logger.info("Visit prep saved locally")
         return output_path

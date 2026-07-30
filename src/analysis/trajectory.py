@@ -150,7 +150,10 @@ class TrajectoryForecaster:
             from src.analysis.anomaly_investigator import AnomalyInvestigator
             anomaly_investigator = AnomalyInvestigator()
         except Exception as exc:
-            logger.warning("Could not load AnomalyInvestigator: %s", exc)
+            logger.warning(
+                "Could not load AnomalyInvestigator (error_type=%s)",
+                type(exc).__name__,
+            )
             anomaly_investigator = None
 
         trajectories = []
@@ -173,8 +176,9 @@ class TrajectoryForecaster:
                     trajectory["relevant_medications"] = rel_meds
                 except Exception as e:
                     logger.warning(
-                        "Failed to map medications for '%s': %s",
-                        trajectory["test_name"], e,
+                        "Failed to map medications for one lab trajectory "
+                        "(error_type=%s)",
+                        type(e).__name__,
                     )
                     trajectory["relevant_medications"] = []
 
@@ -185,8 +189,9 @@ class TrajectoryForecaster:
                         trajectory["anomalies"] = anomalies
                     except Exception as exc:
                         logger.warning(
-                            "Anomaly detection failed for %s: %s",
-                            trajectory.get("test_name", test_key), exc
+                            "Anomaly detection failed for one trajectory "
+                            "(error_type=%s)",
+                            type(exc).__name__,
                         )
                         trajectory["anomalies"] = []
                 else:

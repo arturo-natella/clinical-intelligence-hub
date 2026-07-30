@@ -94,7 +94,7 @@ class DailyMedClient:
             return results
 
         except Exception as e:
-            logger.debug(f"DailyMed search failed for '{drug_name}': {e}")
+            logger.debug("DailyMed search failed (error_type=%s)", type(e).__name__)
             return []
 
     def get_label(self, set_id: str) -> Optional[dict]:
@@ -175,10 +175,10 @@ class DailyMedClient:
             }
 
         except ET.ParseError as e:
-            logger.debug(f"DailyMed XML parse error for {set_id}: {e}")
+            logger.debug("DailyMed XML parse failed (error_type=%s)", type(e).__name__)
             return None
         except Exception as e:
-            logger.debug(f"DailyMed label fetch failed for {set_id}: {e}")
+            logger.debug("DailyMed label fetch failed (error_type=%s)", type(e).__name__)
             return None
 
     def get_drug_interactions(self, drug_name: str) -> Optional[dict]:
@@ -294,7 +294,7 @@ class DailyMedClient:
         """
         results = self.search(drug_name, limit=3)
         if not results:
-            logger.debug(f"DailyMed: No search results for '{drug_name}'")
+            logger.debug("DailyMed search returned no results")
             return None
 
         # Use the first result's setid
@@ -388,10 +388,10 @@ class DailyMedClient:
         except urllib.error.HTTPError as e:
             if e.code == 404:
                 return None
-            logger.debug(f"DailyMed XML HTTP {e.code} for {url[:80]}: {e.reason}")
+            logger.debug("DailyMed XML HTTP error (status=%s)", e.code)
             return None
         except Exception as e:
-            logger.debug(f"DailyMed XML fetch failed for {url[:80]}: {e}")
+            logger.debug("DailyMed XML fetch failed (error_type=%s)", type(e).__name__)
             return None
 
     @staticmethod

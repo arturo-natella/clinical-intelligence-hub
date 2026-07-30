@@ -70,6 +70,16 @@ def test_loinc_lookup_common_labs():
     print("✓ LOINC common lab lookups work correctly")
 
 
+def test_loinc_partial_lookup_prefers_most_specific_alias():
+    """Variant word order must not collapse fasting glucose into generic glucose."""
+    from src.standardization.loinc import LOINCDatabase
+
+    loinc = LOINCDatabase()
+
+    assert loinc.lookup("Glucose fasting")["code"] == "14749-6"
+    assert loinc.lookup("Estimated GFR result")["code"] == "33914-3"
+
+
 def test_loinc_reference_ranges():
     """Reference ranges are clinically reasonable."""
     from src.standardization.loinc import LOINCDatabase

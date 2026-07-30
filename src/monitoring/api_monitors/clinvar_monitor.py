@@ -92,7 +92,10 @@ class ClinVarMonitor:
                         ))
 
             except Exception as e:
-                logger.debug(f"ClinVar check failed for {variant.gene}: {e}")
+                logger.debug(
+                    "ClinVar check failed (error_type=%s)",
+                    type(e).__name__,
+                )
 
         logger.info(f"ClinVar monitor found {len(alerts)} alerts")
         return alerts
@@ -154,5 +157,8 @@ class ClinVarMonitor:
             return results
 
         except Exception as e:
-            logger.debug(f"ClinVar search failed: {e}")
+            logger.debug(
+                "ClinVar search failed (error_type=%s)",
+                type(e).__name__,
+            )
             return []

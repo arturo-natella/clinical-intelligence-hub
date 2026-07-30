@@ -53,6 +53,19 @@ def test_preprocessor():
         assert registered is not None
         assert registered.file_type == FileType.IMAGE
 
+        # An interrupted file keeps its identity and resume cursor.
+        db.update_text_checkpoint(
+            registered.file_id,
+            chunks_completed=1,
+            chunks_total=3,
+        )
+        registered_again = pp.register_file(img)
+        assert registered_again is not None
+        assert registered_again.file_id == registered.file_id
+        resumed_state = db.get_file_state_by_hash(registered.sha256_hash)
+        assert resumed_state["text_chunks_completed"] == 1
+        assert resumed_state["text_chunks_total"] == 3
+
         db.close()
         print("✓ Preprocessor: file classification, SHA-256 hashing, dedup, registration working")
 

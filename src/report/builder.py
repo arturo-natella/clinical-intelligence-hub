@@ -13,6 +13,7 @@ Sections:
   6. Genetic Profile & Pharmacogenomics
   7. Patterns, Flags & Drug Interactions
   8. Cross-Disciplinary Insights
+  8b. Deep Clinical Insight Maps
   9. Questions for Your Doctor
   10. Disclaimer, Sources & Methods
 """
@@ -111,6 +112,9 @@ class ReportBuilder:
         # ── Section 8: Cross-Disciplinary Insights ──
         self._section_8_cross_disciplinary(analysis)
 
+        # ── Section 8b: Persisted Deep Insights ──
+        self._section_8b_deep_insights(analysis)
+
         # ── Section 9: Questions for Your Doctor ──
         self._section_9_questions(analysis)
 
@@ -122,7 +126,7 @@ class ReportBuilder:
         # Save
         output_path.parent.mkdir(parents=True, exist_ok=True)
         self._doc.save(str(output_path))
-        logger.info(f"Report saved to {output_path}")
+        logger.info("Clinical report saved locally")
         return output_path
 
     # ── Style Setup ───────────────────────────────────────────
@@ -467,7 +471,10 @@ class ReportBuilder:
             analyzer = TreatmentResponseAnalyzer()
             result = analyzer.analyze(meds_data, labs_data, symptoms_data, genetics_data)
         except Exception as e:
-            logger.warning("Treatment response analysis failed for report: %s", e)
+            logger.warning(
+                "Treatment response analysis failed for report (error_type=%s)",
+                type(e).__name__,
+            )
             return
 
         responses = result.get("medication_responses", [])
@@ -849,7 +856,10 @@ class ReportBuilder:
             analyzer = InteractionTimelineAnalyzer()
             result = analyzer.analyze(medications, interactions, symptoms_data, genetics_data)
         except Exception as e:
-            logger.warning("Interaction timeline analysis failed for report: %s", e)
+            logger.warning(
+                "Interaction timeline analysis failed for report (error_type=%s)",
+                type(e).__name__,
+            )
             return
 
         zones = result.get("overlap_zones", [])
@@ -980,6 +990,201 @@ class ReportBuilder:
                         f"    Possible mechanism: {insight.cross_disciplinary_context}"
                     )
 
+    # ── Section 8b: Persisted Deep Insights ──────────────────
+
+    def _section_8b_deep_insights(self, analysis: AnalysisResults):
+        """Render the four local deep-insight engines with source citations."""
+        self._doc.add_heading("8b. Deep Clinical Insight Maps", level=1)
+        self._doc.add_paragraph(
+            "These locally generated views connect information across your records. "
+            "They are discussion aids, not diagnoses or treatment instructions. "
+            "Forecasts are mathematical projections and may not reflect future results."
+        )
+
+        snapshots = (
+            analysis.snowball_differential,
+            analysis.biomarker_cascades,
+            analysis.pgx_collision_map,
+            analysis.lab_trajectories,
+        )
+        if not any(snapshots):
+            self._doc.add_paragraph(
+                "Deep insight analyses have not yet been calculated for this profile."
+            )
+            return
+
+        self._add_snowball_insight(analysis.snowball_differential)
+        self._add_biomarker_insight(analysis.biomarker_cascades)
+        self._add_pgx_insight(analysis.pgx_collision_map)
+        self._add_trajectory_insight(analysis.lab_trajectories)
+
+    def _add_snowball_insight(self, snapshot):
+        self._doc.add_heading("Snowball Differential (Discussion Aid)", level=2)
+        if snapshot is None:
+            self._doc.add_paragraph("This analysis was not available.")
+            return
+
+        ranked = snapshot.data.get("ranked_conditions", [])
+        if not ranked:
+            self._doc.add_paragraph(
+                "No candidate conditions were identified from the available findings."
+            )
+        else:
+            self._doc.add_paragraph(
+                "Candidate conditions are ranked by how many recorded findings match. "
+                "A match does not establish a diagnosis."
+            )
+            for condition in ranked[:10]:
+                label = condition.get("label") or condition.get("id") or "Candidate condition"
+                confidence = condition.get("confidence")
+                try:
+                    score = f"{float(confidence) * 100:.0f}% pattern match"
+                except (TypeError, ValueError):
+                    score = "pattern match score unavailable"
+
+                p = self._doc.add_paragraph(style="List Bullet")
+                p.add_run(f"{label} — {score}").bold = True
+
+                matched = condition.get("matched", [])
+                if matched:
+                    self._doc.add_paragraph(
+                        "    Matching record findings: " + ", ".join(map(str, matched[:6]))
+                    )
+                missing = condition.get("missing", [])
+                if missing:
+                    self._doc.add_paragraph(
+                        "    Findings not documented: " + ", ".join(map(str, missing[:5]))
+                    )
+                ruled_out = condition.get("ruled_out", [])
+                if ruled_out:
+                    self._doc.add_paragraph(
+                        "    Contrary evidence: " + ", ".join(map(str, ruled_out[:5]))
+                    )
+        self._add_deep_insight_sources(snapshot)
+
+    def _add_biomarker_insight(self, snapshot):
+        self._doc.add_heading("Biomarker Cascades", level=2)
+        if snapshot is None:
+            self._doc.add_paragraph("This analysis was not available.")
+            return
+
+        cascades = snapshot.data.get("active_cascades", [])
+        nodes = snapshot.data.get("nodes", [])
+        if not cascades:
+            self._doc.add_paragraph(
+                "No biomarker cascade starting points matched the available lab results."
+            )
+        else:
+            self._doc.add_paragraph(
+                "These pathways show possible downstream effects to discuss or monitor; "
+                "they do not prove that each step is occurring."
+            )
+            for cascade in cascades[:10]:
+                name = cascade.get("name", "Biomarker cascade")
+                active = cascade.get("active_nodes", 0)
+                total = cascade.get("total_nodes", 0)
+                p = self._doc.add_paragraph(style="List Bullet")
+                p.add_run(f"{name} — {active} of {total} linked markers present").bold = True
+
+                matched_nodes = [
+                    node for node in nodes
+                    if node.get("cascade") == name and node.get("patient_has")
+                ]
+                if matched_nodes:
+                    labels = []
+                    for node in matched_nodes[:6]:
+                        label = node.get("label", "Marker")
+                        value = node.get("patient_value")
+                        labels.append(f"{label}: {value}" if value else label)
+                    self._doc.add_paragraph("    Record matches: " + "; ".join(labels))
+        self._add_deep_insight_sources(snapshot)
+
+    def _add_pgx_insight(self, snapshot):
+        self._doc.add_heading("Pharmacogenomic Interaction Map", level=2)
+        if snapshot is None:
+            self._doc.add_paragraph("This analysis was not available.")
+            return
+
+        collisions = snapshot.data.get("collisions", [])
+        if not collisions:
+            self._doc.add_paragraph(
+                "No gene-medication interactions were found in the available genetic "
+                "results and active medication list."
+            )
+        else:
+            for collision in collisions[:15]:
+                severity = str(collision.get("severity", "info")).upper()
+                gene = collision.get("gene", "Unknown gene")
+                drug = collision.get("drug", "Unknown medication")
+                phenotype = collision.get("phenotype", "Phenotype not recorded")
+                p = self._doc.add_paragraph(style="List Bullet")
+                p.add_run(f"[{severity}] {gene} + {drug} — {phenotype}").bold = True
+                if collision.get("risk"):
+                    self._doc.add_paragraph(f"    Risk: {collision['risk']}")
+                if collision.get("impact"):
+                    self._doc.add_paragraph(f"    Possible impact: {collision['impact']}")
+                if collision.get("action"):
+                    self._doc.add_paragraph(
+                        f"    Guideline discussion point: {collision['action']}"
+                    )
+        self._add_deep_insight_sources(snapshot)
+
+    def _add_trajectory_insight(self, snapshot):
+        self._doc.add_heading("Lab Trajectories", level=2)
+        if snapshot is None:
+            self._doc.add_paragraph("This analysis was not available.")
+            return
+
+        trajectories = snapshot.data.get("trajectories", [])
+        if not trajectories:
+            self._doc.add_paragraph(
+                "No lab test had at least three dated numeric results for projection."
+            )
+        else:
+            for trajectory in trajectories[:15]:
+                name = trajectory.get("test_name", "Lab test")
+                unit = trajectory.get("unit") or ""
+                trend = trajectory.get("trend", {})
+                direction = trend.get("direction", "unknown")
+                confidence = trend.get("confidence", "unknown")
+                p = self._doc.add_paragraph(style="List Bullet")
+                p.add_run(
+                    f"{name} — {direction} trend ({confidence} confidence)"
+                ).bold = True
+
+                projections = []
+                for label, key in (("6 months", "projection_6mo"), ("12 months", "projection_12mo")):
+                    projection = trajectory.get(key) or {}
+                    if projection.get("value") is not None:
+                        projections.append(
+                            f"{label}: {projection['value']} {unit}".strip()
+                        )
+                if projections:
+                    self._doc.add_paragraph(
+                        "    Mathematical projection: " + "; ".join(projections)
+                    )
+
+                for warning in trajectory.get("warnings", [])[:3]:
+                    message = warning.get("message") if isinstance(warning, dict) else str(warning)
+                    if message:
+                        self._doc.add_paragraph(f"    Watch point: {message}")
+        self._add_deep_insight_sources(snapshot)
+
+    def _add_deep_insight_sources(self, snapshot):
+        """Add compact record-level provenance for an insight snapshot."""
+        if not snapshot.provenance:
+            self._doc.add_paragraph("Sources: No record-level provenance available.")
+            return
+
+        citations = [
+            self._format_provenance(provenance)
+            for provenance in snapshot.provenance[:8]
+        ]
+        suffix = "" if len(snapshot.provenance) <= 8 else (
+            f"; plus {len(snapshot.provenance) - 8} additional source locations"
+        )
+        self._doc.add_paragraph("Sources: " + "; ".join(citations) + suffix)
+
     # ── Section 9: Questions for Doctor ───────────────────────
 
     def _section_9_questions(self, analysis: AnalysisResults):
@@ -1049,7 +1254,7 @@ class ReportBuilder:
             "Pass 1b: MedGemma 4B medical image analysis (local, on-device)",
             "Pass 1c: MONAI clinical detection models (local, on-device)",
             "Pass 1.5: PII redaction (Microsoft Presidio)",
-            "Pass 2: Gemini 3.1 Pro Preview gap-filling (cloud, PII-redacted)",
+            "Pass 2: Gemini 3 Flash gap-filling (cloud, PII-redacted)",
             "Pass 3: Deep Research cross-disciplinary analysis (cloud, PII-redacted)",
             "Pass 4: Deep Research literature search (cloud, PII-redacted)",
             "Pass 5: Clinical validation (OpenFDA, RxNorm, PubMed, DrugBank)",

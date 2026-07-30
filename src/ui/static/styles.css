@@ -5335,6 +5335,55 @@ a, button, input, textarea, select {
     .dash-card.span-3 { grid-column: auto; }
 }
 
+/* ── Finding confidence, provenance, and plain-language notes ── */
+.finding-metadata {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    margin-top: 8px;
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.finding-meta-confidence {
+    color: var(--accent-primary-text);
+    font-weight: 600;
+}
+
+.finding-meta-source {
+    overflow-wrap: anywhere;
+}
+
+.plain-language-note {
+    margin-top: 8px;
+    padding: 8px 10px;
+    border-left: 3px solid var(--accent-primary);
+    border-radius: 4px;
+    background: var(--accent-primary-12);
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.treatment-metadata {
+    margin: -2px 0 10px;
+}
+
+.treatment-lab-metadata {
+    display: block;
+    margin-top: 3px;
+    font-size: 11px;
+    font-weight: 400;
+}
+
+.finding-confidence {
+    margin-top: 4px;
+    color: var(--accent-primary-text);
+    font-size: 12px;
+    font-weight: 600;
+}
+
 /* ── Reduced motion ─────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {

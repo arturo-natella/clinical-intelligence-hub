@@ -95,7 +95,7 @@ class PubChemClient:
             return results
 
         except Exception as e:
-            logger.debug(f"PubChem compound search failed for '{name}': {e}")
+            logger.debug("PubChem compound search failed (error_type=%s)", type(e).__name__)
             return []
 
     def get_compound(self, cid: int) -> Optional[dict]:
@@ -131,7 +131,7 @@ class PubChemClient:
             }
 
         except Exception as e:
-            logger.debug(f"PubChem compound lookup failed for CID {cid}: {e}")
+            logger.debug("PubChem compound lookup failed (error_type=%s)", type(e).__name__)
             return None
 
     def get_drug_mechanism(self, drug_name: str) -> Optional[dict]:
@@ -174,7 +174,8 @@ class PubChemClient:
 
         except Exception as e:
             logger.debug(
-                f"PubChem mechanism of action lookup failed for '{drug_name}': {e}"
+                "PubChem mechanism-of-action lookup failed (error_type=%s)",
+                type(e).__name__,
             )
             return None
 
@@ -216,9 +217,7 @@ class PubChemClient:
             }
 
         except Exception as e:
-            logger.debug(
-                f"PubChem pharmacology lookup failed for '{drug_name}': {e}"
-            )
+            logger.debug("PubChem pharmacology lookup failed (error_type=%s)", type(e).__name__)
             return None
 
     def get_drug_targets(self, drug_name: str) -> list[dict]:
@@ -294,9 +293,7 @@ class PubChemClient:
             return targets
 
         except Exception as e:
-            logger.debug(
-                f"PubChem drug targets lookup failed for '{drug_name}': {e}"
-            )
+            logger.debug("PubChem drug-target lookup failed (error_type=%s)", type(e).__name__)
             return []
 
     def get_drug_interactions_pharmacology(
@@ -340,7 +337,8 @@ class PubChemClient:
 
         except Exception as e:
             logger.debug(
-                f"PubChem drug interactions lookup failed for '{drug_name}': {e}"
+                "PubChem drug-interaction lookup failed (error_type=%s)",
+                type(e).__name__,
             )
             return None
 
@@ -375,9 +373,7 @@ class PubChemClient:
             return synonyms
 
         except Exception as e:
-            logger.debug(
-                f"PubChem synonym lookup failed for '{drug_name}': {e}"
-            )
+            logger.debug("PubChem synonym lookup failed (error_type=%s)", type(e).__name__)
             return []
 
     # ── Helpers ──────────────────────────────────────────────
@@ -401,7 +397,7 @@ class PubChemClient:
             return cids[0] if cids else None
 
         except Exception as e:
-            logger.debug(f"PubChem CID resolution failed for '{name}': {e}")
+            logger.debug("PubChem CID resolution failed (error_type=%s)", type(e).__name__)
             return None
 
     @staticmethod

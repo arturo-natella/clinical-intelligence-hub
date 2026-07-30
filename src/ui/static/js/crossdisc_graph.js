@@ -435,6 +435,22 @@ var CrossDiscGraph = {
         title.textContent = connection.title || connection.disease || "Cross-disciplinary pattern";
         card.appendChild(title);
 
+        if (typeof getClinicalGlossaryEntry === "function") {
+            var plainExplanation = getClinicalGlossaryEntry(
+                (connection.title || connection.disease || "") + " "
+                + (connection.description || connection.pattern || "")
+            );
+            if (plainExplanation) {
+                var plainNote = document.createElement("div");
+                plainNote.className = "plain-language-note";
+                var plainLead = document.createElement("strong");
+                plainLead.textContent = "In plain English: ";
+                plainNote.appendChild(plainLead);
+                plainNote.appendChild(document.createTextNode(plainExplanation));
+                card.appendChild(plainNote);
+            }
+        }
+
         var badges = document.createElement("div");
         badges.className = "crossdisc-detail-badges";
 
@@ -448,6 +464,13 @@ var CrossDiscGraph = {
         specialtyChip.className = "crossdisc-meta-chip";
         specialtyChip.textContent = (connection.specialties || []).length + " specialties";
         badges.appendChild(specialtyChip);
+
+        if (connection.confidence != null && typeof formatConfidence === "function") {
+            var confidenceChip = document.createElement("span");
+            confidenceChip.className = "crossdisc-meta-chip";
+            confidenceChip.textContent = formatConfidence(connection.confidence);
+            badges.appendChild(confidenceChip);
+        }
 
         if (connection.type === "ai_discovered_correlation") {
             var aiChip = document.createElement("span");
@@ -578,6 +601,16 @@ var CrossDiscGraph = {
         var sourceType = connection.type || "";
         var evidenceSource = connection.evidence_source || "";
         var diagnosticSource = connection.diagnostic_source || "";
+
+        if (typeof provenanceText === "function") {
+            var recordSource = provenanceText(connection.provenance);
+            if (recordSource) {
+                var recordMeta = document.createElement("div");
+                recordMeta.className = "crossdisc-source-copy finding-meta-source";
+                recordMeta.textContent = "Record source: " + recordSource;
+                box.appendChild(recordMeta);
+            }
+        }
 
         if (sourceType === "ai_discovered_correlation") {
             var status = document.createElement("div");

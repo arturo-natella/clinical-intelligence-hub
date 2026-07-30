@@ -292,7 +292,10 @@ def load_environmental_manifest(data_dir: Path | str | None) -> dict[str, Any]:
     try:
         return json.loads(manifest_path.read_text(encoding="utf-8"))
     except Exception as exc:
-        logger.warning("Failed to load environmental manifest: %s", exc)
+        logger.warning(
+            "Failed to load environmental manifest (error_type=%s)",
+            type(exc).__name__,
+        )
         return deepcopy(DEFAULT_MANIFEST)
 
 
@@ -384,7 +387,10 @@ def load_environmental_sync_settings(
     try:
         loaded = json.loads(settings_path.read_text(encoding="utf-8"))
     except Exception as exc:
-        logger.warning("Failed to load environmental sync settings: %s", exc)
+        logger.warning(
+            "Failed to load environmental sync settings (error_type=%s)",
+            type(exc).__name__,
+        )
         return deepcopy(DEFAULT_SYNC_SETTINGS)
 
     merged = deepcopy(DEFAULT_SYNC_SETTINGS)

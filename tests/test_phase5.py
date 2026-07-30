@@ -273,6 +273,64 @@ def test_shared_gemini_generator_uses_flash_model():
     assert calls[0]["config"].max_output_tokens == 256
 
 
+def test_shared_gemini_generator_retries_transient_failures(monkeypatch):
+    """Transient Gemini failures retry with bounded exponential backoff."""
+    import src.analysis.gemini_config as config
+
+    attempts = []
+
+    class Models:
+        def generate_content(self, **kwargs):
+            attempts.append(kwargs)
+            if len(attempts) < 3:
+                raise TimeoutError("temporary timeout")
+            return "ok"
+
+    monkeypatch.setenv("MEDPREP_GEMINI_MIN_INTERVAL_SECONDS", "0")
+    monkeypatch.setenv("MEDPREP_GEMINI_RETRY_BACKOFF_SECONDS", "0")
+    monkeypatch.setattr(config.time, "sleep", lambda seconds: None)
+
+    result = config.generate_content(
+        type("Client", (), {"models": Models()})(),
+        "redacted prompt",
+        temperature=0,
+        max_output_tokens=100,
+    )
+
+    assert result == "ok"
+    assert len(attempts) == 3
+    assert all(call["model"] == "gemini-3-flash-preview" for call in attempts)
+
+
+def test_shared_gemini_generator_does_not_retry_auth_or_validation_errors(
+    monkeypatch,
+):
+    """Permanent failures should not multiply paid requests."""
+    import pytest
+
+    import src.analysis.gemini_config as config
+
+    attempts = []
+
+    class Models:
+        def generate_content(self, **kwargs):
+            attempts.append(kwargs)
+            raise ValueError("invalid request")
+
+    monkeypatch.setenv("MEDPREP_GEMINI_MIN_INTERVAL_SECONDS", "0")
+    client = type("Client", (), {"models": Models()})()
+
+    with pytest.raises(ValueError):
+        config.generate_content(
+            client,
+            "redacted prompt",
+            temperature=0,
+            max_output_tokens=100,
+        )
+
+    assert len(attempts) == 1
+
+
 # ── Session Reset Tests ─────────────────────────────────────
 
 def test_database_clear_patient_data():

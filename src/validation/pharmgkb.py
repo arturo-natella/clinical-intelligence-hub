@@ -116,7 +116,7 @@ class PharmGKBClient:
             return results
 
         except Exception as e:
-            logger.debug(f"PharmGKB drug search failed for '{drug_name}': {e}")
+            logger.debug("PharmGKB drug search failed (error_type=%s)", type(e).__name__)
             return []
 
     def get_drug(self, pharmgkb_id: str) -> Optional[dict]:
@@ -175,7 +175,7 @@ class PharmGKBClient:
             }
 
         except Exception as e:
-            logger.debug(f"PharmGKB drug lookup failed for {pharmgkb_id}: {e}")
+            logger.debug("PharmGKB drug lookup failed (error_type=%s)", type(e).__name__)
             return None
 
     def get_clinical_annotations(
@@ -255,7 +255,8 @@ class PharmGKBClient:
 
         except Exception as e:
             logger.debug(
-                f"PharmGKB clinical annotations failed for '{drug_name}': {e}"
+                "PharmGKB clinical-annotation lookup failed (error_type=%s)",
+                type(e).__name__,
             )
             return []
 
@@ -318,7 +319,7 @@ class PharmGKBClient:
             return results
 
         except Exception as e:
-            logger.debug(f"PharmGKB drug labels failed for '{drug_name}': {e}")
+            logger.debug("PharmGKB drug-label lookup failed (error_type=%s)", type(e).__name__)
             return []
 
     def get_guidelines(self, drug_name: str) -> list[dict]:
@@ -388,7 +389,7 @@ class PharmGKBClient:
             return results
 
         except Exception as e:
-            logger.debug(f"PharmGKB guidelines failed for '{drug_name}': {e}")
+            logger.debug("PharmGKB guideline lookup failed (error_type=%s)", type(e).__name__)
             return []
 
     def search_gene(self, gene_symbol: str, limit: int = 10) -> list[dict]:
@@ -442,7 +443,7 @@ class PharmGKBClient:
             return results
 
         except Exception as e:
-            logger.debug(f"PharmGKB gene search failed for '{gene_symbol}': {e}")
+            logger.debug("PharmGKB gene search failed (error_type=%s)", type(e).__name__)
             return []
 
     def get_drug_gene_relationships(self, drug_name: str) -> list[dict]:

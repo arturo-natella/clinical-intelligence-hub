@@ -639,3 +639,30 @@ def test_provenance_in_lab_results():
     assert hba1c["current"]["source_page"] == 2
 
     print("PASS: Provenance tracking in lab results")
+
+
+def test_medication_response_keeps_public_source_metadata():
+    """Treatment cards receive medication confidence/source without raw text."""
+    from src.analysis.treatment_response import TreatmentResponseAnalyzer
+
+    medication = _make_med("Metformin", date(2024, 1, 1), dosage="1000mg")
+    medication["provenance"] = {
+        "source_file": "medication_list.pdf",
+        "source_page": 2,
+        "extraction_model": "medgemma-27b",
+        "confidence": 0.96,
+        "raw_text": "private source excerpt",
+    }
+    labs = [
+        _make_lab("HbA1c", 8.2, date(2023, 11, 1)),
+        _make_lab("HbA1c", 6.8, date(2024, 10, 1)),
+    ]
+
+    response = TreatmentResponseAnalyzer().analyze(
+        [medication], labs, [], []
+    )["medication_responses"][0]
+
+    assert response["confidence"] == 0.96
+    assert response["provenance"]["source_file"] == "medication_list.pdf"
+    assert response["provenance"]["source_page"] == 2
+    assert "raw_text" not in response["provenance"]

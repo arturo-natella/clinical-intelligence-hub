@@ -62,7 +62,7 @@ class OpenFDAClient:
             ]
 
         except Exception as e:
-            logger.error(f"OpenFDA adverse events query failed for {drug_name}: {e}")
+            logger.error("OpenFDA adverse-events query failed (error_type=%s)", type(e).__name__)
             return []
 
     def get_drug_label(self, drug_name: str) -> Optional[dict]:
@@ -92,7 +92,7 @@ class OpenFDAClient:
             }
 
         except Exception as e:
-            logger.error(f"OpenFDA label query failed for {drug_name}: {e}")
+            logger.error("OpenFDA label query failed (error_type=%s)", type(e).__name__)
             return None
 
     def check_drug_recalls(self, drug_name: str, limit: int = 5) -> list[dict]:
@@ -121,7 +121,7 @@ class OpenFDAClient:
             ]
 
         except Exception as e:
-            logger.debug(f"OpenFDA recall query for {drug_name}: {e}")
+            logger.debug("OpenFDA recall query failed (error_type=%s)", type(e).__name__)
             return []
 
     def validate_drug_interactions(self, drug_names: list[str]) -> list[DrugInteraction]:
@@ -181,10 +181,10 @@ class OpenFDAClient:
             if e.code == 404:
                 logger.debug(f"OpenFDA: No results for {endpoint}")
                 return None
-            logger.warning(f"OpenFDA HTTP {e.code}: {e.reason}")
+            logger.warning("OpenFDA HTTP error (status=%s)", e.code)
             return None
         except Exception as e:
-            logger.error(f"OpenFDA API call failed: {e}")
+            logger.error("OpenFDA API call failed (error_type=%s)", type(e).__name__)
             return None
 
     @staticmethod

@@ -69,7 +69,7 @@ class dbSNPClient:
         """
         rs_number = self._clean_rs_id(rs_id)
         if not rs_number:
-            logger.debug(f"Invalid rs ID: {rs_id}")
+            logger.debug("Invalid rs ID supplied")
             return None
 
         url = f"{VARIATION_BASE}/refsnp/{rs_number}"
@@ -84,7 +84,7 @@ class dbSNPClient:
             return self._parse_variant(rs_number, data)
 
         except Exception as e:
-            logger.debug(f"dbSNP get_variant failed for rs{rs_number}: {e}")
+            logger.debug("dbSNP variant lookup failed (error_type=%s)", type(e).__name__)
             return None
 
     def search_gene(self, gene_symbol: str, limit: int = 20) -> list[dict]:
@@ -133,9 +133,7 @@ class dbSNPClient:
             return results
 
         except Exception as e:
-            logger.debug(
-                f"dbSNP search_gene failed for '{gene_symbol}': {e}"
-            )
+            logger.debug("dbSNP gene search failed (error_type=%s)", type(e).__name__)
             return []
 
     def get_frequency(self, rs_id: str) -> Optional[dict]:
@@ -147,7 +145,7 @@ class dbSNPClient:
         """
         rs_number = self._clean_rs_id(rs_id)
         if not rs_number:
-            logger.debug(f"Invalid rs ID for frequency lookup: {rs_id}")
+            logger.debug("Invalid rs ID supplied for frequency lookup")
             return None
 
         url = f"{VARIATION_BASE}/refsnp/{rs_number}"
@@ -162,7 +160,7 @@ class dbSNPClient:
             return self._parse_frequency(rs_number, data)
 
         except Exception as e:
-            logger.debug(f"dbSNP get_frequency failed for rs{rs_number}: {e}")
+            logger.debug("dbSNP frequency lookup failed (error_type=%s)", type(e).__name__)
             return None
 
     def get_clinical_significance(self, rs_id: str) -> Optional[dict]:
@@ -194,8 +192,8 @@ class dbSNPClient:
 
         except Exception as e:
             logger.debug(
-                f"dbSNP get_clinical_significance failed for "
-                f"rs{rs_number}: {e}"
+                "dbSNP clinical-significance lookup failed (error_type=%s)",
+                type(e).__name__,
             )
             return None
 
@@ -362,7 +360,7 @@ class dbSNPClient:
             }
 
         except Exception as e:
-            logger.debug(f"dbSNP parse failed for rs{rs_number}: {e}")
+            logger.debug("dbSNP parse failed (error_type=%s)", type(e).__name__)
             return None
 
     def _parse_frequency(
@@ -460,9 +458,7 @@ class dbSNPClient:
             }
 
         except Exception as e:
-            logger.debug(
-                f"dbSNP frequency parse failed for rs{rs_number}: {e}"
-            )
+            logger.debug("dbSNP frequency parse failed (error_type=%s)", type(e).__name__)
             return None
 
     def _parse_clinical_significance(
@@ -561,8 +557,8 @@ class dbSNPClient:
 
         except Exception as e:
             logger.debug(
-                f"dbSNP clinical significance parse failed for "
-                f"rs{rs_number}: {e}"
+                "dbSNP clinical-significance parse failed (error_type=%s)",
+                type(e).__name__,
             )
             return None
 

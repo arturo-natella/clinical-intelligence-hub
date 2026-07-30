@@ -21,7 +21,7 @@ Pillow>=10.0                   # Image processing for OCR preprocessing
 fhir.resources>=7.0            # FHIR JSON bundle parsing
 
 # ── OCR ─────────────────────────────────────────
-pyobjc-framework-Vision>=10.0  # Apple Vision OCR (macOS native)
+pyobjc-framework-Vision>=10.0; sys_platform == "darwin"  # Apple Vision OCR (macOS native)
 pytesseract>=0.3               # Tesseract OCR fallback
 
 # ── Security & Encryption ───────────────────────

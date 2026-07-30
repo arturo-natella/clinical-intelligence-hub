@@ -84,19 +84,25 @@ class Preprocessor:
         file_type = self.classify_file(file_path)
 
         if file_type == FileType.UNKNOWN:
-            logger.warning(f"Unsupported file type: {file_path.name}")
+            logger.warning("Unsupported file type encountered")
             return None
 
         sha256 = self.compute_hash(file_path)
 
         if self.is_duplicate(sha256):
-            logger.debug(f"Duplicate file skipped: {file_path.name}")
+            logger.debug("Duplicate file skipped")
             return None
 
+        existing_state = self.db.get_file_state_by_hash(sha256)
         file_size = file_path.stat().st_size
         page_count = self._count_pages(file_path, file_type)
 
+        identity = {}
+        if existing_state and existing_state.get("file_id"):
+            identity["file_id"] = existing_state["file_id"]
+
         processed = ProcessedFile(
+            **identity,
             filename=file_path.name,
             file_type=file_type,
             sha256_hash=sha256,
@@ -115,7 +121,11 @@ class Preprocessor:
             page_count=page_count,
         )
 
-        logger.info(f"Registered: {file_path.name} ({file_type.value}, {file_size:,} bytes)")
+        logger.info(
+            "Registered record (type=%s, bytes=%d)",
+            file_type.value,
+            file_size,
+        )
         return processed
 
     def process(self, file_path: Path) -> Optional[dict]:
@@ -133,6 +143,8 @@ class Preprocessor:
         if registered is None:
             return None
 
+        state = self.db.get_file_state_by_hash(registered.sha256_hash) or {}
+
         result = {
             "file_id": registered.file_id,
             "filename": registered.filename,
@@ -143,6 +155,10 @@ class Preprocessor:
             "text": "",
             "pages": [],
             "images": [],
+            "text_chunks_completed": int(
+                state.get("text_chunks_completed") or 0
+            ),
+            "text_chunks_total": int(state.get("text_chunks_total") or 0),
         }
 
         # Extract text from PDFs (the primary medical record format)
@@ -156,9 +172,7 @@ class Preprocessor:
             result["pages"] = pages
             result["text"] = "\n\n".join(p["text"] for p in pages)
             if not pages:
-                logger.warning(
-                    f"OCR returned no text for scanned PDF: {file_path.name}"
-                )
+                logger.warning("OCR returned no text for one scanned PDF")
 
         # Image files → pass path for vision analysis
         elif registered.file_type in (FileType.IMAGE, FileType.DICOM):
@@ -169,7 +183,10 @@ class Preprocessor:
             try:
                 result["text"] = file_path.read_text(encoding="utf-8")
             except Exception as e:
-                logger.error(f"Failed to read FHIR JSON {file_path.name}: {e}")
+                logger.error(
+                    "Failed to read one FHIR JSON record (error_type=%s)",
+                    type(e).__name__,
+                )
 
         # Update DB status
         self.db.upsert_file_state(
@@ -185,8 +202,9 @@ class Preprocessor:
         text_len = len(result["text"])
         img_count = len(result["images"])
         logger.info(
-            f"Processed: {file_path.name} → "
-            f"{text_len:,} chars text, {img_count} images"
+            "Processed record (characters=%d, images=%d)",
+            text_len,
+            img_count,
         )
         return result
 
@@ -223,14 +241,17 @@ class Preprocessor:
                     })
 
             doc.close()
-            logger.info(f"Extracted text from {len(pages)} pages of {pdf_path.name}")
+            logger.info("Extracted text from %d PDF pages", len(pages))
             return pages
 
         except ImportError:
             logger.error("PyMuPDF not installed. Run: pip install PyMuPDF")
             return []
         except Exception as e:
-            logger.error(f"Failed to extract text from {pdf_path.name}: {e}")
+            logger.error(
+                "Failed to extract PDF text (error_type=%s)",
+                type(e).__name__,
+            )
             return []
 
     def extract_text_with_ocr(self, pdf_path: Path) -> list[dict]:
@@ -244,7 +265,7 @@ class Preprocessor:
             engine = OCREngine()
             return engine.process_pdf(pdf_path)
         except Exception as e:
-            logger.error(f"OCR failed for {pdf_path.name}: {e}")
+            logger.error("OCR failed (error_type=%s)", type(e).__name__)
             return []
 
     # ── Private helpers ────────────────────────────────────

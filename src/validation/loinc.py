@@ -98,7 +98,7 @@ class LOINCClient:
             return results
 
         except Exception as e:
-            logger.debug(f"LOINC search failed for '{query}': {e}")
+            logger.debug("LOINC search failed (error_type=%s)", type(e).__name__)
             return []
 
     def get_code(self, loinc_code: str) -> Optional[dict]:
@@ -124,7 +124,7 @@ class LOINCClient:
             return self._parse_lookup_response(data, loinc_code)
 
         except Exception as e:
-            logger.debug(f"LOINC code lookup failed for '{loinc_code}': {e}")
+            logger.debug("LOINC code lookup failed (error_type=%s)", type(e).__name__)
             return None
 
     def search_lab_test(self, test_name: str, limit: int = 10) -> list[dict]:
@@ -255,7 +255,8 @@ class LOINCClient:
 
         except Exception as e:
             logger.debug(
-                f"LOINC reference range lookup failed for '{loinc_code}': {e}"
+                "LOINC reference-range lookup failed (error_type=%s)",
+                type(e).__name__,
             )
             return self._build_basic_range_info(details)
 
@@ -405,6 +406,6 @@ class LOINCClient:
         data = api_get(url, headers=headers, accept="application/fhir+json")
 
         if data is None:
-            logger.debug(f"LOINC FHIR request returned no data: {url[:80]}")
+            logger.debug("LOINC FHIR request returned no data")
 
         return data

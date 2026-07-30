@@ -1,5 +1,5 @@
 """
-Clinical Intelligence Hub — Pass 2: Gemini 3.1 Pro Preview Fallback
+Clinical Intelligence Hub — Pass 2: Gemini 3 Flash Fallback
 
 When local MedGemma cannot extract sufficient data from a document
 (poor OCR, unusual formatting, complex clinical narratives), we fall
@@ -42,7 +42,7 @@ MODEL_ID = GEMINI_MODEL_ID
 
 class GeminiFallback:
     """
-    Pass 2: Cloud fallback extraction using Gemini 3.1 Pro Preview.
+    Pass 2: Cloud fallback extraction using Gemini 3 Flash.
 
     Called when local extraction (MedGemma) produces insufficient results
     or when document complexity exceeds local model capabilities.
@@ -85,11 +85,30 @@ class GeminiFallback:
             return self._parse_results(result, source_file)
 
         except json.JSONDecodeError as e:
-            logger.warning(f"Gemini returned invalid JSON: {e}")
+            logger.warning(
+                "Gemini returned invalid JSON (error_type=%s)",
+                type(e).__name__,
+            )
             return {}
         except Exception as e:
-            logger.error(f"Gemini extraction failed: {e}")
+            logger.error(
+                "Gemini extraction failed (error_type=%s)",
+                type(e).__name__,
+            )
             return {}
+
+    @staticmethod
+    def chunk_redacted_text(redacted_text: str,
+                            chunk_chars: int = 12_000) -> list[str]:
+        """Split the entire redacted document without silently truncating it."""
+        if not redacted_text:
+            return []
+        if chunk_chars <= 0:
+            raise ValueError("chunk_chars must be positive")
+        return [
+            redacted_text[start:start + chunk_chars]
+            for start in range(0, len(redacted_text), chunk_chars)
+        ]
 
     def analyze_complex_document(self, redacted_text: str,
                                  source_file: str) -> Optional[str]:
@@ -129,7 +148,10 @@ Provide your analysis as a detailed clinical summary."""
             return response.text
 
         except Exception as e:
-            logger.error(f"Gemini complex analysis failed: {e}")
+            logger.error(
+                "Gemini complex analysis failed (error_type=%s)",
+                type(e).__name__,
+            )
             return None
 
     # ── Setup ───────────────────────────────────────────────
@@ -145,7 +167,10 @@ Provide your analysis as a detailed clinical summary."""
                 "google-genai not installed. Run: pip install google-genai"
             )
         except Exception as e:
-            logger.error(f"Failed to initialize Gemini: {e}")
+            logger.error(
+                "Failed to initialize Gemini (error_type=%s)",
+                type(e).__name__,
+            )
 
     # ── Prompt Building ─────────────────────────────────────
 
@@ -172,7 +197,7 @@ entities from this PII-redacted medical document into strict JSON.
 
 Extract these categories:
 1. **medications** — name, generic_name, dosage, frequency, route, status (active/discontinued/prn), reason
-2. **labs** — name, value (numeric), value_text (non-numeric), unit, flag (High/Low/Normal/Critical), test_date (YYYY-MM-DD)
+2. **labs** — name, loinc_code (only when explicitly present), value (numeric), value_text (non-numeric), unit, flag (High/Low/Normal/Critical), test_date (YYYY-MM-DD)
 3. **diagnoses** — name, date_diagnosed (YYYY-MM-DD), status (Active/Resolved/Chronic)
 4. **procedures** — name, procedure_date (YYYY-MM-DD), outcome
 5. **allergies** — allergen, reaction, severity (Mild/Moderate/Severe/Life-threatening)

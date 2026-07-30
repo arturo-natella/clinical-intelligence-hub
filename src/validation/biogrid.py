@@ -112,9 +112,7 @@ class BioGRIDClient:
             return interactions
 
         except Exception as e:
-            logger.debug(
-                f"BioGRID get_interactions failed for '{gene_symbol}': {e}"
-            )
+            logger.debug("BioGRID interaction lookup failed (error_type=%s)", type(e).__name__)
             return []
 
     def get_interaction_partners(
@@ -450,10 +448,7 @@ class BioGRIDClient:
             return interactions
 
         except Exception as e:
-            logger.debug(
-                f"BioGRID search_interactions failed for "
-                f"{cleaned_genes[:3]}...: {e}"
-            )
+            logger.debug("BioGRID interaction search failed (error_type=%s)", type(e).__name__)
             return []
 
     # ── Parsing helpers ────────────────────────────────────
@@ -525,9 +520,7 @@ class BioGRIDClient:
             }
 
         except Exception as e:
-            logger.debug(
-                f"BioGRID parse failed for interaction {interaction_id}: {e}"
-            )
+            logger.debug("BioGRID interaction parse failed (error_type=%s)", type(e).__name__)
             return None
 
     # ── URL builder ────────────────────────────────────────

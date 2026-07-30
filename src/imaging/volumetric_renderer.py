@@ -111,7 +111,7 @@ class VolumetricRenderer:
         glb_path = out_path / output_filename
 
         # -- Stage 1: Load DICOM --
-        logger.info("Stage 1/5: Loading DICOM series from %s", dicom_path)
+        logger.info("Stage 1/5: Loading local DICOM series")
         volume, spacing, metadata = self._load_dicom_series(dicom_path)
         logger.info(
             "  Volume shape: %s, spacing: %s mm, dtype: %s",
@@ -160,7 +160,7 @@ class VolumetricRenderer:
         gc.collect()
 
         # -- Stage 5: Export GLB --
-        logger.info("Stage 5/5: Exporting GLB to %s", glb_path)
+        logger.info("Stage 5/5: Exporting local GLB")
         combined.export(str(glb_path), file_type="glb")
         file_size_mb = glb_path.stat().st_size / (1024 * 1024)
         logger.info("  GLB exported: %.1f MB", file_size_mb)
@@ -175,7 +175,7 @@ class VolumetricRenderer:
         meta_path = out_path / (output_filename.rsplit(".", 1)[0] + "_meta.json")
         self._write_metadata(meta_path, metadata, glb_path)
 
-        logger.info("Pipeline complete. Output: %s", glb_path)
+        logger.info("Volumetric rendering pipeline complete")
         return glb_path
 
     # ===========================================================
@@ -232,7 +232,10 @@ class VolumetricRenderer:
                 if hasattr(ds, "pixel_array"):
                     slices.append(ds)
             except Exception as e:
-                logger.warning("  Skipping %s: %s", f.name, e)
+                logger.warning(
+                    "  Skipping unreadable DICOM slice (error_type=%s)",
+                    type(e).__name__,
+                )
 
         if len(slices) < 3:
             raise ValueError(
@@ -462,7 +465,9 @@ class VolumetricRenderer:
             return model
         except Exception as e:
             logger.warning(
-                "  MONAI bundle load failed: %s. Using default UNet.", e,
+                "  MONAI bundle load failed; using default UNet "
+                "(error_type=%s)",
+                type(e).__name__,
             )
 
         # Fallback: default UNet (untrained - for pipeline testing only)
@@ -557,8 +562,9 @@ class VolumetricRenderer:
 
             except Exception as e:
                 logger.warning(
-                    "  Marching cubes failed for label %d (%s): %s",
-                    label, name, e,
+                    "  Marching cubes failed for one segmentation label "
+                    "(error_type=%s)",
+                    type(e).__name__,
                 )
 
             # Free binary mask immediately
@@ -654,7 +660,7 @@ class VolumetricRenderer:
         }
         with open(meta_path, "w") as f:
             json.dump(meta, f, indent=2, default=str)
-        logger.info("  Metadata written to %s", meta_path)
+        logger.info("  Volumetric metadata written locally")
 
 
 # ===============================================================

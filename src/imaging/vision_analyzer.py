@@ -53,13 +53,13 @@ class VisionAnalyzer:
         """
         if not self._available:
             error = self.availability_error or "Local vision model is not available"
-            logger.warning("%s — skipping vision analysis", error)
+            logger.warning("Local vision model unavailable; skipping vision analysis")
             return {"description": None, "findings": [], "_error": error}
 
         if not image_path.exists():
-            error = f"Image not found: {image_path}"
+            error = "Local medical image was not found"
             self.last_error = error
-            logger.error(error)
+            logger.error("Local medical image was not found")
             return {"description": None, "findings": [], "_error": error}
 
         prompt = self._build_prompt(modality, body_region)
@@ -146,11 +146,17 @@ Output strictly valid JSON with "description" and "findings" keys."""
             return result
 
         except json.JSONDecodeError as e:
-            self.last_error = f"MedGemma 4B returned invalid JSON: {e}"
+            self.last_error = (
+                "MedGemma 4B returned invalid JSON "
+                f"({type(e).__name__})"
+            )
             logger.warning(self.last_error)
             return None
         except Exception as e:
-            self.last_error = f"MedGemma 4B vision analysis failed: {e}"
+            self.last_error = (
+                "MedGemma 4B vision analysis failed "
+                f"({type(e).__name__})"
+            )
             logger.error(self.last_error)
             return None
 
@@ -170,8 +176,9 @@ Output strictly valid JSON with "description" and "findings" keys."""
             listing = ollama.list()
         except Exception as e:
             self.availability_error = (
-                f"Ollama daemon is not reachable ({e}). Start it with "
-                "`ollama serve` or launch the Ollama app."
+                "Ollama daemon is not reachable "
+                f"({type(e).__name__}). Start it with `ollama serve` or "
+                "launch the Ollama app."
             )
             logger.warning(self.availability_error)
             return False

@@ -78,7 +78,10 @@ class RxNormMonitor:
                     )
 
             except Exception as e:
-                logger.debug(f"RxNorm check failed for {med.name}: {e}")
+                logger.debug(
+                    "RxNorm check failed (error_type=%s)",
+                    type(e).__name__,
+                )
 
         logger.info(f"RxNorm monitor found {len(alerts)} alerts")
         return alerts
@@ -121,4 +124,7 @@ class RxNormMonitor:
                         ))
 
         except Exception as e:
-            logger.debug(f"RxNorm interaction check failed: {e}")
+            logger.debug(
+                "RxNorm interaction check failed (error_type=%s)",
+                type(e).__name__,
+            )

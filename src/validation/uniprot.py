@@ -85,7 +85,7 @@ class UniProtClient:
             return proteins
 
         except Exception as e:
-            logger.debug(f"UniProt search failed for '{query}': {e}")
+            logger.debug("UniProt search failed (error_type=%s)", type(e).__name__)
             return []
 
     def get_protein(self, accession: str) -> Optional[dict]:
@@ -106,7 +106,7 @@ class UniProtClient:
             return self._parse_protein_detail(data)
 
         except Exception as e:
-            logger.debug(f"UniProt get_protein failed for {accession}: {e}")
+            logger.debug("UniProt protein lookup failed (error_type=%s)", type(e).__name__)
             return None
 
     def search_by_gene(self, gene_symbol: str) -> Optional[dict]:
@@ -146,7 +146,7 @@ class UniProtClient:
             return self._parse_protein_detail(entry)
 
         except Exception as e:
-            logger.debug(f"UniProt search_by_gene failed for '{gene_symbol}': {e}")
+            logger.debug("UniProt gene search failed (error_type=%s)", type(e).__name__)
             return None
 
     def get_function(self, gene_symbol: str) -> Optional[dict]:
@@ -397,7 +397,7 @@ class UniProtClient:
             return entry if isinstance(entry, dict) else None
 
         except Exception as e:
-            logger.debug(f"UniProt raw fetch failed for '{gene_symbol}': {e}")
+            logger.debug("UniProt raw fetch failed (error_type=%s)", type(e).__name__)
             return None
 
     # ── Parsing helpers ─────────────────────────────────────
@@ -455,7 +455,7 @@ class UniProtClient:
             }
 
         except Exception as e:
-            logger.debug(f"UniProt parse summary failed: {e}")
+            logger.debug("UniProt summary parse failed (error_type=%s)", type(e).__name__)
             return None
 
     def _parse_protein_detail(self, entry: dict) -> Optional[dict]:
@@ -503,7 +503,7 @@ class UniProtClient:
             return summary
 
         except Exception as e:
-            logger.debug(f"UniProt parse detail failed: {e}")
+            logger.debug("UniProt detail parse failed (error_type=%s)", type(e).__name__)
             return None
 
     def _extract_protein_name(self, entry: dict) -> str:

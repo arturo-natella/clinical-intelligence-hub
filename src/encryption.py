@@ -147,7 +147,7 @@ class EncryptedVault:
         })
         self._save_index(index)
 
-        logger.info(f"Created profile '{name}' (id={profile_id})")
+        logger.info("Created encrypted patient profile")
         return profile_id
 
     def save_profile(self, profile_data: dict, profile_id: str = None):
@@ -174,8 +174,9 @@ class EncryptedVault:
 
         self._update_access_time(pid)
         logger.debug(
-            f"Profile {pid} saved ({len(json_bytes):,} bytes → "
-            f"{len(encrypted):,} bytes)"
+            "Encrypted patient profile saved (plain_bytes=%d, encrypted_bytes=%d)",
+            len(json_bytes),
+            len(encrypted),
         )
 
     def load_profile(self, profile_id: str = None) -> Optional[dict]:
@@ -200,7 +201,10 @@ class EncryptedVault:
             self._update_access_time(pid)
             return json.loads(decrypted.decode('utf-8'))
         except Exception as e:
-            logger.error(f"Failed to decrypt profile {pid}: {e}")
+            logger.error(
+                "Failed to decrypt patient profile (error_type=%s)",
+                type(e).__name__,
+            )
             raise
 
     def delete_profile(self, profile_id: str):
@@ -215,7 +219,7 @@ class EncryptedVault:
         if self.active_profile_id == profile_id:
             self.active_profile_id = None
 
-        logger.info(f"Deleted profile {profile_id}")
+        logger.info("Deleted encrypted patient profile")
 
     def rename_profile(self, profile_id: str, new_name: str):
         """Rename a profile."""
@@ -225,7 +229,7 @@ class EncryptedVault:
                 entry["name"] = new_name
                 break
         self._save_index(index)
-        logger.info(f"Renamed profile {profile_id} → '{new_name}'")
+        logger.info("Renamed encrypted patient profile")
 
     def profile_exists(self, profile_id: str = None) -> bool:
         """Check if an encrypted profile exists."""
@@ -257,14 +261,14 @@ class EncryptedVault:
             backup = self._legacy_profile_path.with_suffix(".enc.migrated")
             self._legacy_profile_path.rename(backup)
 
-            logger.info(
-                f"Migrated legacy profile → '{profile_id}' "
-                f"(backup at {backup.name})"
-            )
+            logger.info("Migrated legacy profile into encrypted profile store")
             return profile_id
 
         except Exception as e:
-            logger.error(f"Legacy profile migration failed: {e}")
+            logger.error(
+                "Legacy profile migration failed (error_type=%s)",
+                type(e).__name__,
+            )
             return None
 
     # ── API Key Vault ──────────────────────────────────────
@@ -289,7 +293,10 @@ class EncryptedVault:
             decrypted = decrypt_data(encrypted, self._passphrase)
             return json.loads(decrypted.decode('utf-8'))
         except Exception as e:
-            logger.error(f"Failed to decrypt API vault: {e}")
+            logger.error(
+                "Failed to decrypt API vault (error_type=%s)",
+                type(e).__name__,
+            )
             return {}
 
     def set_api_key(self, service: str, key: str):
@@ -399,5 +406,8 @@ class EncryptedVault:
                 self._legacy_save(profile)
                 return profile
             except (json.JSONDecodeError, UnicodeDecodeError):
-                logger.error(f"Failed to decrypt legacy profile: {e}")
+                logger.error(
+                    "Failed to decrypt legacy profile (error_type=%s)",
+                    type(e).__name__,
+                )
                 raise

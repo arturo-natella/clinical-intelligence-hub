@@ -123,7 +123,10 @@ class RelevanceAssessor:
             from src.report.addendum import AddendumBuilder
             builder = AddendumBuilder()
         except Exception as e:
-            logger.error(f"AddendumBuilder init failed: {e}")
+            logger.error(
+                "AddendumBuilder init failed (error_type=%s)",
+                type(e).__name__,
+            )
             return []
 
         relevant = self.filter_alerts(alerts, profile)
@@ -133,9 +136,12 @@ class RelevanceAssessor:
                 try:
                     path = builder.generate(alert, profile, output_dir)
                     paths.append(path)
-                    logger.info(f"Generated addendum: {path.name}")
+                    logger.info("Generated local clinical addendum")
                 except Exception as e:
-                    logger.error(f"Addendum generation failed: {e}")
+                    logger.error(
+                        "Addendum generation failed (error_type=%s)",
+                        type(e).__name__,
+                    )
 
         return paths
 

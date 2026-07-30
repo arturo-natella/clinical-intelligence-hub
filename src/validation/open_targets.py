@@ -77,7 +77,10 @@ class OpenTargetsClient:
             return response.get("data")
 
         except Exception as e:
-            logger.debug("Open Targets GraphQL query failed: %s", e)
+            logger.debug(
+                "Open Targets GraphQL query failed (error_type=%s)",
+                type(e).__name__,
+            )
             return None
 
     # ── Disease Search ───────────────────────────────────────
@@ -297,10 +300,7 @@ class OpenTargetsClient:
             search_data.get("search", {}).get("hits") or []
         )
         if not hits:
-            logger.debug(
-                "Open Targets: no target found for gene symbol '%s'",
-                gene_symbol,
-            )
+            logger.debug("Open Targets found no target for one gene query")
             return []
 
         target_id = hits[0].get("id", "")

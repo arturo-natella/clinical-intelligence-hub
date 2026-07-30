@@ -96,7 +96,7 @@ class UMLSClient:
             return results
 
         except Exception as e:
-            logger.debug(f"UMLS search failed for '{query}': {e}")
+            logger.debug("UMLS search failed (error_type=%s)", type(e).__name__)
             return []
 
     def get_concept(self, cui: str) -> Optional[dict]:
@@ -143,7 +143,7 @@ class UMLSClient:
             }
 
         except Exception as e:
-            logger.debug(f"UMLS concept lookup failed for '{cui}': {e}")
+            logger.debug("UMLS concept lookup failed (error_type=%s)", type(e).__name__)
             return None
 
     def get_crosswalk(self, cui: str, target_source: str = None) -> list[dict]:
@@ -230,7 +230,7 @@ class UMLSClient:
             return results
 
         except Exception as e:
-            logger.debug(f"UMLS crosswalk failed for '{cui}': {e}")
+            logger.debug("UMLS crosswalk failed (error_type=%s)", type(e).__name__)
             return []
 
     def map_term(self, term: str, from_source: str, to_source: str) -> list[dict]:
@@ -325,7 +325,7 @@ class UMLSClient:
             return results
 
         except Exception as e:
-            logger.debug(f"UMLS definitions failed for '{cui}': {e}")
+            logger.debug("UMLS definitions lookup failed (error_type=%s)", type(e).__name__)
             return []
 
     def get_relations(self, cui: str, limit: int = 20) -> list[dict]:
@@ -389,7 +389,7 @@ class UMLSClient:
             return results
 
         except Exception as e:
-            logger.debug(f"UMLS relations failed for '{cui}': {e}")
+            logger.debug("UMLS relations lookup failed (error_type=%s)", type(e).__name__)
             return []
 
     def normalize_term(self, term: str) -> Optional[dict]:

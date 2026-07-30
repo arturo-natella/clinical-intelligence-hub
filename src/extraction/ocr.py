@@ -47,7 +47,7 @@ class OCREngine:
             if image_path.exists():
                 image_path.unlink()
 
-        logger.info(f"OCR extracted text from {len(results)} pages of {pdf_path.name}")
+        logger.info("OCR extracted text from %d pages", len(results))
         return results
 
     def ocr_image(self, image_path: Path) -> Optional[str]:
@@ -102,7 +102,10 @@ class OCREngine:
             return "\n".join(lines)
 
         except Exception as e:
-            logger.debug(f"Apple Vision OCR failed: {e}")
+            logger.debug(
+                "Apple Vision OCR failed (error_type=%s)",
+                type(e).__name__,
+            )
             return None
 
     # ── Tesseract Fallback ─────────────────────────────────
@@ -118,7 +121,10 @@ class OCREngine:
             return text
 
         except Exception as e:
-            logger.error(f"Tesseract OCR failed: {e}")
+            logger.error(
+                "Tesseract OCR failed (error_type=%s)",
+                type(e).__name__,
+            )
             return None
 
     # ── PDF to Images ──────────────────────────────────────
@@ -148,7 +154,10 @@ class OCREngine:
             return image_paths
 
         except Exception as e:
-            logger.error(f"Failed to convert PDF to images: {e}")
+            logger.error(
+                "Failed to convert PDF to images (error_type=%s)",
+                type(e).__name__,
+            )
             return []
 
     # ── Availability Checks ────────────────────────────────

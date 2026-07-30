@@ -66,7 +66,10 @@ class ClinicalTrialsMonitor:
                     ))
 
             except Exception as e:
-                logger.debug(f"ClinicalTrials.gov search failed for {dx.name}: {e}")
+                logger.debug(
+                    "ClinicalTrials.gov search failed (error_type=%s)",
+                    type(e).__name__,
+                )
 
         logger.info(f"ClinicalTrials.gov monitor found {len(alerts)} alerts")
         return alerts
@@ -111,5 +114,8 @@ class ClinicalTrialsMonitor:
             return results
 
         except Exception as e:
-            logger.debug(f"ClinicalTrials.gov API call failed: {e}")
+            logger.debug(
+                "ClinicalTrials.gov API call failed (error_type=%s)",
+                type(e).__name__,
+            )
             return []

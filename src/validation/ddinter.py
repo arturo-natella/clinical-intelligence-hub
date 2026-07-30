@@ -99,7 +99,7 @@ class DDinterClient:
             return parsed
 
         except Exception as e:
-            logger.debug(f"DDinter drug search failed for '{drug_name}': {e}")
+            logger.debug("DDinter drug search failed (error_type=%s)", type(e).__name__)
             return []
 
     def get_interactions(self, drug_name: str, limit: int = 20) -> list[dict]:
@@ -134,7 +134,7 @@ class DDinterClient:
             return parsed
 
         except Exception as e:
-            logger.debug(f"DDinter interaction lookup failed for '{drug_name}': {e}")
+            logger.debug("DDinter interaction lookup failed (error_type=%s)", type(e).__name__)
             return []
 
     def check_pair(self, drug_a: str, drug_b: str) -> Optional[dict]:
@@ -187,7 +187,7 @@ class DDinterClient:
             return result
 
         except Exception as e:
-            logger.debug(f"DDinter pair check failed for '{drug_a}' + '{drug_b}': {e}")
+            logger.debug("DDinter pair check failed (error_type=%s)", type(e).__name__)
             return None
 
     def get_food_interactions(self, drug_name: str) -> list[dict]:
@@ -239,7 +239,7 @@ class DDinterClient:
             return parsed
 
         except Exception as e:
-            logger.debug(f"DDinter food interaction lookup failed for '{drug_name}': {e}")
+            logger.debug("DDinter food-interaction lookup failed (error_type=%s)", type(e).__name__)
             return []
 
     def get_disease_interactions(self, drug_name: str) -> list[dict]:
@@ -291,7 +291,7 @@ class DDinterClient:
             return parsed
 
         except Exception as e:
-            logger.debug(f"DDinter disease interaction lookup failed for '{drug_name}': {e}")
+            logger.debug("DDinter disease-interaction lookup failed (error_type=%s)", type(e).__name__)
             return []
 
     def check_prescription(self, drug_names: list[str]) -> list[dict]:

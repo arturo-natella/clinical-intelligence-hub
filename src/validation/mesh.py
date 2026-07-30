@@ -69,7 +69,7 @@ class MeSHClient:
             return self._parse_descriptor(data)
 
         except Exception as e:
-            logger.debug(f"MeSH descriptor lookup failed for {mesh_uid}: {e}")
+            logger.debug("MeSH descriptor lookup failed (error_type=%s)", type(e).__name__)
             return None
 
     def get_tree_ancestors(self, tree_number: str) -> list[dict]:
@@ -123,7 +123,7 @@ class MeSHClient:
             return results if results else self._search_suggestions(term, limit)
 
         except Exception as e:
-            logger.debug(f"MeSH search failed for '{term}': {e}")
+            logger.debug("MeSH search failed (error_type=%s)", type(e).__name__)
             return self._search_suggestions(term, limit)
 
     def _search_suggestions(self, term: str, limit: int) -> list[dict]:
@@ -158,7 +158,7 @@ class MeSHClient:
             return results
 
         except Exception as e:
-            logger.debug(f"MeSH suggest failed for '{term}': {e}")
+            logger.debug("MeSH suggestion lookup failed (error_type=%s)", type(e).__name__)
             return []
 
     # ── Tree Lookup ──────────────────────────────────────────

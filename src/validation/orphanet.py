@@ -63,7 +63,7 @@ class OrphanetClient:
             return results
 
         except Exception as e:
-            logger.debug(f"Orphanet search failed for '{query}': {e}")
+            logger.debug("Orphanet search failed (error_type=%s)", type(e).__name__)
             return []
 
     def get_disease(self, orpha_code: int) -> Optional[dict]:
@@ -93,7 +93,7 @@ class OrphanetClient:
             }
 
         except Exception as e:
-            logger.debug(f"Orphanet disease lookup failed for {orpha_code}: {e}")
+            logger.debug("Orphanet disease lookup failed (error_type=%s)", type(e).__name__)
             return None
 
     def get_prevalence(self, orpha_code: int) -> list[dict]:
@@ -131,7 +131,7 @@ class OrphanetClient:
             return prevalences
 
         except Exception as e:
-            logger.debug(f"Orphanet prevalence failed for {orpha_code}: {e}")
+            logger.debug("Orphanet prevalence lookup failed (error_type=%s)", type(e).__name__)
             return []
 
     def get_genes(self, orpha_code: int) -> list[dict]:
@@ -168,7 +168,7 @@ class OrphanetClient:
             return genes
 
         except Exception as e:
-            logger.debug(f"Orphanet genes failed for {orpha_code}: {e}")
+            logger.debug("Orphanet gene lookup failed (error_type=%s)", type(e).__name__)
             return []
 
     def get_inheritance(self, orpha_code: int) -> list[str]:
@@ -195,7 +195,7 @@ class OrphanetClient:
             ]
 
         except Exception as e:
-            logger.debug(f"Orphanet inheritance failed for {orpha_code}: {e}")
+            logger.debug("Orphanet inheritance lookup failed (error_type=%s)", type(e).__name__)
             return []
 
     def get_clinical_signs(self, orpha_code: int) -> list[dict]:
@@ -233,6 +233,5 @@ class OrphanetClient:
             return signs
 
         except Exception as e:
-            logger.debug(f"Orphanet clinical signs failed for {orpha_code}: {e}")
+            logger.debug("Orphanet clinical-sign lookup failed (error_type=%s)", type(e).__name__)
             return []
-

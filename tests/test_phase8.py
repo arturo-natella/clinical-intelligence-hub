@@ -129,6 +129,74 @@ def test_pipeline_merge_extraction_results_keeps_all_categories():
     print("✓ Pipeline merge helper keeps all extraction categories")
 
 
+def test_pipeline_lab_dedup_uses_loinc_identity_across_name_variants():
+    """The same coded measurement from two providers must not form duplicate rows."""
+    from src.models import PatientProfile
+    from src.ui.pipeline import Pipeline
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        pipeline = Pipeline(Path(tmpdir), "test-passphrase")
+        pipeline._profile = PatientProfile()
+
+        pipeline._append_extraction_results({
+            "labs": [
+                {
+                    "name": "Hemoglobin A1c",
+                    "value": 7.2,
+                    "unit": "%",
+                    "test_date": "2025-01-10",
+                    "provenance": {"source_file": "provider_a.pdf"},
+                },
+                {
+                    "name": "HbA1c",
+                    "value": 7.2,
+                    "unit": "%",
+                    "test_date": "2025-01-10",
+                    "provenance": {"source_file": "provider_b.pdf"},
+                },
+            ],
+        })
+
+        labs = pipeline._profile.clinical_timeline.labs
+        assert len(labs) == 1
+        assert labs[0].loinc_code == "4548-4"
+        assert labs[0].reference_low == 4.0
+        assert labs[0].reference_high == 5.6
+
+
+def test_pipeline_lab_dedup_preserves_distinct_dated_measurements():
+    """LOINC normalization must still preserve a patient's longitudinal history."""
+    from src.models import PatientProfile
+    from src.ui.pipeline import Pipeline
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        pipeline = Pipeline(Path(tmpdir), "test-passphrase")
+        pipeline._profile = PatientProfile()
+
+        pipeline._append_extraction_results({
+            "labs": [
+                {
+                    "name": "A1c",
+                    "value": 7.2,
+                    "unit": "%",
+                    "test_date": "2025-01-10",
+                    "provenance": {"source_file": "january.pdf"},
+                },
+                {
+                    "name": "Hemoglobin A1c",
+                    "value": 6.8,
+                    "unit": "%",
+                    "test_date": "2025-04-10",
+                    "provenance": {"source_file": "april.pdf"},
+                },
+            ],
+        })
+
+        labs = pipeline._profile.clinical_timeline.labs
+        assert len(labs) == 2
+        assert {lab.loinc_code for lab in labs} == {"4548-4"}
+
+
 def test_pipeline_publish_profile_snapshot_checkpoints_and_counts_all_items():
     """Publishing a snapshot should save the profile and count all timeline items."""
     from src.models import (
@@ -195,6 +263,178 @@ def test_pipeline_publish_profile_snapshot_checkpoints_and_counts_all_items():
         assert "7 clinical items" in progress_events[-1][1]
 
     print("✓ Pipeline snapshot publishes, checkpoints, and counts all items")
+
+
+def test_pipeline_text_extraction_resumes_from_sqlite_chunk_checkpoint(
+    monkeypatch,
+):
+    """A restarted pipeline skips chunks already saved to the encrypted profile."""
+    from types import SimpleNamespace
+
+    from src.database import Database
+    from src.extraction.text_extractor import MODEL_NAME
+    from src.models import ClinicalNote, PatientProfile, Provenance
+    from src.ui.pipeline import Pipeline
+
+    class FakeOllama:
+        def __init__(self):
+            self.chat_calls = []
+
+        def list(self):
+            return SimpleNamespace(
+                models=[SimpleNamespace(model=MODEL_NAME)],
+            )
+
+        def chat(self, **kwargs):
+            self.chat_calls.append(kwargs)
+            return {
+                "message": {
+                    "content": json.dumps({
+                        "notes": [{"summary": "second chunk result"}],
+                    }),
+                },
+            }
+
+        def generate(self, **kwargs):
+            return {}
+
+    class StubVault:
+        def __init__(self):
+            self.saved = []
+
+        def save_profile(self, profile_data):
+            self.saved.append(profile_data)
+
+    fake_ollama = FakeOllama()
+    monkeypatch.setitem(sys.modules, "ollama", fake_ollama)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        data_dir = Path(tmpdir)
+        db = Database(data_dir / "cih.db")
+        db.upsert_file_state(
+            file_id="resume-file",
+            filename="record.pdf",
+            file_type="pdf_text",
+            sha256_hash="resume-hash",
+            file_size_bytes=100,
+            status="extracting",
+            page_count=3,
+        )
+        db.update_text_checkpoint(
+            "resume-file",
+            chunks_completed=1,
+            chunks_total=2,
+        )
+
+        pipeline = Pipeline(data_dir, "test-passphrase")
+        pipeline._db = db
+        pipeline._vault = StubVault()
+        pipeline._profile = PatientProfile()
+        pipeline._profile.clinical_timeline.notes.append(
+            ClinicalNote(
+                summary="first chunk result",
+                provenance=Provenance(
+                    source_file="record.pdf",
+                    source_page=1,
+                ),
+            )
+        )
+        pages = [
+            {"page": page, "text": f"Page {page} " + ("x" * 5000)}
+            for page in range(1, 4)
+        ]
+        pipeline._pass_1a_text_extraction([{
+            "file_id": "resume-file",
+            "filename": "record.pdf",
+            "file_type": "pdf_text",
+            "text": "\n".join(page["text"] for page in pages),
+            "pages": pages,
+            "text_chunks_completed": 1,
+            "text_chunks_total": 2,
+        }])
+
+        checkpoint = db.get_file_state_by_hash("resume-hash")
+        summaries = {
+            note.summary
+            for note in pipeline._profile.clinical_timeline.notes
+        }
+
+        assert len(fake_ollama.chat_calls) == 1
+        assert checkpoint["text_chunks_completed"] == 2
+        assert checkpoint["text_chunks_total"] == 2
+        assert summaries == {"first chunk result", "second chunk result"}
+        assert pipeline._vault.saved
+        db.close()
+
+
+def test_partial_checkpoint_cannot_pass_local_gate_when_model_is_unavailable(
+    monkeypatch,
+):
+    """Prior results do not excuse unfinished chunks on a resumed run."""
+    from types import SimpleNamespace
+
+    from src.database import Database
+    from src.models import ClinicalNote, PatientProfile, Provenance
+    from src.ui.pipeline import Pipeline
+
+    monkeypatch.setitem(
+        sys.modules,
+        "ollama",
+        SimpleNamespace(
+            list=lambda: SimpleNamespace(
+                models=[SimpleNamespace(model="some-other-model")],
+            ),
+        ),
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        data_dir = Path(tmpdir)
+        db = Database(data_dir / "cih.db")
+        db.upsert_file_state(
+            file_id="partial-file",
+            filename="record.pdf",
+            file_type="pdf_text",
+            sha256_hash="partial-hash",
+            file_size_bytes=100,
+            status="extracting",
+            page_count=3,
+        )
+        db.update_text_checkpoint(
+            "partial-file",
+            chunks_completed=1,
+            chunks_total=2,
+        )
+
+        pipeline = Pipeline(data_dir, "test-passphrase")
+        pipeline._db = db
+        pipeline._profile = PatientProfile()
+        pipeline._profile.clinical_timeline.notes.append(
+            ClinicalNote(
+                summary="first chunk result",
+                provenance=Provenance(source_file="record.pdf"),
+            )
+        )
+        pages = [
+            {"page": page, "text": f"Page {page} " + ("x" * 5000)}
+            for page in range(1, 4)
+        ]
+
+        pipeline._pass_1a_text_extraction([{
+            "file_id": "partial-file",
+            "filename": "record.pdf",
+            "file_type": "pdf_text",
+            "text": "\n".join(page["text"] for page in pages),
+            "pages": pages,
+            "text_chunks_completed": 1,
+            "text_chunks_total": 2,
+        }])
+
+        checkpoint = db.get_file_state("partial-file")
+        assert checkpoint["text_chunks_completed"] == 1
+        assert "Local text extraction did not finish all chunks" in (
+            pipeline._local_processing_errors
+        )
+        db.close()
 
 
 def test_pipeline_runs_external_stages_only_after_local_processing():

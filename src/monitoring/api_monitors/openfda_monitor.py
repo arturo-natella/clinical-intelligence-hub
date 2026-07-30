@@ -43,7 +43,10 @@ class OpenFDAMonitor:
             from src.validation.openfda import OpenFDAClient
             client = OpenFDAClient(api_key=self._api_key)
         except Exception as e:
-            logger.error(f"OpenFDA client init failed: {e}")
+            logger.error(
+                "OpenFDA client init failed (error_type=%s)",
+                type(e).__name__,
+            )
             return []
 
         active_meds = [
@@ -78,7 +81,10 @@ class OpenFDAMonitor:
                             severity=severity,
                         ))
             except Exception as e:
-                logger.debug(f"OpenFDA recall check failed for {med.name}: {e}")
+                logger.debug(
+                    "OpenFDA recall check failed (error_type=%s)",
+                    type(e).__name__,
+                )
 
             # Check for new adverse event signals
             try:
@@ -101,7 +107,10 @@ class OpenFDAMonitor:
                             severity=AlertSeverity.MODERATE,
                         ))
             except Exception as e:
-                logger.debug(f"OpenFDA adverse events check failed for {med.name}: {e}")
+                logger.debug(
+                    "OpenFDA adverse-events check failed (error_type=%s)",
+                    type(e).__name__,
+                )
 
         logger.info(f"OpenFDA monitor found {len(alerts)} alerts")
         return alerts

@@ -43,13 +43,47 @@ function formatDate(dateStr) {
     } catch (e) { return escapeHtml(dateStr); }
 }
 
-function formatProvenance(prov) {
+function provenanceText(prov) {
     if (!prov) return "";
+    if (Array.isArray(prov)) {
+        return prov.slice(0, 3).map(function(item) {
+            return provenanceText(item);
+        }).filter(Boolean).join("; ");
+    }
     const parts = [];
     if (prov.source_file) parts.push(prov.source_file);
     if (prov.source_page) parts.push("p." + prov.source_page);
     if (prov.extraction_model) parts.push(prov.extraction_model);
-    return escapeHtml(parts.join(", "));
+    return parts.join(", ");
+}
+
+function formatProvenance(prov) {
+    return escapeHtml(provenanceText(prov));
+}
+
+function formatConfidence(confidence) {
+    if (confidence == null || confidence === "") return "";
+    if (typeof confidence === "number") {
+        var pct = confidence <= 1 ? confidence * 100 : confidence;
+        return Math.round(pct) + "% confidence";
+    }
+    var label = String(confidence).trim();
+    if (!label) return "";
+    return label.charAt(0).toUpperCase() + label.slice(1) + " confidence";
+}
+
+function findingMetadataHtml(item) {
+    item = item || {};
+    var confidence = item.confidence_label || formatConfidence(item.confidence);
+    var source = item.source_label
+        ? escapeHtml(item.source_label)
+        : formatProvenance(item.provenance);
+    if (!confidence && !source) return "";
+
+    var parts = [];
+    if (confidence) parts.push('<span class="finding-meta-confidence">' + escapeHtml(confidence) + "</span>");
+    if (source) parts.push('<span class="finding-meta-source">Source: ' + source + "</span>");
+    return '<div class="finding-metadata">' + parts.join("") + "</div>";
 }
 
 const LAB_GLOSSARY = {
@@ -135,6 +169,19 @@ const LAB_GLOSSARY = {
     },
 };
 
+const CLINICAL_GLOSSARY = {
+    "type 2 diabetes": "A condition where the body has trouble using insulin, causing blood sugar to stay too high.",
+    "hypertension": "Blood pressure that stays higher than the recommended range.",
+    "chronic kidney disease": "A long-term reduction in how well the kidneys filter the blood.",
+    "renal insufficiency": "Kidney filtering is below the expected level.",
+    "hyperlipidemia": "Higher-than-recommended levels of cholesterol or other fats in the blood.",
+    "atrial fibrillation": "An irregular heart rhythm that can increase the risk of blood clots and stroke.",
+    "neuropathy": "Nerve damage that may cause pain, numbness, tingling, or weakness.",
+    "inflammation": "The body's immune response to injury or illness; persistent inflammation can affect several organs.",
+    "pharmacogenomic": "How inherited genetic differences may change the way a medication works in the body.",
+    "insulin resistance": "The body's cells do not respond to insulin as effectively as expected.",
+};
+
 function normalizeLabGlossaryKey(name) {
     return String(name || "")
         .toLowerCase()
@@ -158,6 +205,33 @@ function getLabGlossaryEntry(name) {
     }
 
     return null;
+}
+
+function getClinicalGlossaryEntry(text) {
+    var normalized = normalizeLabGlossaryKey(text);
+    if (!normalized) return null;
+
+    var labKeys = Object.keys(LAB_GLOSSARY);
+    for (var i = 0; i < labKeys.length; i++) {
+        if (normalized.indexOf(labKeys[i]) !== -1) {
+            return LAB_GLOSSARY[labKeys[i]].summary;
+        }
+    }
+
+    var clinicalKeys = Object.keys(CLINICAL_GLOSSARY);
+    for (var j = 0; j < clinicalKeys.length; j++) {
+        if (normalized.indexOf(clinicalKeys[j]) !== -1) {
+            return CLINICAL_GLOSSARY[clinicalKeys[j]];
+        }
+    }
+    return null;
+}
+
+function plainLanguageHtml(text) {
+    var explanation = getClinicalGlossaryEntry(text);
+    if (!explanation) return "";
+    return '<div class="plain-language-note"><strong>In plain English:</strong> '
+        + escapeHtml(explanation) + "</div>";
 }
 
 function labelizeKey(key) {
@@ -1869,6 +1943,8 @@ var App = {
                     + "</div>"
                     + '<div style="color:var(--text-secondary); font-size:14px; line-height:1.6;">'
                     + escapeHtml(f.description || "") + "</div>"
+                    + plainLanguageHtml((f.title || "") + " " + (f.description || ""))
+                    + findingMetadataHtml(f)
                     + evidenceHtml
                     + questionHtml
                     + "</div>";
@@ -1939,6 +2015,7 @@ var App = {
                     + '<div style="color:var(--text-secondary); font-size:14px; margin-bottom:8px;">'
                     + escapeHtml(ci.summary || ci.description || "") + "</div>"
                     + mechanismHtml
+                    + findingMetadataHtml(ci)
                     + metaHtml
                     + disclaimerHtml
                     + "</div>";

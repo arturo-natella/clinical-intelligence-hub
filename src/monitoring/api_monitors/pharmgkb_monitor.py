@@ -80,7 +80,10 @@ class PharmGKBMonitor:
                             ))
 
             except Exception as e:
-                logger.debug(f"PharmGKB check failed for {variant.gene}: {e}")
+                logger.debug(
+                    "PharmGKB check failed (error_type=%s)",
+                    type(e).__name__,
+                )
 
         # Check for guideline updates on patient's medications
         for med in (timeline.medications or []):
@@ -106,7 +109,10 @@ class PharmGKBMonitor:
                         url=gl.get("url"),
                     ))
             except Exception as e:
-                logger.debug(f"PharmGKB guideline check failed for {med.name}: {e}")
+                logger.debug(
+                    "PharmGKB guideline check failed (error_type=%s)",
+                    type(e).__name__,
+                )
 
         logger.info(f"PharmGKB monitor found {len(alerts)} alerts")
         return alerts
@@ -137,7 +143,10 @@ class PharmGKBMonitor:
             return results
 
         except Exception as e:
-            logger.debug(f"PharmGKB clinical annotation query failed: {e}")
+            logger.debug(
+                "PharmGKB clinical annotation query failed (error_type=%s)",
+                type(e).__name__,
+            )
             return []
 
     def _get_drug_guidelines(self, drug_name: str) -> list[dict]:
@@ -162,5 +171,8 @@ class PharmGKBMonitor:
             return results
 
         except Exception as e:
-            logger.debug(f"PharmGKB guideline query failed: {e}")
+            logger.debug(
+                "PharmGKB guideline query failed (error_type=%s)",
+                type(e).__name__,
+            )
             return []

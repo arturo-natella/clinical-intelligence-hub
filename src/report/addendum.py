@@ -117,7 +117,7 @@ class AddendumBuilder:
         # Save
         output_path.parent.mkdir(parents=True, exist_ok=True)
         doc.save(str(output_path))
-        logger.info(f"Addendum saved to {output_path}")
+        logger.info("Clinical addendum saved locally")
         return output_path
 
     def generate_batch(self, alerts: list[MonitoringAlert],

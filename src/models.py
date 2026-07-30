@@ -320,6 +320,8 @@ class ClinicalFlag(BaseModel):
     question_for_doctor: Optional[str] = None
     date_flagged: datetime = Field(default_factory=datetime.now)
     source_pass: Optional[str] = None       # Which pipeline pass generated this
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    provenance: list[Provenance] = Field(default_factory=list)
 
 
 class DrugInteraction(BaseModel):
@@ -368,6 +370,8 @@ class CrossDisciplinaryConnection(BaseModel):
     severity: AlertSeverity
     question_for_doctor: Optional[str] = None
     date_found: datetime = Field(default_factory=datetime.now)
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    provenance: list[Provenance] = Field(default_factory=list)
 
 
 # ── Monitoring Alert ───────────────────────────────────────
@@ -401,6 +405,17 @@ class ClinicalTimeline(BaseModel):
     symptoms: list[Symptom] = Field(default_factory=list)
 
 
+class DeepInsightSnapshot(BaseModel):
+    """Cached local analysis output tied to its exact clinical inputs."""
+    insight_type: str
+    generated_at: datetime = Field(default_factory=datetime.now)
+    input_fingerprint: str = Field(
+        description="SHA-256 of the clinical inputs used for this analysis"
+    )
+    provenance: list[Provenance] = Field(default_factory=list)
+    data: dict = Field(default_factory=dict)
+
+
 class AnalysisResults(BaseModel):
     """All analysis outputs from the pipeline."""
     flags: list[ClinicalFlag] = Field(default_factory=list)
@@ -410,6 +425,10 @@ class AnalysisResults(BaseModel):
     literature: list[LiteratureCitation] = Field(default_factory=list)
     monitoring_alerts: list[MonitoringAlert] = Field(default_factory=list)
     questions_for_doctor: list[str] = Field(default_factory=list)
+    snowball_differential: Optional[DeepInsightSnapshot] = None
+    biomarker_cascades: Optional[DeepInsightSnapshot] = None
+    pgx_collision_map: Optional[DeepInsightSnapshot] = None
+    lab_trajectories: Optional[DeepInsightSnapshot] = None
 
 
 class PatientProfile(BaseModel):

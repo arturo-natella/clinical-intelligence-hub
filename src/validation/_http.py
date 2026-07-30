@@ -65,10 +65,10 @@ def api_get(
     except urllib.error.HTTPError as e:
         if e.code == 404:
             return None
-        logger.debug(f"HTTP {e.code} for {url[:80]}: {e.reason}")
+        logger.debug("Validation HTTP error (status=%s)", e.code)
         return None
     except Exception as e:
-        logger.debug(f"API call failed for {url[:80]}: {e}")
+        logger.debug("Validation API call failed (error_type=%s)", type(e).__name__)
         return None
 
 
@@ -103,8 +103,8 @@ def api_post(
             return json.loads(response.read().decode())
 
     except urllib.error.HTTPError as e:
-        logger.debug(f"POST HTTP {e.code} for {url[:80]}: {e.reason}")
+        logger.debug("Validation POST HTTP error (status=%s)", e.code)
         return None
     except Exception as e:
-        logger.debug(f"POST failed for {url[:80]}: {e}")
+        logger.debug("Validation POST failed (error_type=%s)", type(e).__name__)
         return None

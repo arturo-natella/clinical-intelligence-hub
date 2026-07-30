@@ -108,7 +108,10 @@ class ModelManager:
             logger.info(f"Unloaded Ollama model: {model_name}")
             self._current_model = None
         except Exception as e:
-            logger.debug(f"Failed to unload {model_name}: {e}")
+            logger.debug(
+                "Failed to unload local model (error_type=%s)",
+                type(e).__name__,
+            )
 
     def prepare_for_model(self, model_name: str, expected_memory_gb: float):
         """

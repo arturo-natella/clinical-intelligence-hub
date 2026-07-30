@@ -610,7 +610,8 @@ class InteractionTimelineAnalyzer:
                 }
         except Exception as e:
             logger.warning(
-                "DDinter lookup failed for %s + %s: %s", drug_a, drug_b, e
+                "DDinter lookup failed (error_type=%s)",
+                type(e).__name__,
             )
         return None
 
@@ -658,7 +659,8 @@ class InteractionTimelineAnalyzer:
                         }
         except Exception as e:
             logger.warning(
-                "RxNorm lookup failed for %s + %s: %s", drug_a, drug_b, e
+                "RxNorm lookup failed (error_type=%s)",
+                type(e).__name__,
             )
         return None
 

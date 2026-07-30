@@ -203,8 +203,9 @@ def get_relevant_medications(lab_name: str, medications: list) -> list:
     # Fallback: if NO medications have mappings at all, show everything active
     if unmatched_count == len(medications) and unmatched_count > 0:
         logger.warning(
-            "No medication mappings found for lab '%s' — showing all %d medications as fallback",
-            lab_name, len(medications),
+            "No medication mappings found for one lab; showing all %d "
+            "medications as fallback",
+            len(medications),
         )
         matched = list(medications)
 

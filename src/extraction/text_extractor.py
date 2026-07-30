@@ -55,24 +55,64 @@ class TextExtractor:
     """Pass 1a: Extracts structured clinical data from text using MedGemma 27B."""
 
     def __init__(self, progress_callback=None, pause_event=None,
-                 on_chunk_complete=None):
+                 on_chunk_complete=None, on_chunk_checkpoint=None):
         self._progress = progress_callback or (lambda *a: None)
         self._pause_event = pause_event
         self._on_chunk_complete = on_chunk_complete
+        self._on_chunk_checkpoint = on_chunk_checkpoint
         self._available = self._check_ollama()
 
-    def extract(self, pages: list[dict], source_file: str) -> dict:
+    def extract(self, pages: list[dict], source_file: str,
+                start_chunk: int = 0) -> dict:
         """
         Extract clinical data from document pages.
 
         Args:
             pages: list of {page: int, text: str} from preprocessor
             source_file: original filename for provenance
+            start_chunk: number of contiguous chunks already checkpointed
 
         Returns:
             dict with keys: medications, labs, diagnoses, procedures,
                            allergies, genetics, notes
         """
+        if not pages:
+            return {}
+
+        results = self._empty_result()
+
+        # Chunk pages to fit model context window
+        chunks = self._build_chunks(pages)
+        total_chunks = len(chunks)
+        start_chunk = max(0, int(start_chunk or 0))
+        if start_chunk > total_chunks:
+            logger.warning(
+                "Stored text checkpoint exceeds current chunk count; "
+                "restarting extraction (checkpoint=%s, chunks=%s)",
+                start_chunk,
+                total_chunks,
+            )
+            start_chunk = 0
+
+        logger.info(
+            "Starting text extraction (pages=%s, chunks=%s, resume_after=%s)",
+            len(pages),
+            total_chunks,
+            start_chunk,
+        )
+
+        if start_chunk:
+            self._progress(
+                "log",
+                f"  Resuming text extraction after chunk "
+                f"{start_chunk}/{total_chunks}",
+                -1,
+            )
+
+        if start_chunk == total_chunks:
+            logger.info("Text extraction already complete at stored checkpoint")
+            return results
+
         if not self._available:
             logger.warning("Ollama not available — skipping MedGemma extraction")
             self._progress(
@@ -82,16 +122,12 @@ class TextExtractor:
             )
             return {}
 
-        if not pages:
-            return {}
-
-        results = self._empty_result()
-
-        # Chunk pages to fit model context window
-        chunks = self._build_chunks(pages)
-        logger.info(f"Processing {len(pages)} pages in {len(chunks)} chunks for {source_file}")
+        failure_reason = None
 
         for i, (chunk_pages, chunk_text) in enumerate(chunks, 1):
+            if i <= start_chunk:
+                continue
+
             # Pause check between chunks
             if self._pause_event and not self._pause_event.is_set():
                 self._progress("log", f"  Paused at chunk {i}/{len(chunks)} — safe to close laptop", -1)
@@ -100,12 +136,22 @@ class TextExtractor:
 
             page_range = f"pp.{chunk_pages[0]['page']}-{chunk_pages[-1]['page']}"
             self._progress("log", f"  Chunk {i}/{len(chunks)} ({page_range}) — sending to MedGemma...", -1)
-            logger.info(f"Chunk {i} text preview (first 300 chars): {chunk_text[:300]}")
+            logger.info(
+                "Processing text extraction chunk "
+                "(index=%s, total=%s, pages=%s, characters=%s)",
+                i,
+                len(chunks),
+                len(chunk_pages),
+                len(chunk_text),
+            )
 
             extracted = self._extract_chunk(chunk_text)
-            if not extracted:
-                self._progress("log", f"  Chunk {i}/{len(chunks)} — no structured data returned", -1)
-                continue
+            if extracted is None:
+                failure_reason = (
+                    f"MedGemma extraction failed at chunk {i}/{total_chunks}"
+                )
+                self._progress("log", f"  ERROR: {failure_reason}", -1)
+                break
 
             # Build provenance for this chunk
             page_nums = [p["page"] for p in chunk_pages]
@@ -120,26 +166,41 @@ class TextExtractor:
                            f"  Chunk {i}/{len(chunks)} — extracted {chunk_items} clinical items",
                            -1)
 
-            # Fire per-chunk callback with only the newly added items
-            if self._on_chunk_complete:
-                try:
+            # Persist the encrypted profile before advancing the SQLite cursor.
+            try:
+                if self._on_chunk_complete:
                     delta = {}
                     for k, v in results.items():
                         start = prev_counts.get(k, 0)
                         if len(v) > start:
                             delta[k] = v[start:]
                     self._on_chunk_complete(delta)
-                except Exception as e:
-                    logger.warning(f"Chunk completion callback failed: {e}")
+
+                if self._on_chunk_checkpoint:
+                    self._on_chunk_checkpoint(i, total_chunks)
+            except Exception as e:
+                logger.warning(
+                    "Chunk checkpoint persistence failed (error_type=%s)",
+                    type(e).__name__,
+                )
+                failure_reason = "Text extraction checkpoint persistence failed"
+                break
 
         # Unload model from memory
         self._unload_model()
         self._progress("log", "  MedGemma 27B unloaded from memory", -1)
 
+        if failure_reason:
+            raise RuntimeError(failure_reason)
+
         total = sum(len(v) for v in results.values())
-        logger.info(f"Extracted {total} clinical items from {source_file}")
-        self._progress("log", f"  Total: {total} clinical items from {source_file}", -1)
+        logger.info("Text extraction complete (clinical_items=%s)", total)
+        self._progress("log", f"  Total: {total} clinical items", -1)
         return results
+
+    def count_chunks(self, pages: list[dict]) -> int:
+        """Return the deterministic chunk count used by extraction/resume."""
+        return len(self._build_chunks(pages))
 
     def _extract_chunk(self, text: str, retry_depth: int = 0) -> Optional[dict]:
         """Send a text chunk to MedGemma 27B for extraction."""
@@ -162,16 +223,29 @@ class TextExtractor:
             )
 
             result_text = response["message"]["content"]
-            logger.info(f"MedGemma raw response length: {len(result_text)} chars")
-            logger.debug(f"MedGemma raw response (first 500): {result_text[:500]}")
+            logger.info(
+                "MedGemma response received (characters=%s)",
+                len(result_text),
+            )
 
             parsed = json.loads(result_text)
 
+            if not isinstance(parsed, dict):
+                logger.warning(
+                    "MedGemma returned JSON with an invalid top-level type"
+                )
+                self._progress(
+                    "log",
+                    "    WARNING: MedGemma returned JSON in an unexpected format",
+                    -1,
+                )
+                return None
+
             # Empty dict {} is falsy — detect and warn explicitly
             if not parsed:
-                logger.warning(f"MedGemma returned empty JSON object: {result_text[:200]}")
+                logger.warning("MedGemma returned an empty JSON object")
                 self._progress("log", "    WARNING: MedGemma returned empty JSON — model may not understand this document format", -1)
-                return None
+                return self._empty_result()
 
             # Check if all arrays are empty (valid JSON but no extractions)
             if all(
@@ -180,13 +254,15 @@ class TextExtractor:
             ):
                 logger.warning("MedGemma returned valid JSON but all categories are empty arrays")
                 self._progress("log", "    WARNING: MedGemma found 0 clinical items — text may be unreadable or non-clinical", -1)
-                return None
+                return self._empty_result()
 
             return parsed
 
         except json.JSONDecodeError as e:
-            logger.warning(f"MedGemma returned invalid JSON: {e}")
-            logger.warning(f"Raw response was: {result_text[:500]}")
+            logger.warning(
+                "MedGemma returned invalid JSON (error_type=%s)",
+                type(e).__name__,
+            )
             # Attempt to salvage truncated JSON (common when num_predict is hit)
             repaired = self._repair_truncated_json(result_text)
             if repaired:
@@ -214,11 +290,23 @@ class TextExtractor:
                             )
                             return recovered
                 return repaired
-            self._progress("log", f"    WARNING: MedGemma returned invalid JSON — {e}", -1)
+            self._progress(
+                "log",
+                f"    WARNING: MedGemma returned invalid JSON ({type(e).__name__})",
+                -1,
+            )
             return None
         except Exception as e:
-            logger.error(f"MedGemma extraction failed: {e}")
-            self._progress("log", f"    ERROR: MedGemma call failed — {e}", -1)
+            error_type = type(e).__name__
+            logger.error(
+                "MedGemma extraction failed (error_type=%s)",
+                error_type,
+            )
+            self._progress(
+                "log",
+                f"    ERROR: MedGemma call failed ({error_type})",
+                -1,
+            )
             return None
 
     def _build_prompt(self, text: str) -> str:
@@ -227,7 +315,7 @@ class TextExtractor:
 
 Extract these categories:
 1. **medications** — name, generic_name, dosage, frequency, route, status (active/discontinued/prn), reason
-2. **labs** — name, value (numeric), value_text (non-numeric), unit, flag (High/Low/Normal/Critical), test_date (YYYY-MM-DD)
+2. **labs** — name, loinc_code (only when explicitly present), value (numeric), value_text (non-numeric), unit, flag (High/Low/Normal/Critical), test_date (YYYY-MM-DD)
 3. **diagnoses** — name, date_diagnosed (YYYY-MM-DD), status (Active/Resolved/Chronic)
 4. **procedures** — name, procedure_date (YYYY-MM-DD), outcome
 5. **allergies** — allergen, reaction, severity (Mild/Moderate/Severe/Life-threatening)
@@ -392,7 +480,7 @@ Output strictly valid JSON:"""
                         provenance=provenance,
                     ))
                 except Exception as e:
-                    logger.warning(f"Dropped medication item (parse failed): {e} — raw: {med_data}")
+                    self._log_parse_failure("medication", e)
 
         for lab_data in extracted.get("labs", []):
             if isinstance(lab_data, dict) and lab_data.get("name"):
@@ -407,6 +495,7 @@ Output strictly valid JSON:"""
 
                     results["labs"].append(LabResult(
                         name=lab_data["name"],
+                        loinc_code=lab_data.get("loinc_code"),
                         value=value,
                         value_text=lab_data.get("value_text"),
                         unit=lab_data.get("unit"),
@@ -415,7 +504,7 @@ Output strictly valid JSON:"""
                         provenance=provenance,
                     ))
                 except Exception as e:
-                    logger.warning(f"Dropped lab item (parse failed): {e} — raw: {lab_data}")
+                    self._log_parse_failure("lab", e)
 
         for dx_data in extracted.get("diagnoses", []):
             if isinstance(dx_data, dict) and dx_data.get("name"):
@@ -427,7 +516,7 @@ Output strictly valid JSON:"""
                         provenance=provenance,
                     ))
                 except Exception as e:
-                    logger.warning(f"Dropped diagnosis item (parse failed): {e} — raw: {dx_data}")
+                    self._log_parse_failure("diagnosis", e)
 
         for proc_data in extracted.get("procedures", []):
             if isinstance(proc_data, dict) and proc_data.get("name"):
@@ -439,7 +528,7 @@ Output strictly valid JSON:"""
                         provenance=provenance,
                     ))
                 except Exception as e:
-                    logger.warning(f"Dropped procedure item (parse failed): {e} — raw: {proc_data}")
+                    self._log_parse_failure("procedure", e)
 
         for allergy_data in extracted.get("allergies", []):
             if isinstance(allergy_data, dict) and allergy_data.get("allergen"):
@@ -451,7 +540,7 @@ Output strictly valid JSON:"""
                         provenance=provenance,
                     ))
                 except Exception as e:
-                    logger.warning(f"Dropped allergy item (parse failed): {e} — raw: {allergy_data}")
+                    self._log_parse_failure("allergy", e)
 
         for gen_data in extracted.get("genetics", []):
             if isinstance(gen_data, dict) and gen_data.get("gene"):
@@ -465,7 +554,7 @@ Output strictly valid JSON:"""
                         provenance=provenance,
                     ))
                 except Exception as e:
-                    logger.warning(f"Dropped genetic item (parse failed): {e} — raw: {gen_data}")
+                    self._log_parse_failure("genetic", e)
 
         for note_data in extracted.get("notes", []):
             if isinstance(note_data, dict) and note_data.get("summary"):
@@ -478,7 +567,16 @@ Output strictly valid JSON:"""
                         provenance=provenance,
                     ))
                 except Exception as e:
-                    logger.warning(f"Dropped note item (parse failed): {e} — raw: {note_data}")
+                    self._log_parse_failure("note", e)
+
+    @staticmethod
+    def _log_parse_failure(category: str, error: Exception):
+        """Log a dropped extraction without exposing clinical input values."""
+        logger.warning(
+            "Dropped %s item during parsing (error_type=%s)",
+            category,
+            type(error).__name__,
+        )
 
     def _unload_model(self):
         """Explicitly unload MedGemma 27B from memory."""
@@ -487,7 +585,10 @@ Output strictly valid JSON:"""
             ollama.generate(model=MODEL_NAME, prompt="", keep_alive="0")
             logger.info("MedGemma 27B unloaded from memory")
         except Exception as e:
-            logger.warning(f"Failed to unload MedGemma from memory: {e}")
+            logger.warning(
+                "Failed to unload MedGemma from memory (error_type=%s)",
+                type(e).__name__,
+            )
 
     @staticmethod
     def _try_parse_date(date_str):
@@ -607,8 +708,9 @@ Output strictly valid JSON:"""
             listing = ollama.list()
         except Exception as e:
             msg = (
-                f"Ollama daemon is not reachable ({e}). "
-                "Start it with `ollama serve` or launch the Ollama app."
+                "Ollama daemon is not reachable "
+                f"({type(e).__name__}). Start it with `ollama serve` or "
+                "launch the Ollama app."
             )
             logger.warning(msg)
             self._progress("log", f"  WARNING: {msg}", -1)

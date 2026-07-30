@@ -47,17 +47,17 @@ class DICOMConverter:
                 "pixel_spacing": list(getattr(ds, "PixelSpacing", [])) if hasattr(ds, "PixelSpacing") else None,
             }
 
-            logger.info(
-                f"DICOM metadata: {metadata['modality']} of {metadata['body_part']} "
-                f"from {metadata.get('institution', 'unknown')}"
-            )
+            logger.info("DICOM metadata extracted")
             return metadata
 
         except ImportError:
             logger.error("pydicom not installed. Run: pip install pydicom")
             return {}
         except Exception as e:
-            logger.error(f"Failed to read DICOM headers from {dicom_path.name}: {e}")
+            logger.error(
+                "Failed to read DICOM headers (error_type=%s)",
+                type(e).__name__,
+            )
             return {}
 
     def convert_to_png(self, dicom_path: Path, output_dir: Path) -> Optional[Path]:
@@ -73,7 +73,7 @@ class DICOMConverter:
             ds = pydicom.dcmread(str(dicom_path))
 
             if not hasattr(ds, "pixel_array"):
-                logger.warning(f"No pixel data in {dicom_path.name}")
+                logger.warning("DICOM record contains no pixel data")
                 return None
 
             pixel_array = ds.pixel_array
@@ -108,14 +108,20 @@ class DICOMConverter:
             output_path = output_dir / f"{dicom_path.stem}.png"
             img.save(str(output_path))
 
-            logger.info(f"Converted {dicom_path.name} → {output_path.name}")
+            logger.info("Converted DICOM record to a local image")
             return output_path
 
         except ImportError as e:
-            logger.error(f"Missing dependency for DICOM conversion: {e}")
+            logger.error(
+                "Missing dependency for DICOM conversion (error_type=%s)",
+                type(e).__name__,
+            )
             return None
         except Exception as e:
-            logger.error(f"Failed to convert {dicom_path.name} to PNG: {e}")
+            logger.error(
+                "Failed to convert DICOM record to PNG (error_type=%s)",
+                type(e).__name__,
+            )
             return None
 
     def create_imaging_study(self, dicom_path: Path, metadata: dict) -> ImagingStudy:

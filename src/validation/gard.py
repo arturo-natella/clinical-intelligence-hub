@@ -72,7 +72,7 @@ class GARDClient:
             return results
 
         except Exception as e:
-            logger.debug(f"GARD search failed for '{query}': {e}")
+            logger.debug("GARD search failed (error_type=%s)", type(e).__name__)
             return []
 
     def get_disease(self, gard_id) -> Optional[dict]:
@@ -127,7 +127,7 @@ class GARDClient:
             }
 
         except Exception as e:
-            logger.debug(f"GARD disease lookup failed for {gard_id}: {e}")
+            logger.debug("GARD disease lookup failed (error_type=%s)", type(e).__name__)
             return None
 
     def get_resources(self, gard_id) -> list[dict]:
@@ -164,7 +164,7 @@ class GARDClient:
             return resources
 
         except Exception as e:
-            logger.debug(f"GARD resources failed for {gard_id}: {e}")
+            logger.debug("GARD resources lookup failed (error_type=%s)", type(e).__name__)
             return []
 
     def validate_rare_disease(self, disease_name: str) -> Optional[dict]:
@@ -191,4 +191,3 @@ class GARDClient:
 
         # Return best match even if not exact
         return results[0]
-

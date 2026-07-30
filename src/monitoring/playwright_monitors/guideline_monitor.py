@@ -47,7 +47,10 @@ class GuidelineMonitor:
         try:
             self._init_browser()
         except Exception as e:
-            logger.error(f"Playwright browser init failed: {e}")
+            logger.error(
+                "Playwright browser init failed (error_type=%s)",
+                type(e).__name__,
+            )
             logger.info("Install with: pip install playwright && playwright install chromium")
             return []
 
@@ -76,7 +79,10 @@ class GuidelineMonitor:
             alerts.extend(uspstf_alerts)
 
         except Exception as e:
-            logger.error(f"Guideline monitoring failed: {e}")
+            logger.error(
+                "Guideline monitoring failed (error_type=%s)",
+                type(e).__name__,
+            )
         finally:
             self._close_browser()
 
@@ -108,7 +114,7 @@ class GuidelineMonitor:
                         url=f"https://diabetesjournals.org{href}" if href.startswith("/") else href,
                     ))
         except Exception as e:
-            logger.debug(f"ADA check failed: {e}")
+            logger.debug("ADA check failed (error_type=%s)", type(e).__name__)
 
         return alerts
 
@@ -136,7 +142,7 @@ class GuidelineMonitor:
                         url="https://www.heart.org/en/professional/quality-improvement/guidelines-and-statements",
                     ))
         except Exception as e:
-            logger.debug(f"AHA check failed: {e}")
+            logger.debug("AHA check failed (error_type=%s)", type(e).__name__)
 
         return alerts
 
@@ -164,7 +170,10 @@ class GuidelineMonitor:
                         url="https://www.uspreventiveservicestaskforce.org/uspstf/recommendation-topics",
                     ))
         except Exception as e:
-            logger.debug(f"USPSTF check failed: {e}")
+            logger.debug(
+                "USPSTF check failed (error_type=%s)",
+                type(e).__name__,
+            )
 
         return alerts
 

@@ -77,7 +77,10 @@ class GnomADClient:
             return response.get("data")
 
         except Exception as e:
-            logger.debug("gnomAD GraphQL query failed: %s", e)
+            logger.debug(
+                "gnomAD GraphQL query failed (error_type=%s)",
+                type(e).__name__,
+            )
             return None
 
     # -- Variant Lookup --------------------------------------------------
@@ -476,7 +479,7 @@ class GnomADClient:
             }
 
         except Exception as e:
-            logger.debug("gnomAD variant parse failed: %s", e)
+            logger.debug("gnomAD variant parse failed (error_type=%s)", type(e).__name__)
             return None
 
     @staticmethod
@@ -534,7 +537,7 @@ class GnomADClient:
             }
 
         except Exception as e:
-            logger.debug("gnomAD population parse failed: %s", e)
+            logger.debug("gnomAD population parse failed (error_type=%s)", type(e).__name__)
             return None
 
     @staticmethod
@@ -591,5 +594,5 @@ class GnomADClient:
             }
 
         except Exception as e:
-            logger.debug("gnomAD gene parse failed: %s", e)
+            logger.debug("gnomAD gene parse failed (error_type=%s)", type(e).__name__)
             return None

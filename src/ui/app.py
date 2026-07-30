@@ -218,7 +218,10 @@ def _load_environmental_api_keys() -> dict:
         vault = EncryptedVault(DATA_DIR, _passphrase)
         return vault.load_api_keys() or {}
     except Exception as exc:
-        logger.warning("Failed to load environmental API keys: %s", exc)
+        logger.warning(
+            "Failed to load environmental API keys (error_type=%s)",
+            type(exc).__name__,
+        )
         return {}
 
 
@@ -309,7 +312,7 @@ def unlock_vault():
         # Migrate legacy single-file profile if it exists
         migrated_id = vault.migrate_legacy_profile()
         if migrated_id:
-            logger.info(f"Migrated legacy profile to multi-profile system: {migrated_id}")
+            logger.info("Migrated legacy profile to multi-profile system")
 
         profiles = vault.list_profiles()
 
@@ -329,8 +332,9 @@ def unlock_vault():
         })
 
     except Exception as e:
-        logger.error(f"Vault unlock failed: {e}")
-        return jsonify({"error": str(e)}), 500
+        error_type = type(e).__name__
+        logger.error("Vault unlock failed (error_type=%s)", error_type)
+        return jsonify({"error": f"Vault unlock failed ({error_type})"}), 500
 
 
 # ── Profile Management ───────────────────────────────────────
@@ -482,7 +486,7 @@ def reset_vault():
         shutil.rmtree(profiles_dir)
         removed.append("profiles")
 
-    logger.info(f"Vault reset — removed: {removed}")
+    logger.info("Vault reset completed (artifacts_removed=%d)", len(removed))
     return jsonify({"status": "reset", "removed": removed})
 
 
@@ -497,9 +501,16 @@ def clear_session():
         return jsonify(_purge_local_patient_data())
 
     except Exception as e:
-        logger.error(f"Session clear failed: {e}")
-        status = 409 if "Analysis is still running" in str(e) else 500
-        return jsonify({"error": str(e)}), status
+        error_type = type(e).__name__
+        logger.error("Session clear failed (error_type=%s)", error_type)
+        still_running = "Analysis is still running" in str(e)
+        status = 409 if still_running else 500
+        message = (
+            "Analysis is still running"
+            if still_running
+            else f"Session clear failed ({error_type})"
+        )
+        return jsonify({"error": message}), status
 
 
 @app.route("/api/session/status")
@@ -1103,10 +1114,11 @@ def _run_pipeline(input_files: list[Path]):
         _save_profile_to_vault()
 
     except Exception as e:
-        logger.error(f"Pipeline thread failed: {e}")
+        error_type = type(e).__name__
+        logger.error("Pipeline thread failed (error_type=%s)", error_type)
         _broadcast_progress({
             "pass": "error",
-            "message": f"Analysis failed: {str(e)}",
+            "message": f"Analysis failed ({error_type})",
             "percent": -1,
             "timestamp": time.time(),
         })
@@ -1291,7 +1303,7 @@ def set_location():
             },
         )
     except Exception as e:
-        logger.error("Failed to save location: %s", e)
+        logger.error("Failed to save location (error_type=%s)", type(e).__name__)
         return jsonify({"error": str(e)}), 500
 
     return jsonify({"status": "saved", "location": location})
@@ -1308,7 +1320,7 @@ def get_environmental():
         result["sync_settings"] = load_environmental_sync_settings(DATA_DIR)
         return jsonify(result)
     except Exception as e:
-        logger.error("Environmental analysis failed: %s", e)
+        logger.error("Environmental analysis failed (error_type=%s)", type(e).__name__)
         return jsonify({"error": str(e)}), 500
 
 
@@ -1331,7 +1343,10 @@ def get_environmental_settings():
             "automated_source_ids": list(EnvironmentalDataSync.AUTOMATED_SOURCE_IDS),
         })
     except Exception as e:
-        logger.error("Failed to load environmental settings: %s", e)
+        logger.error(
+            "Failed to load environmental settings (error_type=%s)",
+            type(e).__name__,
+        )
         return jsonify({"error": str(e)}), 500
 
 
@@ -1379,7 +1394,10 @@ def save_environmental_settings():
         )
         return jsonify({"status": "saved", "settings": settings})
     except Exception as e:
-        logger.error("Failed to save environmental settings: %s", e)
+        logger.error(
+            "Failed to save environmental settings (error_type=%s)",
+            type(e).__name__,
+        )
         return jsonify({"error": str(e)}), 500
 
 
@@ -1425,7 +1443,7 @@ def sync_environmental():
         )
         return jsonify(result)
     except Exception as e:
-        logger.error("Environmental sync failed: %s", e)
+        logger.error("Environmental sync failed (error_type=%s)", type(e).__name__)
         try:
             from src.analysis.environmental_sources import update_environmental_sync_settings
 
@@ -1515,6 +1533,140 @@ def _stringify_evidence(item):
     return str(item)
 
 
+def _record_source_index(profile: dict) -> list[dict]:
+    """Build a PHI-safe index of clinical labels and their source metadata."""
+    timeline = profile.get("clinical_timeline", {})
+    if not isinstance(timeline, dict):
+        return []
+
+    index = []
+    for collection in (
+        "medications", "labs", "imaging", "diagnoses", "procedures",
+        "allergies", "genetics", "notes", "vitals",
+    ):
+        for item in timeline.get(collection, []):
+            if not isinstance(item, dict):
+                continue
+            provenance = item.get("provenance")
+            if not isinstance(provenance, dict) or not provenance.get("source_file"):
+                continue
+
+            labels = []
+            for key in (
+                "name", "test_name", "gene", "allergen", "description",
+                "summary", "body_region", "modality",
+            ):
+                value = item.get(key)
+                if isinstance(value, str) and len(value.strip()) >= 3:
+                    labels.append(value.strip().lower())
+
+            for finding in item.get("findings", []):
+                if isinstance(finding, dict):
+                    description = str(finding.get("description") or "").strip()
+                    if len(description) >= 3:
+                        labels.append(description.lower())
+
+            if labels:
+                public_provenance = {
+                    key: provenance.get(key)
+                    for key in (
+                        "source_file", "source_page", "date_extracted",
+                        "extraction_model", "confidence",
+                    )
+                    if provenance.get(key) is not None
+                }
+                index.append({"labels": labels, "provenance": public_provenance})
+    return index
+
+
+def _enrich_finding_metadata(item: dict, source_index: list[dict]) -> dict:
+    """Attach only provenance that can be matched to this derived finding."""
+    enriched = dict(item)
+
+    def public_provenance(value):
+        if not isinstance(value, dict) or not value.get("source_file"):
+            return None
+        return {
+            key: value.get(key)
+            for key in (
+                "source_file", "source_page", "date_extracted",
+                "extraction_model", "confidence",
+            )
+            if value.get(key) is not None
+        }
+
+    existing = enriched.get("provenance")
+    if isinstance(existing, dict):
+        candidate = public_provenance(existing)
+        provenance = [candidate] if candidate else []
+    elif isinstance(existing, list):
+        provenance = [
+            candidate for candidate in (
+                public_provenance(value) for value in existing
+            )
+            if candidate
+        ]
+    else:
+        provenance = []
+
+    if not provenance and enriched.get("source_file"):
+        provenance = [{
+            "source_file": enriched.get("source_file"),
+            "source_page": enriched.get("source_page"),
+            "confidence": enriched.get("confidence"),
+        }]
+
+    if not provenance:
+        evidence = enriched.get("evidence") or []
+        if not isinstance(evidence, (list, tuple)):
+            evidence = [evidence]
+        text = " ".join([
+            str(enriched.get("title") or ""),
+            str(enriched.get("description") or enriched.get("pattern") or ""),
+            " ".join(_stringify_evidence(value) for value in evidence),
+            " ".join(str(value) for value in enriched.get("patient_data_points", [])),
+            " ".join(str(value) for value in enriched.get("matched_labs", [])),
+        ]).lower()
+
+        finding_text = text.strip()
+        if finding_text:
+            seen = set()
+            for source in source_index:
+                if not any(
+                    label in finding_text
+                    or (len(finding_text) <= 120 and finding_text in label)
+                    for label in source["labels"]
+                ):
+                    continue
+                candidate = source["provenance"]
+                key = (
+                    candidate.get("source_file"),
+                    candidate.get("source_page"),
+                    candidate.get("extraction_model"),
+                )
+                if key not in seen:
+                    seen.add(key)
+                    provenance.append(candidate)
+                if len(provenance) >= 8:
+                    break
+
+    enriched["provenance"] = provenance
+    if enriched.get("confidence") is None:
+        confidence_values = [
+            p.get("confidence") for p in provenance
+            if isinstance(p.get("confidence"), (int, float))
+        ]
+        if confidence_values:
+            enriched["confidence"] = round(
+                sum(confidence_values) / len(confidence_values), 3
+            )
+        elif enriched.get("total_hits") and enriched.get("total_possible"):
+            enriched["confidence"] = round(
+                enriched["total_hits"] / enriched["total_possible"], 3
+            )
+    return enriched
+
+
 def _normalize_flag(flag):
     """Return a copy of `flag` conforming to the ClinicalFlag render contract.
 
@@ -1566,7 +1718,10 @@ def get_flags():
                 ],
             })
     except Exception as e:
-        logger.debug("Missing negative detection in flags: %s", e)
+        logger.debug(
+            "Missing-negative detection in flags failed (error_type=%s)",
+            type(e).__name__,
+        )
 
     # Append environmental/geographic risk flags
     try:
@@ -1589,7 +1744,10 @@ def get_flags():
                     "evidence": evidence,
                 })
     except Exception as e:
-        logger.debug("Environmental risk detection in flags: %s", e)
+        logger.debug(
+            "Environmental-risk detection in flags failed (error_type=%s)",
+            type(e).__name__,
+        )
 
     # Append radiomic threshold flags from imaging findings
     try:
@@ -1610,9 +1768,16 @@ def get_flags():
                         ],
                     })
     except Exception as e:
-        logger.debug("Radiomic flag extraction in flags: %s", e)
+        logger.debug(
+            "Radiomic flag extraction failed (error_type=%s)",
+            type(e).__name__,
+        )
 
-    return jsonify([_normalize_flag(f) for f in flags])
+    source_index = _record_source_index(_profile_data)
+    return jsonify([
+        _enrich_finding_metadata(_normalize_flag(flag), source_index)
+        for flag in flags
+    ])
 
 
 # ── Dashboard Helpers ─────────────────────────────────────
@@ -1925,39 +2090,51 @@ def get_cross_disciplinary():
     analysis = _profile_data.get("analysis", {})
     connections = list(analysis.get("cross_disciplinary", []))
 
-    # Run cross-specialty systemic disease correlation on demand
-    try:
-        from src.analysis.diagnostic_engine.cross_specialty import CrossSpecialtyEngine
+    # Run cross-specialty systemic disease correlation on demand. Lightweight
+    # consumers such as the Body Map can request only already-persisted items.
+    stored_only = request.args.get("stored", "").strip().lower() in {
+        "1", "true", "yes",
+    }
+    if not stored_only:
+        try:
+            from src.analysis.diagnostic_engine.cross_specialty import CrossSpecialtyEngine
 
-        engine = CrossSpecialtyEngine()
-        correlations = engine.analyze(_profile_data)
+            engine = CrossSpecialtyEngine()
+            correlations = engine.analyze(_profile_data)
 
-        for c in correlations:
-            hits = c.get("total_hits", 0)
-            possible = c.get("total_possible", 0)
-            entry = {
-                "type": c.get("type", "systemic_correlation"),
-                "title": c["disease"],
-                "specialties": c["specialties"],
-                "severity": c.get("severity", "moderate"),
-                "description": c["description"],
-                "patient_data_points": c.get("matched_symptoms", []),
-                "matched_labs": c.get("matched_labs", []),
-                "question_for_doctor": c.get("recommendation", ""),
-                "total_hits": hits,
-                "total_possible": possible,
-                "evidence_source": c.get("evidence_source", ""),
-                "diagnostic_source": c.get("diagnostic_source", ""),
-            }
-            # Pass through PubMed verification for AI discoveries
-            if c.get("type") == "ai_discovered_correlation":
-                entry["pubmed_verified"] = c.get("pubmed_verified", False)
-                entry["pubmed_citations"] = c.get("pubmed_citations", [])
-            connections.append(entry)
-    except Exception as e:
-        logger.debug("Cross-specialty correlation: %s", e)
+            for c in correlations:
+                hits = c.get("total_hits", 0)
+                possible = c.get("total_possible", 0)
+                entry = {
+                    "type": c.get("type", "systemic_correlation"),
+                    "title": c["disease"],
+                    "specialties": c["specialties"],
+                    "severity": c.get("severity", "moderate"),
+                    "description": c["description"],
+                    "patient_data_points": c.get("matched_symptoms", []),
+                    "matched_labs": c.get("matched_labs", []),
+                    "question_for_doctor": c.get("recommendation", ""),
+                    "total_hits": hits,
+                    "total_possible": possible,
+                    "evidence_source": c.get("evidence_source", ""),
+                    "diagnostic_source": c.get("diagnostic_source", ""),
+                }
+                # Pass through PubMed verification for AI discoveries
+                if c.get("type") == "ai_discovered_correlation":
+                    entry["pubmed_verified"] = c.get("pubmed_verified", False)
+                    entry["pubmed_citations"] = c.get("pubmed_citations", [])
+                connections.append(entry)
+        except Exception as e:
+            logger.debug(
+                "Cross-specialty correlation failed (error_type=%s)",
+                type(e).__name__,
+            )
 
-    return jsonify(connections)
+    source_index = _record_source_index(_profile_data)
+    return jsonify([
+        _enrich_finding_metadata(connection, source_index)
+        for connection in connections
+    ])
 
 
 _COMMUNITY_DISCLAIMER = (
@@ -1997,6 +2174,13 @@ def _normalize_community(item):
         normalized["upvotes"] = 0
 
     normalized.setdefault("disclaimer", _COMMUNITY_DISCLAIMER)
+    normalized["confidence_label"] = "Unverified community signal"
+    if normalized.get("post_url"):
+        normalized["source_label"] = "Original community post"
+    elif normalized.get("subreddit"):
+        normalized["source_label"] = f"r/{normalized['subreddit']}"
+    else:
+        normalized["source_label"] = str(normalized.get("source") or "Community source")
     return normalized
 
 
@@ -2042,7 +2226,10 @@ def questions():
             return jsonify({"error": "No profile data loaded"}), 400
         return jsonify([])
 
-    analysis = _profile_data.setdefault("analysis", {})
+    analysis = _profile_data.get("analysis")
+    if not isinstance(analysis, dict):
+        analysis = {}
+        _profile_data["analysis"] = analysis
     questions_list = analysis.setdefault("questions_for_doctor", [])
 
     if request.method == "GET":
@@ -2180,7 +2367,7 @@ def sweep_now():
         })
 
     except Exception as e:
-        logger.error("PubMed sweep failed: %s", e)
+        logger.error("PubMed sweep failed (error_type=%s)", type(e).__name__)
         return jsonify({"error": str(e)}), 500
 
 
@@ -2738,14 +2925,50 @@ def get_risk_breakdown():
 def _save_profile_to_vault():
     """Persist the current _profile_data back to the encrypted vault."""
     if not _passphrase or not _profile_data:
-        return
+        return False
     try:
         from src.encryption import EncryptedVault
         vault = EncryptedVault(DATA_DIR, _passphrase)
         vault.active_profile_id = _active_profile_id
         vault.save_profile(_profile_data)
+        return True
     except Exception as e:
-        logger.error(f"Failed to save profile to vault: {e}")
+        logger.error(
+            "Failed to save profile to vault (error_type=%s)",
+            type(e).__name__,
+        )
+        return False
+
+
+def _compute_and_persist_deep_insight(insight_type: str) -> dict:
+    """Run or retrieve one local insight and durably store new results."""
+    from copy import deepcopy
+
+    from src.analysis.deep_insights import INSIGHT_FIELDS, compute_deep_insight
+
+    force = request.args.get("refresh", "").strip().lower() in {
+        "1", "true", "yes",
+    }
+    analysis = _profile_data.setdefault("analysis", {})
+    field_name = INSIGHT_FIELDS[insight_type]
+    previous_snapshot = deepcopy(analysis.get(field_name))
+    previous_updated_at = _profile_data.get("updated_at")
+    result, changed = compute_deep_insight(
+        _profile_data,
+        insight_type,
+        force=force,
+    )
+    if changed and not _save_profile_to_vault():
+        if previous_snapshot is None:
+            analysis.pop(field_name, None)
+        else:
+            analysis[field_name] = previous_snapshot
+        if previous_updated_at is None:
+            _profile_data.pop("updated_at", None)
+        else:
+            _profile_data["updated_at"] = previous_updated_at
+        raise RuntimeError("Deep insight persistence failed")
+    return result
 
 
 # ── Report Download ───────────────────────────────────────────
@@ -2860,11 +3083,33 @@ def generate_report():
         return jsonify({"error": "No profile loaded"}), 400
 
     try:
+        from copy import deepcopy
+
+        from src.analysis.deep_insights import compute_all_deep_insights
         from src.models import PatientProfile
         from src.report.builder import ReportBuilder
 
+        previous_analysis = deepcopy(_profile_data.get("analysis"))
+        previous_updated_at = _profile_data.get("updated_at")
+        changed, insight_errors = compute_all_deep_insights(_profile_data)
+        if changed and not _save_profile_to_vault():
+            if previous_analysis is None:
+                _profile_data.pop("analysis", None)
+            else:
+                _profile_data["analysis"] = previous_analysis
+            if previous_updated_at is None:
+                _profile_data.pop("updated_at", None)
+            else:
+                _profile_data["updated_at"] = previous_updated_at
+            return jsonify({"error": "Deep insight persistence failed"}), 500
+        if insight_errors:
+            logger.warning(
+                "Report generated with unavailable deep insights (types=%s)",
+                ",".join(sorted(insight_errors)),
+            )
+
         prepared = _prepare_demo_for_model(_profile_data)
-        profile = PatientProfile(**prepared)
+        profile = PatientProfile.model_validate(prepared)
         builder = ReportBuilder()
 
         REPORTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -2874,7 +3119,7 @@ def generate_report():
         return jsonify({"status": "generated", "path": str(output_path)})
 
     except Exception as e:
-        logger.error("Report generation failed: %s", e)
+        logger.error("Report generation failed (error_type=%s)", type(e).__name__)
         return jsonify({"error": str(e)}), 500
 
 
@@ -2899,7 +3144,7 @@ def symptom_patterns():
         return jsonify(result)
 
     except Exception as e:
-        logger.error("Symptom pattern analysis failed: %s", e)
+        logger.error("Symptom-pattern analysis failed (error_type=%s)", type(e).__name__)
         return jsonify({"error": str(e)}), 500
 
 
@@ -2924,7 +3169,7 @@ def symptom_analytics():
         return jsonify(result)
 
     except Exception as e:
-        logger.error("Symptom analytics failed: %s", e)
+        logger.error("Symptom analytics failed (error_type=%s)", type(e).__name__)
         return jsonify({"error": str(e)}), 500
 
 
@@ -2955,7 +3200,7 @@ def symptom_analytics_single(symptom_id):
         return jsonify(result)
 
     except Exception as e:
-        logger.error("Single symptom analytics failed: %s", e)
+        logger.error("Single-symptom analytics failed (error_type=%s)", type(e).__name__)
         return jsonify({"error": str(e)}), 500
 
 
@@ -2977,7 +3222,7 @@ def symptom_analytics_insights():
         return jsonify(result)
 
     except Exception as e:
-        logger.error("Symptom AI insights failed: %s", e)
+        logger.error("Symptom AI insights failed (error_type=%s)", type(e).__name__)
         return jsonify({"error": str(e)}), 500
 
 
@@ -2999,7 +3244,7 @@ def visit_prep():
         return jsonify(result)
 
     except Exception as e:
-        logger.error("Visit prep failed: %s", e)
+        logger.error("Visit prep failed (error_type=%s)", type(e).__name__)
         return jsonify({"error": str(e)}), 500
 
 
@@ -3028,7 +3273,7 @@ def visit_prep_download():
         )
 
     except Exception as e:
-        logger.error("Visit prep download failed: %s", e)
+        logger.error("Visit prep download failed (error_type=%s)", type(e).__name__)
         return jsonify({"error": str(e)}), 500
 
 
@@ -3096,26 +3341,19 @@ def snowball_diagnoses():
         return jsonify({"nodes": [], "edges": [], "ranked_conditions": []})
 
     try:
-        from src.analysis.snowball_engine import SnowballEngine
-
-        # Load demographics for local AI-enhanced matching
-        demographics = {}
-
-        timeline = _profile_data.get("clinical_timeline", {})
-        demo = timeline.get("demographics", {})
-        if demo:
-            demographics = {
-                "age": demo.get("age"),
-                "sex": demo.get("sex"),
-            }
-
-        engine = SnowballEngine(demographics=demographics)
-        graph = engine.analyze(_profile_data)
-        return jsonify(graph)
+        return jsonify(_compute_and_persist_deep_insight("snowball"))
 
     except Exception as e:
-        logger.error(f"Snowball analysis failed: {e}")
-        return jsonify({"nodes": [], "edges": [], "ranked_conditions": [], "error": str(e)})
+        logger.error(
+            "Snowball analysis failed (error_type=%s)",
+            type(e).__name__,
+        )
+        return jsonify({
+            "nodes": [],
+            "edges": [],
+            "ranked_conditions": [],
+            "error": "Snowball analysis unavailable",
+        }), 500
 
 
 # ── Symptom Tracking API ─────────────────────────────────────
@@ -3182,7 +3420,10 @@ def _save_symptoms_to_vault():
         vault = EncryptedVault(DATA_DIR, _passphrase)
         vault.save_profile(_profile_data)
     except Exception as e:
-        logger.error(f"Failed to save symptoms to vault: {e}")
+        logger.error(
+            "Failed to save symptoms to vault (error_type=%s)",
+            type(e).__name__,
+        )
 
 
 def _compute_counter_stats(symptom: dict) -> list[dict]:
@@ -3559,43 +3800,15 @@ def trajectories():
     if not _passphrase and not _profile_data:
         return jsonify({"error": "No data loaded"}), 401
 
-    profile = _profile_data or {}
-
     try:
-        from src.analysis.trajectory import TrajectoryForecaster
-
-        forecaster = TrajectoryForecaster()
-        result = forecaster.analyze(profile)
-
-        # ── Phase 2: Enrich with side effect scoring ─────────
-        try:
-            from src.analysis.side_effect_scorer import SideEffectScorer
-
-            timeline = profile.get("clinical_timeline", {})
-            symptoms = timeline.get("symptoms", [])
-            medications = timeline.get("medications", [])
-            genetics = timeline.get("genetics", [])
-
-            scorer = SideEffectScorer()
-            scored_by_med = scorer.score_all_linked_episodes(
-                symptoms, medications, genetics
-            )
-
-            # Attach side_effects array to each medication in each trajectory
-            for traj in result.get("trajectories", []):
-                for med in traj.get("relevant_medications", []):
-                    med_name = med.get("name", "")
-                    med["side_effects"] = scored_by_med.get(med_name, [])
-        except Exception as se_err:
-            logger.warning(
-                "Side effect scoring failed (non-fatal): %s", se_err
-            )
-
-        return jsonify(result)
+        return jsonify(_compute_and_persist_deep_insight("trajectories"))
 
     except Exception as e:
-        logger.error("Trajectory analysis failed: %s", e)
-        return jsonify({"error": str(e)}), 500
+        logger.error(
+            "Trajectory analysis failed (error_type=%s)",
+            type(e).__name__,
+        )
+        return jsonify({"error": "Trajectory analysis unavailable"}), 500
 
 
 @app.route("/api/trajectories/investigate", methods=["POST"])
@@ -3625,7 +3838,7 @@ def trajectories_investigate():
         return jsonify(result)
 
     except Exception as e:
-        logger.error("Anomaly investigation failed: %s", e)
+        logger.error("Anomaly investigation failed (error_type=%s)", type(e).__name__)
         return jsonify({"error": str(e)}), 500
 
 
@@ -3779,7 +3992,7 @@ def symptom_landscape():
         return jsonify(result)
 
     except Exception as e:
-        logger.error("Symptom landscape analysis failed: %s", e)
+        logger.error("Symptom-landscape analysis failed (error_type=%s)", type(e).__name__)
         return jsonify({"error": str(e)}), 500
 
 
@@ -3807,7 +4020,7 @@ def treatment_response():
         return jsonify(result)
 
     except Exception as e:
-        logger.error("Treatment response analysis failed: %s", e)
+        logger.error("Treatment-response analysis failed (error_type=%s)", type(e).__name__)
         return jsonify({"error": str(e)}), 500
 
 
@@ -3842,7 +4055,7 @@ def interaction_timeline():
         return jsonify(result)
 
     except Exception as e:
-        logger.error("Interaction timeline analysis failed: %s", e)
+        logger.error("Interaction-timeline analysis failed (error_type=%s)", type(e).__name__)
         return jsonify({"error": str(e)}), 500
 
 
@@ -3852,18 +4065,15 @@ def biomarker_cascades():
     if not _passphrase and not _profile_data:
         return jsonify({"error": "No data loaded"}), 401
 
-    profile = _profile_data or {}
-
     try:
-        from src.analysis.biomarker_cascades import BiomarkerCascadeEngine
-
-        engine = BiomarkerCascadeEngine()
-        result = engine.analyze(profile)
-        return jsonify(result)
+        return jsonify(_compute_and_persist_deep_insight("biomarker_cascades"))
 
     except Exception as e:
-        logger.error("Biomarker cascade analysis failed: %s", e)
-        return jsonify({"error": str(e)}), 500
+        logger.error(
+            "Biomarker cascade analysis failed (error_type=%s)",
+            type(e).__name__,
+        )
+        return jsonify({"error": "Biomarker cascade analysis unavailable"}), 500
 
 
 # ── Pharmacogenomic Collision Map ─────────────────────────────
@@ -3874,18 +4084,26 @@ def pgx_collisions():
     if not _passphrase:
         return jsonify({"error": "Vault not unlocked"}), 401
 
-    profile = _profile_data or {}
-
     try:
-        from src.analysis.diagnostic_engine.pharmacogenomics import PharmacogenomicEngine
-
-        engine = PharmacogenomicEngine()
-        result = engine.analyze(profile)
-        return jsonify(result)
+        return jsonify(_compute_and_persist_deep_insight("pgx_collisions"))
 
     except Exception as e:
-        logger.error("PGx collision analysis failed: %s", e)
-        return jsonify({"error": str(e)}), 500
+        logger.error(
+            "PGx collision analysis failed (error_type=%s)",
+            type(e).__name__,
+        )
+        return jsonify({"error": "PGx collision analysis unavailable"}), 500
+
+
+@app.route("/api/deep-insights")
+def deep_insights():
+    """Retrieve all deep insights already stored in the encrypted profile."""
+    if not _passphrase and not _profile_data:
+        return jsonify({"error": "No data loaded"}), 401
+
+    from src.analysis.deep_insights import persisted_deep_insights
+
+    return jsonify(persisted_deep_insights(_profile_data or {}))
 
 
 # ── Missing Negative Detection ────────────────────────────────
@@ -3906,7 +4124,7 @@ def missing_negatives():
         return jsonify(results)
 
     except Exception as e:
-        logger.error("Missing negative detection failed: %s", e)
+        logger.error("Missing-negative detection failed (error_type=%s)", type(e).__name__)
         return jsonify({"error": str(e)}), 500
 
 
@@ -4027,7 +4245,11 @@ def _call_local_assistant_model(
             logger.info("Local assistant response generated with %s", LOCAL_ASSISTANT_MODEL)
             return text
     except Exception as e:
-        logger.warning("Local assistant model %s unavailable: %s", LOCAL_ASSISTANT_MODEL, e)
+        logger.warning(
+            "Local assistant model unavailable (model=%s, error_type=%s)",
+            LOCAL_ASSISTANT_MODEL,
+            type(e).__name__,
+        )
     finally:
         _release_local_model_memory()
 
@@ -4373,7 +4595,10 @@ def run(host: str = "127.0.0.1", port: int = 5000, debug: bool = False):
             else:
                 logger.warning("VAULT_PASSPHRASE did not match existing vault")
         except Exception as e:
-            logger.warning(f"Auto-unlock failed: {e}")
+            logger.warning(
+                "Auto-unlock failed (error_type=%s)",
+                type(e).__name__,
+            )
 
     if _passphrase is None:
         _activate_dev_passphrase_bypass()

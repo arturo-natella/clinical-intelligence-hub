@@ -131,9 +131,8 @@ class DisGeNETClient:
 
         except Exception as e:
             logger.debug(
-                "DisGeNET search_disease_genes failed for '%s': %s",
-                disease_name,
-                e,
+                "DisGeNET disease-gene search failed (error_type=%s)",
+                type(e).__name__,
             )
             return []
 
@@ -237,9 +236,8 @@ class DisGeNETClient:
 
         except Exception as e:
             logger.debug(
-                "DisGeNET search_gene_diseases failed for '%s': %s",
-                gene_symbol,
-                e,
+                "DisGeNET gene-disease search failed (error_type=%s)",
+                type(e).__name__,
             )
             return []
 
@@ -330,11 +328,9 @@ class DisGeNETClient:
 
         except Exception as e:
             logger.debug(
-                "DisGeNET get_gene_disease_association failed for "
-                "'%s' / '%s': %s",
-                gene_symbol,
-                disease_name,
-                e,
+                "DisGeNET gene-disease association lookup failed "
+                "(error_type=%s)",
+                type(e).__name__,
             )
             return None
 
@@ -532,9 +528,8 @@ class DisGeNETClient:
 
         except Exception as e:
             logger.debug(
-                "DisGeNET get_gene_variants failed for '%s': %s",
-                gene_symbol,
-                e,
+                "DisGeNET gene-variant lookup failed (error_type=%s)",
+                type(e).__name__,
             )
             return []
 
@@ -707,7 +702,7 @@ class DisGeNETClient:
             }
 
         except Exception as e:
-            logger.debug("DisGeNET GDA parse failed: %s", e)
+            logger.debug("DisGeNET GDA parse failed (error_type=%s)", type(e).__name__)
             return None
 
     # ── Type coercion helpers ─────────────────────────────────

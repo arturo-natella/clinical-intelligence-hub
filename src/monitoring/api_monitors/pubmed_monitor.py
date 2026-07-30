@@ -96,7 +96,7 @@ class PubMedMonitor:
             from src.validation.pubmed import PubMedClient
             client = PubMedClient(api_key=self._api_key)
         except Exception as e:
-            logger.error("PubMed client init failed: %s", e)
+            logger.error("PubMed client init failed (error_type=%s)", type(e).__name__)
             return []
 
         # Date filter
@@ -140,7 +140,7 @@ class PubMedMonitor:
                     ))
 
             except Exception as e:
-                logger.debug("PubMed query failed: %s", e)
+                logger.debug("PubMed query failed (error_type=%s)", type(e).__name__)
 
         logger.info("PubMed monitor found %d alerts from %d queries",
                      len(alerts), len(queries))
@@ -429,8 +429,11 @@ class PubMedMonitor:
             filtered.sort(key=lambda x: x.get("score", 0), reverse=True)
             return [a["alert"] for a in filtered]
         except Exception as e:
-            logger.warning("Gemini relevance scoring failed, returning "
-                           "unscored results: %s", e)
+            logger.warning(
+                "Gemini relevance scoring failed; returning unscored results "
+                "(error_type=%s)",
+                type(e).__name__,
+            )
             return alerts
 
     def _gemini_score(self, alerts: list[MonitoringAlert],

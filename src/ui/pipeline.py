@@ -7,7 +7,7 @@ Coordinates the entire analysis pipeline:
   Pass 1b: MedGemma 4B vision analysis
   Pass 1c: MONAI clinical detection
   Pass 1.5: PII redaction
-  Pass 2: Gemini 3.1 Pro Preview gap-filling
+  Pass 2: Gemini 3 Flash gap-filling
   Pass 3: Deep Research cross-disciplinary
   Pass 4: Deep Research literature search
   Pass 5: Clinical validation
@@ -23,6 +23,7 @@ Features:
 import hashlib
 import logging
 import os
+import re
 import subprocess
 import time
 from datetime import datetime
@@ -45,6 +46,10 @@ from src.models import (
 )
 
 logger = logging.getLogger("CIH-Pipeline")
+
+GEMINI_FALLBACK_MAX_DOCUMENTS = 3
+GEMINI_FALLBACK_MAX_DOCUMENT_CHARS = 60_000
+GEMINI_FALLBACK_CHUNK_CHARS = 12_000
 
 
 class Pipeline:
@@ -83,6 +88,10 @@ class Pipeline:
         self._vault = None
         self._profile = None
         self._redacted_profile_dict = None
+        self._fallback_candidates: list[dict] = []
+        self._redacted_fallback_documents: list[dict] = []
+        self._redactor = None
+        self._loinc_db = None
 
     def _wait_if_paused(self):
         """Block until resumed if pipeline is paused."""
@@ -170,9 +179,12 @@ class Pipeline:
         """
         self._start_caffeinate()
         self._local_processing_errors = []
+        run_id = None
 
         try:
             self._init_components()
+            self._fallback_candidates = []
+            self._redacted_fallback_documents = []
             self._progress("init", "Pipeline initialized", 0)
 
             # Load or create profile
@@ -182,14 +194,15 @@ class Pipeline:
                     self._profile = PatientProfile(**self._profile)
             except Exception as e:
                 logger.warning(
-                    f"Could not load existing profile ({e}). "
-                    "Starting fresh."
+                    "Could not load existing profile; starting fresh "
+                    "(error_type=%s)",
+                    type(e).__name__,
                 )
                 self._profile = None
             if not self._profile:
                 self._profile = PatientProfile()
 
-            run_id = f"run_{int(time.time())}"
+            run_id = f"run_{time.time_ns()}"
             self._db.start_pipeline_run(run_id)
 
             total_steps = 8  # approximate number of major passes
@@ -201,10 +214,12 @@ class Pipeline:
                            int(step / total_steps * 100))
             self._log(f"Pass 0: Processing {len(input_files)} file(s)...")
             preprocessed = self._pass_0_preprocess(input_files)
-            for item in preprocessed:
-                self._log(f"  \u2713 {item.get('filename', '?')}: "
-                          f"{len(item.get('text', '')):,} chars, "
-                          f"{len(item.get('pages', []))} pages")
+            for index, item in enumerate(preprocessed, 1):
+                self._log(
+                    f"  \u2713 Record {index}: "
+                    f"{len(item.get('text', '')):,} chars, "
+                    f"{len(item.get('pages', []))} pages"
+                )
 
             # ── Pass 1a: Text Extraction ──
             self._wait_if_paused()
@@ -306,8 +321,17 @@ class Pipeline:
             return self._profile
 
         except Exception as e:
-            logger.error(f"Pipeline failed: {e}")
-            self._progress("error", f"Pipeline error: {str(e)}", -1)
+            if run_id and self._db:
+                try:
+                    self._db.fail_pipeline_run(run_id)
+                except Exception as tracking_error:
+                    logger.error(
+                        "Failed to mark pipeline run failed (error_type=%s)",
+                        type(tracking_error).__name__,
+                    )
+            error_type = type(e).__name__
+            logger.error("Pipeline failed (error_type=%s)", error_type)
+            self._progress("error", f"Pipeline error ({error_type})", -1)
             raise
 
         finally:
@@ -338,18 +362,40 @@ class Pipeline:
                         status=ProcessingStatus.PREPROCESSING,
                         page_count=result.get("page_count"),
                     )
-                    self._profile.processed_files.append(pf)
+                    existing_file = next(
+                        (
+                            tracked
+                            for tracked in self._profile.processed_files
+                            if tracked.sha256_hash == pf.sha256_hash
+                        ),
+                        None,
+                    )
+                    if existing_file:
+                        existing_file.file_id = pf.file_id
+                        existing_file.filename = pf.filename
+                        existing_file.file_type = pf.file_type
+                        existing_file.file_size_bytes = pf.file_size_bytes
+                        existing_file.status = pf.status
+                        existing_file.current_pass = pf.current_pass
+                        existing_file.error_message = None
+                        existing_file.page_count = pf.page_count
+                    else:
+                        self._profile.processed_files.append(pf)
 
                 else:
                     self._record_local_error(
-                        f"{filepath.name} was duplicate, unsupported, or could not "
-                        "be preprocessed"
+                        "One record was duplicate, unsupported, or could not be "
+                        "preprocessed"
                     )
 
             except Exception as e:
-                logger.error(f"Preprocessing failed for {filepath.name}: {e}")
+                error_type = type(e).__name__
+                logger.error(
+                    "Preprocessing failed for one record (error_type=%s)",
+                    error_type,
+                )
                 self._record_local_error(
-                    f"Preprocessing failed for {filepath.name}: {e}"
+                    f"Preprocessing failed for one record ({error_type})"
                 )
 
         if not results and input_files:
@@ -385,10 +431,24 @@ class Pipeline:
                 self._append_extraction_results(delta)
                 self._publish_profile_snapshot()
 
+            checkpoint_target = {"file_id": None}
+
+            def _on_chunk_checkpoint(chunks_completed, chunks_total):
+                """Advance SQLite only after the encrypted profile is durable."""
+                file_id = checkpoint_target["file_id"]
+                if not file_id:
+                    raise RuntimeError("Text checkpoint is missing its file ID")
+                self._db.update_text_checkpoint(
+                    file_id,
+                    chunks_completed,
+                    chunks_total,
+                )
+
             extractor = TextExtractor(
                 progress_callback=self._progress,
                 pause_event=self._pause_event,
                 on_chunk_complete=_on_chunk_complete,
+                on_chunk_checkpoint=_on_chunk_checkpoint,
             )
 
             for item in preprocessed:
@@ -405,7 +465,7 @@ class Pipeline:
                 if not text or len(text.strip()) < 50:
                     if requires_text_extraction:
                         self._record_local_error(
-                            f"{filename} did not produce enough readable text"
+                            "One record did not produce enough readable text"
                         )
                     continue
 
@@ -413,17 +473,20 @@ class Pipeline:
                 if not pages:
                     pages = [{"page": 1, "text": text}]
 
+                checkpoint_target["file_id"] = item.get("file_id")
+
                 # Optional page cap (0 = no limit, process everything)
                 total_pages = len(pages)
                 if MAX_PAGES_PER_FILE > 0 and total_pages > MAX_PAGES_PER_FILE:
                     logger.info(
-                        f"Capping extraction to first {MAX_PAGES_PER_FILE} of "
-                        f"{total_pages} pages for {item.get('filename')} "
-                        f"(set MEDPREP_MAX_PAGES=0 to process all pages)"
+                        "Capping one record to first %d of %d pages "
+                        "(set MEDPREP_MAX_PAGES=0 to process all pages)",
+                        MAX_PAGES_PER_FILE,
+                        total_pages,
                     )
                     pages = pages[:MAX_PAGES_PER_FILE]
                     self._record_local_error(
-                        f"{filename} was only partially processed "
+                        "One record was only partially processed "
                         f"({MAX_PAGES_PER_FILE} of {total_pages} pages)"
                     )
                 else:
@@ -439,26 +502,78 @@ class Pipeline:
                     )
 
                 try:
+                    total_chunks = extractor.count_chunks(pages)
+                    completed_chunks = int(
+                        item.get("text_chunks_completed") or 0
+                    )
+                    stored_total = int(item.get("text_chunks_total") or 0)
+                    if (
+                        completed_chunks > total_chunks
+                        or (stored_total and stored_total != total_chunks)
+                    ):
+                        logger.warning(
+                            "Stored text checkpoint does not match current chunk "
+                            "plan; restarting from chunk 1"
+                        )
+                        completed_chunks = 0
+                        self._db.update_text_checkpoint(
+                            item.get("file_id"),
+                            0,
+                            total_chunks,
+                        )
+
+                    had_prior_extractions = (
+                        self._profile_has_extractions_for_source(filename)
+                    )
                     results = extractor.extract(
                         pages=pages,
                         source_file=filename,
+                        start_chunk=completed_chunks,
                     )
                     item_count = sum(
                         len(values)
                         for values in results.values()
                         if isinstance(values, list)
                     ) if isinstance(results, dict) else 0
-                    if requires_text_extraction and item_count == 0:
+                    checkpoint_state = self._db.get_file_state(
+                        item.get("file_id")
+                    )
+                    checkpoint_complete = bool(
+                        checkpoint_state
+                        and checkpoint_state["text_chunks_completed"]
+                        == total_chunks
+                        and checkpoint_state["text_chunks_total"]
+                        == total_chunks
+                    )
+                    if requires_text_extraction and not checkpoint_complete:
                         self._record_local_error(
-                            f"Local extraction returned no clinical data for {filename}"
+                            "Local text extraction did not finish all chunks"
+                        )
+                    if (
+                        requires_text_extraction
+                        and checkpoint_complete
+                        and item_count == 0
+                        and not had_prior_extractions
+                    ):
+                        self._fallback_candidates.append({
+                            "source_file": filename,
+                            "text": text,
+                        })
+                        logger.info(
+                            "Local extraction returned no clinical data; "
+                            "document is eligible for redacted Gemini fallback"
                         )
                     # No need to call _merge_extraction_results here —
                     # merging happens per-chunk via _on_chunk_complete
                 except Exception as e:
-                    logger.error(f"Text extraction failed for {filename}: {e}")
-                    self._log(f"  Error: {e}")
+                    error_type = type(e).__name__
+                    logger.error(
+                        "Text extraction failed (error_type=%s)",
+                        error_type,
+                    )
+                    self._log(f"  Error: text extraction failed ({error_type})")
                     self._record_local_error(
-                        f"Text extraction failed for {filename}: {e}"
+                        f"Text extraction failed for one record ({error_type})"
                     )
 
             # Summary of what was extracted
@@ -512,26 +627,47 @@ class Pipeline:
                 for study in self._profile.clinical_timeline.imaging
                 if study.provenance
             }
-            for filename in sorted(image_only_sources - processed_image_sources):
+            for _filename in sorted(image_only_sources - processed_image_sources):
                 self._record_local_error(
-                    f"Local image analysis returned no usable data for {filename}"
+                    "Local image analysis returned no usable data for one record"
                 )
 
             # Publish updated profile so dashboard shows imaging findings
             self._publish_profile_snapshot()
 
         except ImportError as e:
-            logger.warning(f"ImagePipeline not available — skipping: {e}")
+            logger.warning(
+                "ImagePipeline not available — skipping (error_type=%s)",
+                type(e).__name__,
+            )
             self._log("  Image analysis not available — skipped")
             if image_only_sources:
                 self._record_local_error("Local image analysis is not available")
         except Exception as e:
-            logger.error(f"Image analysis failed: {e}")
-            self._log(f"  Image analysis error: {e}")
+            error_type = type(e).__name__
+            logger.error("Image analysis failed (error_type=%s)", error_type)
+            self._log(f"  Image analysis error ({error_type})")
             if image_only_sources:
-                self._record_local_error(f"Local image analysis failed: {e}")
+                self._record_local_error(
+                    f"Local image analysis failed ({error_type})"
+                )
 
     # ── Pass 1.5: PII Redaction ───────────────────────────────
+
+    @classmethod
+    def _sanitize_cloud_metadata(cls, value):
+        """Remove local filenames that may themselves contain patient names."""
+        if isinstance(value, dict):
+            sanitized = {}
+            for key, child in value.items():
+                if key in {"source_file", "filename", "file_source"}:
+                    sanitized[key] = "[LOCAL_SOURCE_REDACTED]"
+                else:
+                    sanitized[key] = cls._sanitize_cloud_metadata(child)
+            return sanitized
+        if isinstance(value, list):
+            return [cls._sanitize_cloud_metadata(child) for child in value]
+        return value
 
     def _pass_1_5_redaction(self):
         """Redact PII before cloud analysis.
@@ -544,20 +680,67 @@ class Pipeline:
             from src.privacy.redactor import PIIRedactor
 
             redactor = PIIRedactor(db=self._db)
+            self._redactor = redactor
+            if (
+                self._fallback_candidates
+                and not getattr(redactor, "_presidio_available", False)
+            ):
+                raise RuntimeError(
+                    "Presidio is required before raw-document cloud fallback"
+                )
             profile_dict = self._profile.model_dump(mode="json")
-            self._redacted_profile_dict = redactor.redact_dict(
-                profile_dict, source_file="pipeline_pass_1.5"
+            self._redacted_profile_dict = self._sanitize_cloud_metadata(
+                redactor.redact_dict(
+                    profile_dict,
+                    source_file="pipeline_pass_1.5",
+                )
             )
+
+            self._redacted_fallback_documents = []
+            eligible = self._fallback_candidates[:GEMINI_FALLBACK_MAX_DOCUMENTS]
+            skipped_for_run_cap = max(
+                0,
+                len(self._fallback_candidates) - len(eligible),
+            )
+            skipped_for_size = 0
+            for index, candidate in enumerate(eligible, 1):
+                raw_text = candidate.get("text") or ""
+                if len(raw_text) > GEMINI_FALLBACK_MAX_DOCUMENT_CHARS:
+                    skipped_for_size += 1
+                    continue
+                redacted_text = redactor.redact(
+                    raw_text,
+                    source_file=f"fallback_document_{index}",
+                )
+                self._redacted_fallback_documents.append({
+                    "source_file": candidate.get("source_file", "unknown"),
+                    "redacted_text": redacted_text,
+                })
+
+            if skipped_for_run_cap or skipped_for_size:
+                logger.warning(
+                    "Gemini fallback skipped whole documents to honor the hard "
+                    "spend ceiling (run_cap=%d, size_cap=%d)",
+                    skipped_for_run_cap,
+                    skipped_for_size,
+                )
             summary = redactor.get_redaction_summary()
             count = summary.get("total", 0) if summary else 0
             logger.info(f"PII redaction complete — {count} entities redacted")
             return True
         except Exception as e:
+            error_type = type(e).__name__
             logger.error(
-                "PII redaction failed — external API calls will be blocked: %s", e
+                "PII redaction failed — external API calls will be blocked "
+                "(error_type=%s)",
+                error_type,
             )
             self._redacted_profile_dict = None
-            self._record_local_error(f"PII redaction failed: {e}")
+            self._redacted_fallback_documents = []
+            self._redactor = None
+            self._record_local_error(
+                f"PII redaction failed ({error_type})"
+            )
             return False
 
     # ── Pass 2-4: Cloud Analysis ──────────────────────────────
@@ -572,16 +755,62 @@ class Pipeline:
             logger.info("No Gemini API key — skipping cloud analysis (Passes 2-4)")
             return
 
-        # Use redacted profile for all cloud calls
-        redacted = self._redacted_profile_dict or self._profile.model_dump(mode="json")
+        # The hard gate guarantees this exists. Never fall back to the raw
+        # profile here: a missing redacted copy must block cloud work.
+        if self._redacted_profile_dict is None:
+            logger.error("Cloud analysis blocked because redacted profile is missing")
+            return
+        redacted = self._redacted_profile_dict
 
         # Pass 2: Gemini fallback gap-filling
-        try:
-            from src.analysis.gemini_fallback import GeminiFallback
-            fallback = GeminiFallback(api_key=gemini_key)
-            logger.info("Pass 2: Gemini 3 Flash gap-filling available")
-        except Exception as e:
-            logger.warning(f"Gemini fallback not available: {e}")
+        fallback_items_added = 0
+        if self._redacted_fallback_documents:
+            self._wait_for_api_calls("Gemini fallback extraction")
+            try:
+                from src.analysis.gemini_fallback import GeminiFallback
+
+                fallback = GeminiFallback(api_key=gemini_key)
+                for document in self._redacted_fallback_documents:
+                    chunks = fallback.chunk_redacted_text(
+                        document.get("redacted_text", ""),
+                        GEMINI_FALLBACK_CHUNK_CHARS,
+                    )
+                    for chunk in chunks:
+                        self._wait_for_api_calls("Gemini fallback extraction")
+                        results = fallback.extract(
+                            chunk,
+                            document.get("source_file", "unknown"),
+                        )
+                        item_count = sum(
+                            len(items)
+                            for items in results.values()
+                            if isinstance(items, list)
+                        ) if isinstance(results, dict) else 0
+                        if item_count:
+                            self._append_extraction_results(results)
+                            fallback_items_added += item_count
+                            self._publish_profile_snapshot()
+
+                logger.info(
+                    "Pass 2 Gemini fallback complete (documents=%d, items=%d)",
+                    len(self._redacted_fallback_documents),
+                    fallback_items_added,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Gemini fallback unavailable (error_type=%s)",
+                    type(e).__name__,
+                )
+        else:
+            logger.info("Pass 2 Gemini fallback not needed")
+
+        if fallback_items_added and self._redactor:
+            refreshed = self._redactor.redact_dict(
+                self._profile.model_dump(mode="json"),
+                source_file="pipeline_pass_2_refresh",
+            )
+            redacted = self._sanitize_cloud_metadata(refreshed)
+            self._redacted_profile_dict = redacted
 
         # Pass 3-4: Deep Research
         self._wait_for_api_calls("Gemini 3 Flash research")
@@ -604,7 +833,10 @@ class Pipeline:
             )
 
         except Exception as e:
-            logger.warning(f"Deep Research failed: {e}")
+            logger.warning(
+                "Deep Research failed (error_type=%s)",
+                type(e).__name__,
+            )
 
         # Community insights
         self._wait_for_api_calls("community research")
@@ -618,7 +850,10 @@ class Pipeline:
             insights = community.search(meds, dxs)
             self._profile.analysis.community_insights.extend(insights)
         except Exception as e:
-            logger.warning(f"Community insights not available: {e}")
+            logger.warning(
+                "Community insights not available (error_type=%s)",
+                type(e).__name__,
+            )
 
     # ── Pass 5: Clinical Validation ───────────────────────────
 
@@ -649,14 +884,30 @@ class Pipeline:
             )
 
         except Exception as e:
-            logger.warning(f"Clinical validation error: {e}")
+            logger.warning(
+                "Clinical validation error (error_type=%s)",
+                type(e).__name__,
+            )
 
     # ── Pass 6: Report Generation ─────────────────────────────
 
     def _pass_6_report(self):
         """Generate the clinical report document."""
         try:
+            from src.analysis.deep_insights import compute_all_deep_insights
+            from src.models import PatientProfile
             from src.report.builder import ReportBuilder
+
+            profile_data = self._profile.model_dump(mode="json")
+            changed, insight_errors = compute_all_deep_insights(profile_data)
+            self._profile = PatientProfile.model_validate(profile_data)
+            if changed:
+                self._save_profile_checkpoint()
+            if insight_errors:
+                logger.warning(
+                    "Report continuing without some deep insights (types=%s)",
+                    ",".join(sorted(insight_errors)),
+                )
 
             builder = ReportBuilder()
             output_path = self.data_dir / "reports" / (
@@ -672,10 +923,13 @@ class Pipeline:
                 file_count=len(self._profile.processed_files),
             )
 
-            logger.info(f"Report generated: {output_path}")
+            logger.info("Clinical report generated locally")
 
         except Exception as e:
-            logger.warning(f"Report generation failed: {e}")
+            logger.warning(
+                "Report generation failed (error_type=%s)",
+                type(e).__name__,
+            )
 
     # ── Helpers ───────────────────────────────────────────────
 
@@ -693,7 +947,11 @@ class Pipeline:
                 -1,
             )
         except Exception as e:
-            logger.warning(f"Profile snapshot failed: {e}")
+            logger.warning(
+                "Profile snapshot failed (error_type=%s)",
+                type(e).__name__,
+            )
+            raise RuntimeError("Profile snapshot persistence failed") from None
 
     def _save_profile_checkpoint(self):
         """Persist the current profile so chunked progress survives crashes."""
@@ -704,7 +962,11 @@ class Pipeline:
             self._profile.updated_at = datetime.now()
             self._vault.save_profile(self._profile.model_dump(mode="json"))
         except Exception as e:
-            logger.warning(f"Profile checkpoint save failed: {e}")
+            logger.warning(
+                "Profile checkpoint save failed (error_type=%s)",
+                type(e).__name__,
+            )
+            raise RuntimeError("Profile checkpoint save failed") from None
 
     def _clinical_item_count(self) -> int:
         """Count all timeline items shown to the user across extraction passes."""
@@ -723,6 +985,25 @@ class Pipeline:
         )
         return sum(len(items) for items in collections)
 
+    def _profile_has_extractions_for_source(self, source_file: str) -> bool:
+        """Return whether a resumed file already has durable timeline data."""
+        timeline = self._profile.clinical_timeline
+        collections = (
+            timeline.medications,
+            timeline.labs,
+            timeline.diagnoses,
+            timeline.procedures,
+            timeline.allergies,
+            timeline.genetics,
+            timeline.notes,
+        )
+        return any(
+            getattr(getattr(item, "provenance", None), "source_file", None)
+            == source_file
+            for items in collections
+            for item in items
+        )
+
     @staticmethod
     def _fingerprint(item, key: str) -> str:
         """Build a deduplication fingerprint for a clinical item.
@@ -739,7 +1020,21 @@ class Pipeline:
         if key == "medications":
             return f"med|{_norm(item.name)}|{_norm(item.dosage)}|{_norm(item.frequency)}|{_norm(item.route)}"
         if key == "labs":
-            return f"lab|{_norm(item.name)}|{_norm(item.value)}|{_norm(item.unit)}|{_norm(item.test_date)}"
+            loinc_code = _norm(item.loinc_code)
+            normalized_name = re.sub(
+                r"[^a-z0-9]+",
+                " ",
+                _norm(item.name),
+            ).strip()
+            identity = (
+                f"loinc:{loinc_code}"
+                if loinc_code
+                else f"name:{normalized_name}"
+            )
+            return (
+                f"lab|{identity}|{_norm(item.value)}|{_norm(item.unit)}|"
+                f"{_norm(item.test_date)}"
+            )
         if key == "diagnoses":
             return f"dx|{_norm(item.name)}|{_norm(item.date_diagnosed)}|{_norm(item.status)}"
         if key == "procedures":
@@ -753,6 +1048,28 @@ class Pipeline:
         # Fallback: use the full model dump
         return f"{key}|{item.model_dump_json(exclude={'provenance'})}"
 
+    def _standardize_lab(self, lab: LabResult) -> LabResult:
+        """Attach local LOINC identity/reference metadata when confidently known."""
+        if self._loinc_db is None:
+            from src.standardization.loinc import LOINCDatabase
+
+            self._loinc_db = LOINCDatabase(data_dir=self.data_dir)
+
+        match = None
+        if lab.loinc_code:
+            match = self._loinc_db.lookup_by_code(lab.loinc_code)
+        if match is None and lab.name:
+            match = self._loinc_db.lookup(lab.name)
+        if not match:
+            return lab
+
+        lab.loinc_code = match.get("code") or lab.loinc_code
+        if lab.reference_low is None:
+            lab.reference_low = match.get("reference_low")
+        if lab.reference_high is None:
+            lab.reference_high = match.get("reference_high")
+        return lab
+
     def _append_extraction_results(self, results: dict):
         """Append extracted timeline items, skipping duplicates.
 
@@ -761,20 +1078,22 @@ class Pipeline:
         """
         timeline = self._profile.clinical_timeline
         model_map = (
-            ("medications", Medication, timeline.medications, "name"),
-            ("labs", LabResult, timeline.labs, "name"),
-            ("diagnoses", Diagnosis, timeline.diagnoses, "name"),
-            ("procedures", Procedure, timeline.procedures, "name"),
-            ("allergies", Allergy, timeline.allergies, "allergen"),
-            ("genetics", GeneticVariant, timeline.genetics, "gene"),
-            ("notes", ClinicalNote, timeline.notes, "summary"),
+            ("medications", Medication, timeline.medications),
+            ("labs", LabResult, timeline.labs),
+            ("diagnoses", Diagnosis, timeline.diagnoses),
+            ("procedures", Procedure, timeline.procedures),
+            ("allergies", Allergy, timeline.allergies),
+            ("genetics", GeneticVariant, timeline.genetics),
+            ("notes", ClinicalNote, timeline.notes),
         )
 
-        for key, model_cls, target, label_field in model_map:
+        for key, model_cls, target in model_map:
             # Build fingerprint set from items already in the profile
             existing_fps = set()
             for existing in target:
                 try:
+                    if key == "labs":
+                        self._standardize_lab(existing)
                     existing_fps.add(self._fingerprint(existing, key))
                 except Exception:
                     pass  # If fingerprinting fails, allow the item through
@@ -787,6 +1106,8 @@ class Pipeline:
                         if isinstance(item, model_cls)
                         else model_cls.model_validate(item)
                     )
+                    if key == "labs":
+                        parsed = self._standardize_lab(parsed)
                     fp = self._fingerprint(parsed, key)
                     if fp in existing_fps:
                         skipped += 1
@@ -794,16 +1115,11 @@ class Pipeline:
                     existing_fps.add(fp)
                     target.append(parsed)
                 except Exception as e:
-                    label = "?"
-                    if isinstance(item, dict):
-                        label = item.get(label_field, "?")
-                    else:
-                        label = getattr(item, label_field, "?")
                     logger.warning(
-                        "Dropped %s during merge (validation failed): %s — %s",
+                        "Dropped %s during merge "
+                        "(validation_error_type=%s)",
                         key[:-1] if key.endswith("s") else key,
-                        label,
-                        e,
+                        type(e).__name__,
                     )
 
             if skipped:

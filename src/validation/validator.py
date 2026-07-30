@@ -304,12 +304,9 @@ class ClinicalValidator:
                         "synonym": resolved.get("synonym"),
                         "term_type": resolved.get("tty"),
                     }
-                    logger.debug(
-                        f"Resolved '{med.name}' → "
-                        f"'{resolved.get('name')}' (RxCUI: {resolved.get('rxcui')})"
-                    )
+                    logger.debug("Resolved one medication to a standard identifier")
             except Exception as e:
-                logger.debug(f"Could not resolve '{med.name}': {e}")
+                logger.debug("Medication resolution failed (error_type=%s)", type(e).__name__)
 
         return mapping
 
@@ -500,7 +497,7 @@ class ClinicalValidator:
                             "source": "SNOMED CT",
                         }
                 except Exception as e:
-                    logger.debug(f"SNOMED validation failed for '{term_name}': {e}")
+                    logger.debug("SNOMED validation failed (error_type=%s)", type(e).__name__)
 
             if self._icd11 and term_type == "diagnosis":
                 try:
@@ -512,7 +509,7 @@ class ClinicalValidator:
                             "source": "WHO ICD-11",
                         }
                 except Exception as e:
-                    logger.debug(f"ICD-11 validation failed for '{term_name}': {e}")
+                    logger.debug("ICD-11 validation failed (error_type=%s)", type(e).__name__)
 
             if self._mesh:
                 try:
@@ -525,7 +522,7 @@ class ClinicalValidator:
                             "source": "NLM MeSH",
                         }
                 except Exception as e:
-                    logger.debug(f"MeSH validation failed for '{term_name}': {e}")
+                    logger.debug("MeSH validation failed (error_type=%s)", type(e).__name__)
 
             if entry["validations"]:
                 validations[term_name] = entry
@@ -565,7 +562,7 @@ class ClinicalValidator:
                         trial["matched_condition"] = dx_name
                         trials.append(trial)
             except Exception as e:
-                logger.debug(f"ClinicalTrials.gov search failed for '{dx_name}': {e}")
+                logger.debug("ClinicalTrials.gov search failed (error_type=%s)", type(e).__name__)
 
         logger.info(f"Clinical trials: {len(trials)} active trials found")
         return trials
@@ -604,7 +601,7 @@ class ClinicalValidator:
                             "source": "OMIM",
                         }
                 except Exception as e:
-                    logger.debug(f"OMIM lookup failed for '{dx_name}': {e}")
+                    logger.debug("OMIM lookup failed (error_type=%s)", type(e).__name__)
 
             # Orphanet — rare disease classification
             if self._orphanet:
@@ -628,7 +625,7 @@ class ClinicalValidator:
 
                         entry["databases"]["orphanet"] = db_entry
                 except Exception as e:
-                    logger.debug(f"Orphanet lookup failed for '{dx_name}': {e}")
+                    logger.debug("Orphanet lookup failed (error_type=%s)", type(e).__name__)
 
             # GARD — NIH rare disease info + cross-references
             if self._gard:
@@ -643,7 +640,7 @@ class ClinicalValidator:
                             "source": "NIH GARD",
                         }
                 except Exception as e:
-                    logger.debug(f"GARD lookup failed for '{dx_name}': {e}")
+                    logger.debug("GARD lookup failed (error_type=%s)", type(e).__name__)
 
             # HPO — phenotype mapping (what symptoms are expected)
             if self._hpo:
@@ -657,7 +654,7 @@ class ClinicalValidator:
                             "source": "HPO",
                         }
                 except Exception as e:
-                    logger.debug(f"HPO lookup failed for '{dx_name}': {e}")
+                    logger.debug("HPO lookup failed (error_type=%s)", type(e).__name__)
 
             if entry["databases"]:
                 enrichments[dx_name] = entry
@@ -694,7 +691,7 @@ class ClinicalValidator:
                             "source": "DailyMed (NLM)",
                         }
                 except Exception as e:
-                    logger.debug(f"DailyMed failed for '{med.name}': {e}")
+                    logger.debug("DailyMed validation failed (error_type=%s)", type(e).__name__)
 
             if self._sider:
                 try:
@@ -707,7 +704,7 @@ class ClinicalValidator:
                             "source": "SIDER",
                         }
                 except Exception as e:
-                    logger.debug(f"SIDER failed for '{med.name}': {e}")
+                    logger.debug("SIDER validation failed (error_type=%s)", type(e).__name__)
 
             if entry["sources"]:
                 labels[med.name] = entry
@@ -720,7 +717,7 @@ class ClinicalValidator:
                 if overlap:
                     labels["_shared_side_effects"] = overlap
             except Exception as e:
-                logger.debug(f"SIDER overlap check failed: {e}")
+                logger.debug("SIDER overlap check failed (error_type=%s)", type(e).__name__)
 
         return labels
 
@@ -744,7 +741,7 @@ class ClinicalValidator:
         try:
             return self._ddinter.check_prescription(active_meds)
         except Exception as e:
-            logger.debug(f"DDinter prescription check failed: {e}")
+            logger.debug("DDinter prescription check failed (error_type=%s)", type(e).__name__)
             return []
 
     # ── Pharmacogenomics (PharmGKB) ──────────────────────────
@@ -772,7 +769,7 @@ class ClinicalValidator:
                         "source": "PharmGKB",
                     })
             except Exception as e:
-                logger.debug(f"PharmGKB failed for '{med.name}': {e}")
+                logger.debug("PharmGKB validation failed (error_type=%s)", type(e).__name__)
 
         # Cross-reference with patient genetics if available
         if timeline.genetics:
@@ -789,7 +786,7 @@ class ClinicalValidator:
                             "source": "PharmGKB",
                         })
                 except Exception as e:
-                    logger.debug(f"PharmGKB gene lookup failed for '{gene_name}': {e}")
+                    logger.debug("PharmGKB gene lookup failed (error_type=%s)", type(e).__name__)
 
         return results
 
@@ -824,7 +821,7 @@ class ClinicalValidator:
                             "source": "PubChem (NCBI)",
                         }
                 except Exception as e:
-                    logger.debug(f"PubChem failed for '{med.name}': {e}")
+                    logger.debug("PubChem validation failed (error_type=%s)", type(e).__name__)
 
             if entry["sources"]:
                 mechanisms[med.name] = entry
@@ -845,7 +842,7 @@ class ClinicalValidator:
                             "source": "Open Targets Platform",
                         }
                 except Exception as e:
-                    logger.debug(f"Open Targets failed for '{dx_name}': {e}")
+                    logger.debug("Open Targets lookup failed (error_type=%s)", type(e).__name__)
 
         return mechanisms
 
@@ -879,7 +876,7 @@ class ClinicalValidator:
                             "source": "ClinVar (NCBI)",
                         }
                 except Exception as e:
-                    logger.debug(f"ClinVar failed for '{gene_name}': {e}")
+                    logger.debug("ClinVar validation failed (error_type=%s)", type(e).__name__)
 
             # dbSNP — get variant details if rsID is known
             if self._dbsnp and variant_id and variant_id.startswith("rs"):
@@ -891,7 +888,7 @@ class ClinicalValidator:
                             "source": "dbSNP (NCBI)",
                         }
                 except Exception as e:
-                    logger.debug(f"dbSNP failed for '{variant_id}': {e}")
+                    logger.debug("dbSNP validation failed (error_type=%s)", type(e).__name__)
 
             # gnomAD — population frequency
             if self._gnomad and variant_id and variant_id.startswith("rs"):
@@ -905,7 +902,7 @@ class ClinicalValidator:
                             "source": "gnomAD",
                         }
                 except Exception as e:
-                    logger.debug(f"gnomAD failed for '{variant_id}': {e}")
+                    logger.debug("gnomAD validation failed (error_type=%s)", type(e).__name__)
 
             if entry["sources"]:
                 key = variant_id or gene_name
@@ -939,7 +936,7 @@ class ClinicalValidator:
                             "source": "DisGeNET",
                         }
                 except Exception as e:
-                    logger.debug(f"DisGeNET failed for '{dx_name}': {e}")
+                    logger.debug("DisGeNET validation failed (error_type=%s)", type(e).__name__)
 
             # Cross-disease gene overlap
             if len(active_diagnoses) >= 2:
@@ -953,7 +950,7 @@ class ClinicalValidator:
                             "source": "DisGeNET",
                         }
                 except Exception as e:
-                    logger.debug(f"DisGeNET network failed: {e}")
+                    logger.debug("DisGeNET network failed (error_type=%s)", type(e).__name__)
 
         # Collect genes of interest (from genetics + DisGeNET findings)
         genes_of_interest = set()
@@ -982,7 +979,7 @@ class ClinicalValidator:
                             "source": "BioGRID",
                         }
                 except Exception as e:
-                    logger.debug(f"BioGRID failed for '{gene}': {e}")
+                    logger.debug("BioGRID validation failed (error_type=%s)", type(e).__name__)
 
         # UniProt — protein function for key genes
         if self._uniprot and genes_of_interest:
@@ -996,7 +993,7 @@ class ClinicalValidator:
                             "source": "UniProt",
                         }
                 except Exception as e:
-                    logger.debug(f"UniProt failed for '{gene}': {e}")
+                    logger.debug("UniProt validation failed (error_type=%s)", type(e).__name__)
 
         return network
 
@@ -1022,7 +1019,7 @@ class ClinicalValidator:
                             "source": "UMLS (NLM)",
                         }
                 except Exception as e:
-                    logger.debug(f"UMLS mapping failed for '{dx.name}': {e}")
+                    logger.debug("UMLS mapping failed (error_type=%s)", type(e).__name__)
 
         # LOINC — lab test standardization
         if self._loinc:
@@ -1039,7 +1036,7 @@ class ClinicalValidator:
                             "source": "LOINC",
                         }
                 except Exception as e:
-                    logger.debug(f"LOINC validation failed for '{lab_name}': {e}")
+                    logger.debug("LOINC validation failed (error_type=%s)", type(e).__name__)
 
         return mappings
 

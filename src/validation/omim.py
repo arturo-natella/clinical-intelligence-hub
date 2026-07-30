@@ -102,7 +102,7 @@ class OMIMClient:
             return results
 
         except Exception as e:
-            logger.debug(f"OMIM search failed for '{query}': {e}")
+            logger.debug("OMIM search failed (error_type=%s)", type(e).__name__)
             return []
 
     def get_entry(self, mim_number: int) -> Optional[dict]:
@@ -178,7 +178,7 @@ class OMIMClient:
             }
 
         except Exception as e:
-            logger.debug(f"OMIM entry lookup failed for {mim_number}: {e}")
+            logger.debug("OMIM entry lookup failed (error_type=%s)", type(e).__name__)
             return None
 
     def search_by_gene(self, gene_symbol: str) -> list[dict]:
@@ -234,7 +234,7 @@ class OMIMClient:
             }
 
         except Exception as e:
-            logger.debug(f"OMIM phenotype series failed for PS{ps_number}: {e}")
+            logger.debug("OMIM phenotype-series lookup failed (error_type=%s)", type(e).__name__)
             return None
 
     # ── Fallback (no API key) ────────────────────────────────
@@ -286,6 +286,5 @@ class OMIMClient:
             return results[:limit]
 
         except Exception as e:
-            logger.debug(f"OMIM fallback search failed for '{query}': {e}")
+            logger.debug("OMIM fallback search failed (error_type=%s)", type(e).__name__)
             return []
-

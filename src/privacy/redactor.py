@@ -249,9 +249,7 @@ class Redactor:
             )
 
         redacted_text = anonymized.text
-        logger.info(
-            f"Redacted {len(results)} PII entities from {source_file}"
-        )
+        logger.info("Redacted %d PII entities", len(results))
         return redacted_text
 
     # ── Regex Fallback ──────────────────────────────────────
@@ -316,7 +314,8 @@ class Redactor:
 
         if redaction_count > 0:
             logger.info(
-                f"Regex fallback redacted {redaction_count} patterns from {source_file}"
+                "Regex fallback redacted %d patterns",
+                redaction_count,
             )
         return text
 

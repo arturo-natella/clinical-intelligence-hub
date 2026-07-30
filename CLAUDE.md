@@ -80,7 +80,6 @@ src/
 ## Design Doc
 
 The authoritative specification is at: `/Users/owner/docs/plans/2026-02-24-ck-plan-design.md`
-The rebuild plan is at: `/Users/owner/.claude/plans/nested-leaping-goose.md`
 
 ## Community Data Labeling
 

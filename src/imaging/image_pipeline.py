@@ -157,7 +157,7 @@ class ImagePipeline:
                         source_file=filename,
                         source_type="standalone",
                     ))
-                    self._log(f"  Collected standalone image: {filename}")
+                    self._log("  Collected standalone medical image")
 
             # DICOM files — extract metadata + convert to PNG
             elif file_type == "dicom":
@@ -185,11 +185,7 @@ class ImagePipeline:
             png_path = converter.convert_to_png(dicom_path, self._image_dir)
 
             if png_path and png_path.exists():
-                self._log(
-                    f"  DICOM: {filename} → "
-                    f"{metadata.get('modality', '?')} of "
-                    f"{metadata.get('body_part', '?')}"
-                )
+                self._log("  Collected converted DICOM image")
                 return [MedicalImage(
                     image_path=png_path,
                     source_file=filename,
@@ -201,18 +197,20 @@ class ImagePipeline:
                 )]
             else:
                 logger.warning(
-                    f"DICOM conversion produced no image for {filename} — "
-                    "file may lack pixel data"
+                    "DICOM conversion produced no image; the record may lack "
+                    "pixel data"
                 )
                 return []
 
         except ImportError:
             self._record_error(
-                f"DICOM processing failed for {filename}: pydicom is not installed"
+                "DICOM processing failed because pydicom is not installed"
             )
             return []
         except Exception as e:
-            self._record_error(f"DICOM processing failed for {filename}: {e}")
+            self._record_error(
+                f"DICOM processing failed ({type(e).__name__})"
+            )
             return []
 
     def _extract_pdf_images(
@@ -230,8 +228,7 @@ class ImagePipeline:
             import fitz
         except ImportError:
             self._record_error(
-                f"PDF image extraction failed for {source_filename}: "
-                "PyMuPDF is not installed"
+                "PDF image extraction failed because PyMuPDF is not installed"
             )
             return []
 
@@ -248,8 +245,8 @@ class ImagePipeline:
                     image_list = page.get_image_info(hashes=False, xrefs=False)
                 except Exception as e:
                     self._record_error(
-                        f"Could not inspect displayed images on page "
-                        f"{page_num + 1} of {source_filename}: {e}"
+                        "Could not inspect displayed images on one PDF page "
+                        f"({type(e).__name__})"
                     )
                     continue
 
@@ -307,23 +304,22 @@ class ImagePipeline:
 
                     except Exception as e:
                         self._record_error(
-                            f"Failed to extract image {img_idx} from "
-                            f"page {page_num + 1} of {source_filename}: {e}"
+                            "Failed to extract an embedded PDF image "
+                            f"({type(e).__name__})"
                         )
 
             if img_count > 0:
                 logger.info(
-                    f"Extracted {img_count} embedded image(s) "
-                    f"from {source_filename}"
+                    "Extracted %d embedded PDF image(s)",
+                    img_count,
                 )
                 self._log(
-                    f"  Extracted {img_count} embedded image(s) "
-                    f"from {source_filename}"
+                    f"  Extracted {img_count} embedded PDF image(s)"
                 )
 
         except Exception as e:
             self._record_error(
-                f"PDF image extraction failed for {source_filename}: {e}"
+                f"PDF image extraction failed ({type(e).__name__})"
             )
         finally:
             if doc is not None:
@@ -423,13 +419,8 @@ class ImagePipeline:
                 self._log(f"  Resumed at image {i}/{len(images)}")
 
             modality_str = img.modality or "unknown"
-            source_str = (
-                f"{img.source_file} p.{img.source_page}"
-                if img.source_page
-                else img.source_file
-            )
             self._log(
-                f"  Image {i}/{len(images)}: {source_str} "
+                f"  Image {i}/{len(images)} "
                 f"({img.source_type}, {modality_str})"
             )
 
@@ -443,16 +434,16 @@ class ImagePipeline:
 
                 if not result:
                     failed += 1
-                    error = f"Vision analysis failed for {source_str}: no result"
+                    error = "Vision analysis failed for one image: no result"
                     self._record_error(error)
                     self._log("    Error: no result")
                     continue
 
                 if result.get("_error"):
                     failed += 1
-                    error = f"Vision analysis failed for {source_str}: {result['_error']}"
+                    error = "Vision analyzer returned an error for one image"
                     self._record_error(error)
-                    self._log(f"    Error: {result['_error']}")
+                    self._log("    Error: vision analyzer returned an error")
                     continue
 
                 succeeded += 1
@@ -493,9 +484,9 @@ class ImagePipeline:
             except Exception as e:
                 failed += 1
                 self._record_error(
-                    f"Vision analysis failed for {source_str}: {e}"
+                    f"Vision analysis failed ({type(e).__name__})"
                 )
-                self._log(f"    Error: {e}")
+                self._log(f"    Error: vision analysis failed ({type(e).__name__})")
 
         logger.info("MedGemma 4B vision analysis complete")
         return succeeded, failed
@@ -553,7 +544,7 @@ class ImagePipeline:
                         merged = True
                         self._log(
                             f"    MONAI: {len(findings)} quantitative "
-                            f"finding(s) merged into {img.source_file}"
+                            "finding(s) merged into one imaging study"
                         )
                         break
 
@@ -580,13 +571,13 @@ class ImagePipeline:
                     profile.clinical_timeline.imaging.append(study)
                     self._log(
                         f"    MONAI: {len(findings)} quantitative "
-                        f"finding(s) for {img.source_file}"
+                        "finding(s) recorded"
                     )
 
             except Exception as e:
                 self._record_error(
-                    f"MONAI detection failed for {img.source_file}: {e}"
+                    f"MONAI detection failed ({type(e).__name__})"
                 )
-                self._log(f"    MONAI error: {e}")
+                self._log(f"    MONAI error ({type(e).__name__})")
 
         logger.info("MONAI quantitative analysis complete")

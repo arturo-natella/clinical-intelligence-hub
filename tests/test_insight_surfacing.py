@@ -151,6 +151,8 @@ def test_community_normalizes_model_shape(monkeypatch):
         "the full disclaimer string must reach the UI"
     )
     assert item["cross_disciplinary_context"] == "A plausible mechanism explanation."
+    assert item["confidence_label"] == "Unverified community signal"
+    assert item["source_label"] == "Original community post"
 
 
 def test_community_normalizes_demo_shape(monkeypatch):
@@ -163,3 +165,38 @@ def test_community_normalizes_demo_shape(monkeypatch):
         )
         assert isinstance(item.get("upvotes", 0), int)
         assert "NOT clinical data" in item.get("disclaimer", "")
+
+
+def test_stored_cross_disciplinary_metadata_uses_matching_record_source(monkeypatch):
+    profile = {
+        "clinical_timeline": {
+            "labs": [{
+                "name": "eGFR",
+                "value": 48,
+                "provenance": {
+                    "source_file": "renal_panel.pdf",
+                    "source_page": 7,
+                    "confidence": 0.91,
+                },
+            }],
+        },
+        "analysis": {
+            "cross_disciplinary": [{
+                "title": "Kidney and cardiovascular connection",
+                "description": "Reduced eGFR can affect medication and heart risk.",
+                "specialties": ["Nephrology", "Cardiology"],
+                "patient_data_points": ["eGFR 48"],
+                "severity": "moderate",
+            }],
+        },
+    }
+
+    item = _get(
+        monkeypatch,
+        profile,
+        "/api/cross-disciplinary?stored=1",
+    )[0]
+
+    assert item["confidence"] == 0.91
+    assert item["provenance"][0]["source_file"] == "renal_panel.pdf"
+    assert item["provenance"][0]["source_page"] == 7

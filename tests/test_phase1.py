@@ -1,6 +1,7 @@
 """Phase 1 verification: Models, Database, Encryption."""
 
 import json
+import sqlite3
 import tempfile
 from datetime import date, datetime
 from pathlib import Path
@@ -88,6 +89,11 @@ def test_database():
             sha256_hash="abc123", file_size_bytes=50000, status="pending"
         )
         assert not db.is_duplicate("xyz789")
+        db.update_text_checkpoint("f1", chunks_completed=2, chunks_total=5)
+        checkpoint = db.get_file_state_by_hash("abc123")
+        assert checkpoint["file_id"] == "f1"
+        assert checkpoint["text_chunks_completed"] == 2
+        assert checkpoint["text_chunks_total"] == 5
         db.update_file_status("f1", "complete")
         assert db.is_duplicate("abc123")
 
@@ -115,11 +121,68 @@ def test_database():
         assert len(db.get_unaddressed_alerts()) == 0
 
         # Pipeline run
-        db.start_pipeline_run("run1")
-        db.complete_pipeline_run("run1", files_processed=5, files_failed=0)
+        db.start_pipeline_run("stale-run")
+        db.start_pipeline_run("current-run")
+        stale_status = db._get_conn().execute(
+            "SELECT status FROM pipeline_runs WHERE run_id = 'stale-run'"
+        ).fetchone()["status"]
+        assert stale_status == "interrupted"
+        db.complete_pipeline_run(
+            "current-run",
+            files_processed=5,
+            files_failed=0,
+        )
+
+        db.start_pipeline_run("failed-run")
+        db.fail_pipeline_run("failed-run")
+        failed_status = db._get_conn().execute(
+            "SELECT status FROM pipeline_runs WHERE run_id = 'failed-run'"
+        ).fetchone()["status"]
+        assert failed_status == "failed"
 
         db.close()
         print("✓ Database: SQLite with WAL mode, state tracking, redaction log, alerts all working")
+
+
+def test_database_migrates_legacy_processing_state_for_chunk_resume():
+    """Existing patient databases gain resume columns without data loss."""
+    from src.database import Database
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / "legacy.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute("""
+            CREATE TABLE processing_state (
+                file_id TEXT PRIMARY KEY,
+                filename TEXT NOT NULL,
+                file_type TEXT NOT NULL,
+                sha256_hash TEXT NOT NULL UNIQUE,
+                file_size_bytes INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                current_pass TEXT,
+                error_message TEXT,
+                date_added TEXT NOT NULL,
+                date_completed TEXT,
+                page_count INTEGER
+            )
+        """)
+        conn.execute("""
+            INSERT INTO processing_state (
+                file_id, filename, file_type, sha256_hash,
+                file_size_bytes, status, date_added, page_count
+            ) VALUES ('legacy-file', 'record.pdf', 'pdf_text',
+                      'legacy-hash', 100, 'extracting', datetime('now'), 10)
+        """)
+        conn.commit()
+        conn.close()
+
+        db = Database(db_path)
+        state = db.get_file_state_by_hash("legacy-hash")
+
+        assert state["file_id"] == "legacy-file"
+        assert state["text_chunks_completed"] == 0
+        assert state["text_chunks_total"] == 0
+        db.close()
 
 
 # Test 3: Encryption

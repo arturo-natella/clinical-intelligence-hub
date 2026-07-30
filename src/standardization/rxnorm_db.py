@@ -398,7 +398,7 @@ class RxNormLocalDB:
                 f"(+{self.count - count_before} from RRF)"
             )
         except Exception as e:
-            logger.warning(f"Failed to load full RxNorm RRF: {e}")
+            logger.warning("Failed to load full RxNorm RRF (error_type=%s)", type(e).__name__)
 
     # ── Helpers ───────────────────────────────────────────────
 

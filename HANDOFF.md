@@ -1,6 +1,7 @@
 # MedPrep Session Handoff — 2026-07-17
 
-**Repo state:** `main` @ `fe45bf2`, pushed to GitHub, working tree clean. Test suite **387/387**.
+**Repo state:** `main` @ `fe45bf2`, with uncommitted P1-P7 work in the working
+tree. Current test suite: **426 passed** (5 dependency deprecation warnings).
 Server: launch config `"hub"`, Flask on **:5050**. Demo patient works end-to-end.
 Prior handoffs (2026-03-13, 2026-04-15) are in git history; fix details live in
 `~/.claude/projects/-Users-owner-Desktop-Tech-Tools-MedPrep/memory/bugs-and-fixes.md`.
@@ -24,58 +25,70 @@ Three batches shipped and merged on 2026-07-17:
 
 ## What's Next (prioritized)
 
-### P1 — Scrub patient data from logs  *(security, ~1 session)*
-The 07-15 safety gate covers **cloud calls only**. Logs still leak PHI to the UI
-terminal viewer and unencrypted disk:
-- `src/extraction/text_extractor.py:103` — logs raw `chunk_text[:300]` (name/MRN/DOB) at INFO
-- `src/extraction/text_extractor.py:166,189` — logs raw MedGemma responses
-Fix: truncate to non-PHI metadata (chunk index, char counts, timing) or run
-Presidio over log payloads. Add a regression test asserting no raw record text
-reaches the log stream.
+### P1 — Scrub patient data from logs  *(completed locally 2026-07-17)*
+Raw source text, model responses, filenames, and extracted clinical values were
+removed from extraction, imaging, validation, monitoring, UI, and pipeline
+logging. Exception objects are reduced to their type before logging or progress
+display. Regression tests assert that PHI sentinels never reach the log stream
+and statically reject direct interpolation of patient-bearing values.
 
-### P2 — CI on GitHub  *(~30 min, protects everything)*
-387 tests, zero automation. Add a workflow running `python -m pytest tests/ -q`
-on push/PR. Watch for macOS-specific deps (`apsw`, MPS-torch) — start with what
-passes on `ubuntu-latest`, skip-mark the rest, or use a `macos` runner.
+### P2 — CI on GitHub  *(completed locally 2026-07-17)*
+Added a read-only Ubuntu GitHub Actions workflow for push/PR with Python 3.13,
+pip caching, dependency installation, and `python -m pytest tests/ -q`.
+Apple Vision is now installed only on macOS.
 
-### P3 — Full-corpus soak run  *(the big unverified path)*
-`MEDPREP_MAX_PAGES` defaults to unlimited and incremental dashboard updates are
-wired, but a real 7,278-page run (~17 h) has never completed. Verify: memory
-growth over ~1,040 chunks, dashboard staying responsive, and **mid-run crash
-resume from the SQLite checkpoint** (claimed, never exercised).
+### P3 — Full-corpus soak run  *(bookmarked / deferred 2026-07-17)*
+The exact 7,278-page PDF is present, but no full run has completed. The prior
+~17-hour estimate is unverified and conflicts with the code's much higher rough
+estimate; benchmark a small sample before scheduling the soak. Chunk-level
+SQLite resume is now implemented and regression-tested locally, but the live
+run still needs to verify memory growth, dashboard responsiveness, and a real
+mid-run stop/restart. Start only after the existing vault is unlocked locally;
+never expose its passphrase in chat or shell output.
 
-### P4 — Make deep insights retrievable  *(highest insight value)*
+### P4 — Make deep insights retrievable  *(completed locally 2026-07-17)*
 Biomarker cascades, snowball differential, PGx interaction map, and trajectories
-are modal-only: close the popup and they're gone, and none appear in the Word
-report. Persist them (they're already computed server-side) and add report
-sections with the same provenance treatment as flags.
+now persist as fingerprinted snapshots inside the encrypted patient profile.
+The UI APIs reuse valid cached results, `/api/deep-insights` retrieves them, and
+the Word report renders all four with record-level provenance. The report and
+pipeline compute missing snapshots locally with per-engine graceful degradation.
 
-### P5 — Confidence + provenance on cards; jargon rollout
-Every finding carries `confidence` and source file/page; renderers strip both.
-Surface them on flag, cross-disc, community, and treatment cards. Extend the
-plain-English translator (Body Map) and lab glossary (Labs) to flag descriptions,
-diagnosis names, and cross-disc titles.
+### P5 — Confidence + provenance on cards; jargon rollout  *(completed locally 2026-07-17)*
+Flag and cross-disciplinary APIs now retain or evidence-match record provenance
+and confidence without copying raw text. Flag, cross-disciplinary, community,
+treatment, and Body Map cards render the metadata that actually exists;
+community confidence remains explicitly "Unverified" rather than receiving a
+clinical score. Body Map plain-English requests now include diagnosis names,
+flag descriptions, and stored cross-disciplinary titles, with a shared local
+clinical glossary extending the Labs tooltip pattern.
 
-### P6 — Decide the dead Pass 2
-Gemini fallback extraction is verified dead code (see `memory/roadmap-gaps.md`).
-Either wire it into the pipeline behind the PII gate or delete it — a half-wired
-cloud path is the worst state for a privacy-first tool.
+### P6 — Decide the dead Pass 2  *(completed locally 2026-07-17)*
+The Gemini 3 Flash fallback is now wired for the narrow case it was designed
+for: a fully completed local extraction that returns zero clinical entities.
+Presidio is mandatory for raw-document fallback, local filenames are stripped
+from every cloud payload, eligible documents are chunked without truncation,
+and a hard default ceiling limits fallback to 3 whole documents of at most
+60,000 characters each (5 calls/document). Shared Gemini calls now serialize,
+rate-limit, and retry transient failures with bounded exponential backoff.
 
-### P7 — Data-quality debts
-- LOINC-code-normalized lab dedup (currently name-string only; variant names
-  create duplicate panels).
-- Replace the discontinued NLM API dependency in `src/standardization/`
-  (details in `memory/roadmap-gaps.md`).
+### P7 — Data-quality debts  *(completed locally 2026-07-17)*
+- Lab merge now assigns local LOINC codes/reference metadata and uses LOINC as
+  the primary identity, so same-event aliases deduplicate while dated readings
+  remain a longitudinal series.
+- Common SNOMED terms now validate against the local curated database first.
+  The unusable unauthenticated NLM ValueSet expansion fallback was removed;
+  Snowstorm remains optional enrichment for terms outside the local set.
 
 ### P8 — UI nice-to-haves (deferred by design)
 Text-size toggle, light mode, system-health panel ("is Ollama up, which model,
 disk space"), sidebar density (16 items). None block daily use after the polish pass.
 
 ### Housekeeping
-- `CLAUDE.md:83` still references the deleted rebuild plan `nested-leaping-goose.md` — remove the line.
-- Verify env assumptions from the 04-15 handoff are still true before relying on
-  them: UMLS key present? vault passphrase matches? (Presidio IS installed — the
-  cloud gate depends on it.)
+- Removed the stale `nested-leaping-goose.md` rebuild-plan reference from
+  `CLAUDE.md`.
+- Environment check on 2026-07-17: Presidio imports successfully; no
+  `UMLS_API_KEY` or `MEDPREP_VAULT_PASSPHRASE` is exported in this shell. The
+  encrypted vault passphrase was not tested or exposed.
 
 ## Quick Reference
 
