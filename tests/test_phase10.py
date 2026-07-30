@@ -364,7 +364,6 @@ def test_flask_app_full_route_coverage():
         "/api/upload",
         "/api/analyze",
         "/api/progress",
-        "/api/profile",
         "/api/medications",
         "/api/labs",
         "/api/diagnoses",

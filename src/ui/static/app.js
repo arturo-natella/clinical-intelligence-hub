@@ -1003,8 +1003,96 @@ var App = {
         if (stamp) stamp.textContent = "Checked just now";
     },
 
+    // ── Deep Analysis (persisted insights) ────────────────
+
+    // Saved analyses live in the encrypted profile. Surfacing them here means
+    // a reload doesn't hide work already done — and the overlays that show
+    // them (buried in Labs/Genetics) become reachable from the dashboard.
+    DEEP_INSIGHTS: [
+        { type: "snowball", label: "Differential diagnosis", launcher: "SnowballDx", method: "toggle" },
+        { type: "biomarker_cascades", label: "Biomarker cascades", launcher: "BiomarkerCascades", method: "open" },
+        { type: "pgx_collisions", label: "Gene–medication collisions", launcher: "PgxMap", method: "open" },
+        { type: "trajectories", label: "Lab trajectories", launcher: "Trajectories", method: "open" },
+        // Cross-specialty has its own view rather than an overlay.
+        { type: "cross_specialty", label: "Cross-specialty patterns", launcher: "App", method: "navigateTo", arg: "crossdisc" }
+    ],
+
+    loadDeepInsights: async function() {
+        var container = $("dash-deep-insights-body");
+        if (!container) return;
+        try {
+            App.renderDeepInsights(await api("/api/deep-insights"));
+        } catch (e) {
+            while (container.firstChild) container.removeChild(container.firstChild);
+            var err = document.createElement("div");
+            err.className = "health-hint";
+            err.textContent = "Couldn't load your saved analyses right now.";
+            container.appendChild(err);
+        }
+    },
+
+    renderDeepInsights: function(data) {
+        var container = $("dash-deep-insights-body");
+        if (!container) return;
+        while (container.firstChild) container.removeChild(container.firstChild);
+
+        var saved = App.DEEP_INSIGHTS.filter(function(insight) {
+            return data && data[insight.type];
+        });
+
+        if (!saved.length) {
+            var hint = document.createElement("div");
+            hint.className = "health-hint";
+            hint.textContent = "No deeper analyses saved yet — they appear here "
+                + "once your records have been analyzed.";
+            container.appendChild(hint);
+            return;
+        }
+
+        saved.forEach(function(insight) {
+            var snapshot = data[insight.type] || {};
+            var item = document.createElement("div");
+            item.className = "insight-item";
+
+            var text = document.createElement("div");
+            text.className = "insight-text";
+            var label = document.createElement("div");
+            label.className = "insight-label";
+            label.textContent = insight.label;
+            text.appendChild(label);
+            var stamp = document.createElement("div");
+            stamp.className = "insight-stamp";
+            stamp.textContent = App.formatInsightStamp(snapshot.generated_at);
+            text.appendChild(stamp);
+            item.appendChild(text);
+
+            var btn = document.createElement("button");
+            btn.className = "btn btn-outline btn-sm";
+            btn.textContent = "View";
+            btn.addEventListener("click", function() {
+                var target = window[insight.launcher];
+                if (target && typeof target[insight.method] === "function") {
+                    target[insight.method](insight.arg);
+                }
+            });
+            item.appendChild(btn);
+
+            container.appendChild(item);
+        });
+    },
+
+    formatInsightStamp: function(generatedAt) {
+        if (!generatedAt) return "Saved earlier";
+        var when = new Date(generatedAt);
+        if (isNaN(when.getTime())) return "Saved earlier";
+        return "Saved " + when.toLocaleDateString(undefined, {
+            month: "short", day: "numeric", year: "numeric"
+        });
+    },
+
     loadDashboard: async function() {
         App.loadSystemHealth();
+        App.loadDeepInsights();
         try {
             var data = await api("/api/dashboard");
             if (!data.has_data) return;
@@ -2600,6 +2688,7 @@ var App = {
     // ── Health Tracker (stub — implemented in Phase I) ──
 
     loadTracker: async function() {
+        Tracker.loadVitalsTypes();
         Tracker.load();
     },
 
@@ -3319,6 +3408,62 @@ var BodyMap2DFallback = {
 
 var Tracker = {
     formVisible: false,
+    _types: null,
+    _rangeBound: false,
+
+    // The backend validates every logged entry against VITALS_TYPES, so the
+    // form takes its options and bounds from there. The options in index.html
+    // are a fallback for a failed fetch, not a second source of truth.
+    loadVitalsTypes: async function() {
+        try {
+            Tracker.renderVitalsTypes(await api("/api/tracker/vitals-types"));
+        } catch (e) { /* static options in index.html remain usable */ }
+    },
+
+    renderVitalsTypes: function(types) {
+        var select = $("tracker-type");
+        if (!select || !types || !types.length) return;
+
+        // Keyed by type for range lookups; the array keeps the backend's order.
+        Tracker._types = {};
+        types.forEach(function(meta) { Tracker._types[meta.key] = meta; });
+        var previous = select.value;
+
+        while (select.firstChild) select.removeChild(select.firstChild);
+        types.forEach(function(meta) {
+            var option = document.createElement("option");
+            option.value = meta.key;
+            option.textContent = meta.unit
+                ? meta.label + " (" + meta.unit + ")"
+                : meta.label || meta.key;
+            select.appendChild(option);
+        });
+        if (Tracker._types[previous]) select.value = previous;
+
+        if (!Tracker._rangeBound) {
+            select.addEventListener("change", Tracker.applyVitalRange);
+            Tracker._rangeBound = true;
+        }
+        Tracker.applyVitalRange();
+    },
+
+    // Show the accepted range up front instead of letting the server reject it.
+    applyVitalRange: function() {
+        var select = $("tracker-type");
+        var input = $("tracker-value");
+        if (!select || !input || !Tracker._types) return;
+        var meta = Tracker._types[select.value];
+        var range = meta && meta.range;
+        if (!range || range.length !== 2) {
+            input.removeAttribute("min");
+            input.removeAttribute("max");
+            return;
+        }
+        input.min = range[0];
+        input.max = range[1];
+        input.placeholder = range[0] + "–" + range[1]
+            + (meta.unit ? " " + meta.unit : "");
+    },
 
     load: async function() {
         try {
