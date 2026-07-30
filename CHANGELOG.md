@@ -2,6 +2,69 @@
 
 All notable changes to the Clinical Intelligence Hub will be documented in this file.
 
+## [Unreleased] — 2026-07-30
+
+### Fixed
+
+#### Continuous monitoring could never run unattended
+`install_monitors.sh` stored the vault passphrase in the macOS Keychain
+(service `com.medprep.vault`), but nothing ever read it back. Under launchd
+there is no TTY, so `scheduler.py` fell through to an interactive `getpass`
+and died on EOF — the daily API monitors, weekly Playwright guideline
+monitors, and addendum generation were unreachable except by hand.
+- `resolve_passphrase()` now resolves `--passphrase` → Keychain → prompt
+  (TTY only), and `main()` exits with a clear message instead of crashing
+  when none is available. Missing `security` binary degrades cleanly.
+
+### Added
+
+#### Deep Analysis dashboard card
+Saved analyses (biomarker cascades, gene–medication collisions, lab
+trajectories, differential diagnosis) persist in the encrypted profile, but
+`GET /api/deep-insights` had no caller — results were invisible after a
+reload and the overlays showing them were buried in Labs/Genetics.
+- New card lists each saved analysis with the date it was generated and
+  reopens its existing overlay. Frontend/backend insight types are asserted
+  equal in tests, so adding one backend-side fails loudly instead of silently
+  omitting it from the card.
+
+#### Per-symptom history drill-down
+`GET /api/symptom-analytics/<id>` returns `episode_timeline`, which the
+aggregate endpoint never computes; it shipped with no caller.
+- "History" button on each symptom card opens that symptom's own episode
+  history, severity mix, trend, and ranked triggers. Named "History" rather
+  than "Patterns" because the view already has a Patterns sub-tab.
+
+#### Patient-specific 3D mesh wiring (Pass 1c, opt-in)
+`volumetric_renderer.py` (DICOM → MONAI → marching cubes → GLB) was fully
+orphaned — nothing imported it.
+- New `src/imaging/volumetric_twin.py` drives it from the imaging pass,
+  `GET /api/patient-mesh` reports availability, and the Body Map gains a
+  "Show My Scan" control that appears only when a mesh exists.
+- **Gated closed by default.** Requires `MEDPREP_VOLUMETRIC_TWIN=1` *and*
+  `MEDPREP_VOLUMETRIC_MODEL` pointing at a real trained checkpoint. Without
+  a checkpoint the renderer falls back to an untrained UNet whose
+  segmentation is meaningless; presenting that as the patient's own anatomy
+  would be worse than showing nothing, so no checkpoint means no mesh.
+- Local DICOM paths are never persisted or served — directory names can
+  carry patient identifiers.
+
+### Changed
+
+- `GET /api/tracker/vitals-types` is now wired to the tracker form, which
+  had been maintaining a hardcoded duplicate of the backend's `VITALS_TYPES`.
+  The form also applies each type's accepted range to the value input, so
+  out-of-range entries are caught before a rejected round-trip. Response is
+  an ordered array — `jsonify` sorts object keys, which alphabetized the
+  dropdown and put BP Diastolic ahead of Systolic.
+
+### Removed
+
+- `GET /api/profile`, which returned the entire decrypted profile in one
+  response. It had no callers; the UI reads the narrow per-section endpoints.
+  An unused endpoint that dumps every identifier the vault holds is attack
+  surface with no benefit.
+
 ## [2.6.0] — 2026-03-07
 
 ### Changed

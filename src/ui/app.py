@@ -1616,14 +1616,6 @@ def sync_environmental():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/profile")
-def get_profile():
-    """Get the full patient profile."""
-    if not _profile_data:
-        return jsonify({"error": "No profile loaded"}), 404
-    return jsonify(_profile_data)
-
-
 @app.route("/api/medications")
 def get_medications():
     """Get medications list."""
@@ -2962,8 +2954,14 @@ VITALS_TYPES = {
 
 @app.route("/api/tracker/vitals-types")
 def get_vitals_types():
-    """Return available vital sign types and their metadata."""
-    return jsonify(VITALS_TYPES)
+    """Return vital sign types and their metadata, most-logged first.
+
+    Sent as an ordered array because jsonify sorts object keys, which
+    would alphabetize the tracker's dropdown.
+    """
+    return jsonify([
+        {"key": key, **meta} for key, meta in VITALS_TYPES.items()
+    ])
 
 
 @app.route("/api/tracker/entries")
@@ -4361,6 +4359,27 @@ def pgx_collisions():
             type(e).__name__,
         )
         return jsonify({"error": "PGx collision analysis unavailable"}), 500
+
+
+@app.route("/api/patient-mesh")
+def patient_mesh():
+    """Report whether Pass 1c built a mesh from the patient's own scan.
+
+    Returns only what the Body Map needs to load it — local paths stay
+    server-side, since DICOM directory names can contain patient names.
+    """
+    analysis = (_profile_data or {}).get("analysis") or {}
+    twin = analysis.get("volumetric_twin") or {}
+    url = twin.get("url") if isinstance(twin, dict) else None
+
+    if not url:
+        return jsonify({"available": False})
+
+    return jsonify({
+        "available": True,
+        "url": url,
+        "generated_at": twin.get("generated_at", ""),
+    })
 
 
 @app.route("/api/deep-insights")

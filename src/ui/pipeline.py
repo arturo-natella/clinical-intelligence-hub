@@ -236,6 +236,7 @@ class Pipeline:
                            int(step / total_steps * 100))
             self._log("Pass 1b+1c: Unified image analysis (PDF images, standalone, DICOM)...")
             self._pass_image_analysis(preprocessed)
+            self._pass_volumetric_twin(preprocessed)
 
             # ── Pass 1.5: PII Redaction ──
             self._wait_if_paused()
@@ -651,6 +652,38 @@ class Pipeline:
                 self._record_local_error(
                     f"Local image analysis failed ({error_type})"
                 )
+
+    # ── Pass 1c: Patient-Specific 3D Mesh ─────────────────────
+
+    def _pass_volumetric_twin(self, preprocessed: list[dict]):
+        """Build a 3D mesh from the patient's own DICOM series.
+
+        Off unless explicitly enabled and given a trained segmentation
+        checkpoint — see src/imaging/volumetric_twin.py for why. A twin
+        is a bonus visualization, so any failure here is silent to the
+        rest of the run.
+        """
+        try:
+            from src.imaging.volumetric_twin import maybe_generate_twin
+
+            manifest = maybe_generate_twin(
+                preprocessed, Path(__file__).parent / "static" / "models",
+            )
+            if not manifest:
+                return
+
+            from src.models import VolumetricTwin
+
+            self._profile.analysis.volumetric_twin = VolumetricTwin(
+                url=manifest["url"],
+            )
+            self._log("  Built a 3D model from your scan")
+            self._publish_profile_snapshot()
+
+        except Exception as e:
+            logger.warning(
+                "Volumetric twin pass failed (error_type=%s)", type(e).__name__,
+            )
 
     # ── Pass 1.5: PII Redaction ───────────────────────────────
 

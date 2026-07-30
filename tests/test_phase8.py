@@ -741,7 +741,6 @@ def test_flask_app_routes_exist():
         "/api/analyze",
         "/api/progress",
         "/api/demographics",
-        "/api/profile",
         "/api/medications",
         "/api/labs",
         "/api/diagnoses",

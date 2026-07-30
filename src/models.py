@@ -432,6 +432,17 @@ class DismissedFinding(BaseModel):
     dismissed_at: datetime = Field(default_factory=datetime.now)
 
 
+class VolumetricTwin(BaseModel):
+    """Patient-specific 3D mesh built from a DICOM series (Pass 1c).
+
+    Only what the Body Map needs to load the mesh — the local DICOM path
+    is deliberately not stored, since directory names can carry patient
+    identifiers.
+    """
+    url: str
+    generated_at: datetime = Field(default_factory=datetime.now)
+
+
 class AnalysisResults(BaseModel):
     """All analysis outputs from the pipeline."""
     flags: list[ClinicalFlag] = Field(default_factory=list)
@@ -447,6 +458,7 @@ class AnalysisResults(BaseModel):
     lab_trajectories: Optional[DeepInsightSnapshot] = None
     cross_specialty_patterns: Optional[DeepInsightSnapshot] = None
     dismissed_findings: list[DismissedFinding] = Field(default_factory=list)
+    volumetric_twin: Optional[VolumetricTwin] = None
 
 
 class PatientProfile(BaseModel):

@@ -161,6 +161,18 @@ var Symptoms = {
             counterBtn.title = "Track what your doctor says causes this symptom \u2014 build evidence over time";
             counterBtn.onclick = function() { Symptoms.openAddCounter(symptom.symptom_id); };
             actions.appendChild(counterBtn);
+
+            // "History", not "Patterns" \u2014 this view already has a Patterns
+            // sub-tab for cross-symptom analysis, and two controls with the
+            // same name meaning different things is a trap.
+            var patternBtn = document.createElement("button");
+            patternBtn.className = "btn btn-sm btn-outline";
+            patternBtn.textContent = "History";
+            patternBtn.title = "See this symptom's own history \u2014 when it happens and how it's changing";
+            patternBtn.onclick = function() {
+                Symptoms.openPatterns(symptom.symptom_id, symptom.symptom_name);
+            };
+            actions.appendChild(patternBtn);
         }
 
         var archiveBtn = document.createElement("button");
@@ -1287,6 +1299,154 @@ var Symptoms = {
     closeEpisodeModal: function() {
         var modal = $("episode-modal-overlay");
         if (modal) modal.style.display = "none";
+    },
+
+    // ── Single-Symptom Patterns ──────────────────────────
+
+    // The aggregate analytics view blends every symptom together. This asks
+    // the per-symptom endpoint for one symptom's own history — its episode
+    // timeline, which the aggregate endpoint never computes.
+    openPatterns: async function(symptomId, symptomName) {
+        var modal = $("pattern-modal-overlay");
+        var content = $("pattern-modal");
+        if (!modal || !content) return;
+
+        while (content.firstChild) content.removeChild(content.firstChild);
+        var loading = document.createElement("div");
+        loading.style.cssText = "padding:32px; text-align:center; color:var(--text-muted);";
+        loading.textContent = "Looking at your history…";
+        content.appendChild(loading);
+        modal.style.display = "flex";
+
+        try {
+            var res = await fetch("/api/symptom-analytics/" + encodeURIComponent(symptomId));
+            var data = await res.json();
+            if (!res.ok) throw new Error(data.error || "Request failed");
+            Symptoms._renderPatternDetail(content, data, symptomName);
+        } catch (e) {
+            while (content.firstChild) content.removeChild(content.firstChild);
+            var err = document.createElement("div");
+            err.style.cssText = "padding:32px; text-align:center; color:var(--accent-crimson);";
+            err.textContent = "Couldn't load this symptom's patterns right now.";
+            content.appendChild(err);
+            var closeErr = document.createElement("button");
+            closeErr.className = "btn btn-sm btn-outline";
+            closeErr.textContent = "Close";
+            closeErr.onclick = Symptoms.closePatterns;
+            content.appendChild(closeErr);
+        }
+    },
+
+    closePatterns: function() {
+        var modal = $("pattern-modal-overlay");
+        if (modal) modal.style.display = "none";
+    },
+
+    _renderPatternDetail: function(container, data, symptomName) {
+        while (container.firstChild) container.removeChild(container.firstChild);
+
+        var header = document.createElement("div");
+        header.style.cssText = "display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;";
+        var title = document.createElement("div");
+        title.style.cssText = "font-size:17px; font-weight:600; color:var(--text-primary);";
+        title.textContent = (symptomName || "This symptom") + " — your patterns";
+        header.appendChild(title);
+        var closeBtn = document.createElement("button");
+        closeBtn.className = "btn btn-sm btn-outline";
+        closeBtn.textContent = "Close";
+        closeBtn.onclick = Symptoms.closePatterns;
+        header.appendChild(closeBtn);
+        container.appendChild(header);
+
+        // Severity mix + direction of travel
+        var severity = (data.severity_distribution || [])[0];
+        if (severity && severity.total) {
+            var sevSection = document.createElement("div");
+            sevSection.style.cssText = "margin-bottom:18px;";
+            var sevLine = document.createElement("div");
+            sevLine.style.cssText = "font-size:14px; color:var(--text-primary); margin-bottom:4px;";
+            sevLine.textContent = severity.total + " episodes logged — "
+                + severity.high + " strong, " + severity.mid + " moderate, "
+                + severity.low + " mild.";
+            sevSection.appendChild(sevLine);
+            var trendLine = document.createElement("div");
+            trendLine.style.cssText = "font-size:13px; color:var(--text-muted);";
+            var trendWords = {
+                worsening: "Recent episodes have been stronger than earlier ones.",
+                improving: "Recent episodes have been milder than earlier ones.",
+                stable: "Intensity has held fairly steady over time."
+            };
+            trendLine.textContent = trendWords[severity.trend] || "";
+            sevSection.appendChild(trendLine);
+            container.appendChild(sevSection);
+        }
+
+        // Top triggers
+        var triggers = data.trigger_analysis || [];
+        if (triggers.length) {
+            var trigTitle = document.createElement("div");
+            trigTitle.style.cssText = "font-size:13px; font-weight:600; color:var(--text-secondary); margin-bottom:6px;";
+            trigTitle.textContent = "Most-noted triggers";
+            container.appendChild(trigTitle);
+            var trigList = document.createElement("div");
+            trigList.style.cssText = "margin-bottom:18px; font-size:14px; color:var(--text-primary);";
+            triggers.slice(0, 5).forEach(function(t) {
+                var row = document.createElement("div");
+                row.textContent = (t.trigger || "") + " · " + (t.count || 0) + "×";
+                trigList.appendChild(row);
+            });
+            container.appendChild(trigList);
+        }
+
+        // Episode timeline — the detail only this endpoint provides
+        var timelineTitle = document.createElement("div");
+        timelineTitle.style.cssText = "font-size:13px; font-weight:600; color:var(--text-secondary); margin-bottom:6px;";
+        timelineTitle.textContent = "Episode history";
+        container.appendChild(timelineTitle);
+
+        var timeline = data.episode_timeline || [];
+        if (!timeline.length) {
+            var empty = document.createElement("div");
+            empty.style.cssText = "font-size:14px; color:var(--text-muted); padding:8px 0;";
+            empty.textContent = "No episodes logged yet — log one and your "
+                + "patterns will build up here.";
+            container.appendChild(empty);
+            return;
+        }
+
+        var list = document.createElement("div");
+        list.style.cssText = "max-height:320px; overflow-y:auto;";
+        var intensityColors = {
+            high: "var(--accent-crimson)",
+            mid: "var(--accent-honey)",
+            low: "var(--accent-forest)"
+        };
+        timeline.slice().reverse().forEach(function(ep) {
+            var row = document.createElement("div");
+            row.style.cssText = "display:flex; align-items:baseline; gap:10px; padding:7px 0; border-bottom:1px solid var(--border-faint);";
+
+            var dot = document.createElement("span");
+            dot.style.cssText = "width:8px; height:8px; border-radius:50%; flex-shrink:0; background:"
+                + (intensityColors[ep.intensity] || "var(--text-muted)") + ";";
+            row.appendChild(dot);
+
+            var when = document.createElement("span");
+            when.style.cssText = "font-size:13px; color:var(--text-primary); min-width:96px;";
+            when.textContent = ep.date || "Undated";
+            row.appendChild(when);
+
+            var detail = document.createElement("span");
+            detail.style.cssText = "font-size:13px; color:var(--text-muted);";
+            var parts = [];
+            if (ep.time_of_day) parts.push(ep.time_of_day);
+            if (ep.duration) parts.push(ep.duration);
+            if (ep.triggers) parts.push("trigger: " + ep.triggers);
+            detail.textContent = parts.join(" · ");
+            row.appendChild(detail);
+
+            list.appendChild(row);
+        });
+        container.appendChild(list);
     },
 
     // ── Add Counter (2-card mini-wizard) ─────────────────

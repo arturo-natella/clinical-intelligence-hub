@@ -377,6 +377,14 @@
                     <div class="health-hint">Checking your system…</div>
                 </div>
             </div>
+
+            <!-- Deep Analysis — saved deeper analyses, reopenable (full width) -->
+            <div class="dash-card span-3" id="dash-deep-insights">
+                <div class="dash-eyebrow">Deep Analysis</div>
+                <div id="dash-deep-insights-body" class="insight-body">
+                    <div class="health-hint">Looking for saved analyses…</div>
+                </div>
+            </div>
         </div>
 
         <!-- Drop Zone -->
@@ -521,6 +529,8 @@
                 <button class="btn btn-sm btn-outline bodymap-layer" data-layer="nervous" style="color:#d4c850;">Nerves</button>
                 <div style="flex:1;"></div>
                 <button class="btn btn-sm btn-outline bodymap-healthy-toggle" id="bodymap-healthy-toggle" title="Toggle between healthy baseline and your current state" onclick="BodyMap3D.toggleHealthyView();">Show Healthy</button>
+                <!-- Revealed by BodyMap3D.checkPatientMesh() only when Pass 1c built a mesh from the patient's scan -->
+                <button class="btn btn-sm btn-outline" id="bodymap-scan-btn" title="Show the 3D model built from your own scan instead of the standard atlas" onclick="BodyMap3D.togglePatientMesh();" style="display:none; color:var(--accent-teal); border-color:var(--accent-teal);">Show My Scan</button>
                 <button class="btn btn-sm btn-outline" id="snowball-dx-btn" title="Graph-theory differential diagnosis from your findings" onclick="SnowballDx.toggle();" style="color:var(--accent-amethyst); border-color:var(--accent-amethyst);">Differential Dx</button>
                 <button class="btn btn-sm gender-toggle" id="gender-toggle" title="Switch anatomy model">&#9794;</button>
                 <!-- Zoom-to-region dropdown -->
@@ -693,6 +703,13 @@
     <div id="episode-modal-overlay" class="modal-overlay" style="display:none;">
         <div class="modal" style="max-width:520px;" id="episode-modal">
             <!-- Episode form injected by Symptoms.openAddEpisode() -->
+        </div>
+    </div>
+
+    <!-- ── Single-Symptom Patterns Overlay ───────────── -->
+    <div id="pattern-modal-overlay" class="modal-overlay" style="display:none;">
+        <div class="modal" style="max-width:620px;" id="pattern-modal">
+            <!-- Detail injected by Symptoms.openPatterns() -->
         </div>
     </div>
 

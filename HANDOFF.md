@@ -130,6 +130,36 @@ filtered inside `merge_connections`, so "Not relevant" holds across reloads
 and keeps the finding out of the Word report. Tests:
 `tests/test_matching_rigor.py` (26). Suite 478.
 
+### Unwired-plumbing pass — DONE 2026-07-30 (branch `7.30.26-unwired-features-plumbing`)
+
+An audit for features whose pipes weren't connected end-to-end (all 85 routes
+diffed against every frontend fetch; all 99 Python modules checked for
+importers; the launchd → scheduler → vault chain traced). Six gaps found and
+closed. Suite **477 passed**. Full detail in `CHANGELOG.md` [Unreleased].
+
+- **Monitoring could never run unattended** — the installer wrote the vault
+  passphrase to the Keychain and nothing read it back; under launchd the
+  scheduler died in `getpass`. `resolve_passphrase()` now reads the Keychain.
+- **`volumetric_renderer.py` was orphaned** — now driven by
+  `src/imaging/volumetric_twin.py` from the imaging pass, behind two closed-by-
+  default gates. See the CHANGELOG for why a missing checkpoint must mean no
+  mesh at all.
+- **Deep Analysis card** surfaces persisted insights (`/api/deep-insights` had
+  no caller); **symptom "History"** drill-down wires
+  `/api/symptom-analytics/<id>`; **tracker** now reads `/api/tracker/vitals-types`
+  and enforces each type's range in the form; **`/api/profile`** (whole-profile
+  decrypted dump, zero callers) removed.
+
+**Still needs the user at the machine:** run `./install_monitors.sh` to store
+the passphrase and load the launchd agents — monitoring stays dormant until
+then.
+
+**Found but not fixed (spun out):** `POST /api/snowball-diagnoses` returns 500
+whenever imaging findings are plain strings —
+`snowball_engine.py:1651` assumes `list[ImagingFinding]` but
+`_build_demo_profile()` stores one string per study. Pre-existing (a54f1c3),
+and it means Differential diagnosis never appears in the new Deep Analysis card.
+
 ### Housekeeping
 - Removed the stale `nested-leaping-goose.md` rebuild-plan reference from
   `CLAUDE.md`.

@@ -11,6 +11,7 @@ significant findings, and provides a CLI entry point.
 """
 
 import logging
+import subprocess
 import sys
 import time
 import traceback
@@ -299,6 +300,47 @@ class MonitoringScheduler:
 
 # ── CLI Entry Point ────────────────────────────────────────
 
+# Keychain service name written by install_monitors.sh
+KEYCHAIN_SERVICE = "com.medprep.vault"
+
+
+def _read_keychain_passphrase() -> Optional[str]:
+    """Read the vault passphrase install_monitors.sh stored in the Keychain."""
+    try:
+        result = subprocess.run(
+            ["security", "find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        # No `security` binary (non-macOS) or a hung Keychain — degrade.
+        return None
+    if result.returncode != 0:
+        return None
+    value = result.stdout.rstrip("\n")
+    return value or None
+
+
+def resolve_passphrase(cli_passphrase: Optional[str]) -> Optional[str]:
+    """Resolve the vault passphrase for CLI and launchd runs.
+
+    Order: --passphrase arg → macOS Keychain → interactive prompt
+    (TTY only). Returns None when no source is available so headless
+    runs can exit with a clear message instead of dying in getpass.
+    """
+    if cli_passphrase:
+        return cli_passphrase
+    keychain = _read_keychain_passphrase()
+    if keychain:
+        logger.info("Vault passphrase resolved from macOS Keychain")
+        return keychain
+    if sys.stdin.isatty():
+        import getpass
+        return getpass.getpass("Vault passphrase: ") or None
+    return None
+
+
 def main():
     """CLI entry point for running monitors."""
     import argparse
@@ -321,7 +363,10 @@ def main():
     parser.add_argument(
         "--passphrase",
         type=str,
-        help="Vault passphrase (prompted if not provided)",
+        help=(
+            "Vault passphrase (falls back to the macOS Keychain entry "
+            "written by install_monitors.sh, then to a prompt)"
+        ),
     )
 
     args = parser.parse_args()
@@ -333,10 +378,13 @@ def main():
 
     data_dir = Path(args.data_dir)
 
-    passphrase = args.passphrase
+    passphrase = resolve_passphrase(args.passphrase)
     if not passphrase:
-        import getpass
-        passphrase = getpass.getpass("Vault passphrase: ")
+        logger.error(
+            "No vault passphrase available. Run install_monitors.sh to "
+            "store it in the Keychain, or pass --passphrase."
+        )
+        sys.exit(1)
 
     scheduler = MonitoringScheduler(data_dir, passphrase)
 

@@ -648,8 +648,112 @@ var BodyMap3D = {
     //  MODEL LOADING
     // ═══════════════════════════════════════════════════════
 
+    // ── Patient-specific mesh (Pass 1c) ──────────────────
+
+    // Pass 1c can build a mesh from the patient's own DICOM series. It only
+    // exists when volumetric twin generation ran with a trained model, so
+    // the control stays hidden until the backend confirms one.
+    checkPatientMesh: function() {
+        var self = this;
+        fetch("/api/patient-mesh")
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data || !data.available || !data.url) return;
+                self.patientMeshUrl = data.url;
+                var btn = document.getElementById("bodymap-scan-btn");
+                if (btn) btn.style.display = "";
+            })
+            .catch(function() { /* no twin — atlas only */ });
+    },
+
+    loadPatientMesh: function() {
+        if (!this.patientMeshUrl || this.patientMeshLoading) return;
+
+        // Already built — just toggle back to it.
+        if (this.patientScanModel) {
+            this.showingPatientScan = true;
+            if (this.currentModel) this.currentModel.visible = false;
+            this.patientScanModel.visible = true;
+            this._setPatientScanLabel(true);
+            return;
+        }
+
+        var self = this;
+        this.patientMeshLoading = true;
+        this._showLoadingProgress(0);
+
+        var loader = new THREE.GLTFLoader();
+        loader.load(this.patientMeshUrl, function(gltf) {
+            self.patientMeshLoading = false;
+            self._hideLoadingProgress();
+
+            var wrapper = new THREE.Group();
+            wrapper.add(gltf.scene);
+
+            // DICOM meshes are in millimetres; scale to the scene's ~1.7-unit
+            // body height and stand the model on the same ground plane.
+            var box = new THREE.Box3().setFromObject(wrapper);
+            var size = box.getSize(new THREE.Vector3());
+            var height = Math.max(size.y, 0.0001);
+            var scale = 1.7 / height;
+            wrapper.scale.setScalar(scale);
+
+            box.setFromObject(wrapper);
+            var center = box.getCenter(new THREE.Vector3());
+            wrapper.position.sub(center);
+            wrapper.position.y += 0.65;
+
+            self.patientScanModel = wrapper;
+            self.scene.add(wrapper);
+
+            if (self.currentModel) self.currentModel.visible = false;
+            self.showingPatientScan = true;
+            self._setPatientScanLabel(true);
+        }, function(event) {
+            if (event.total > 0) {
+                self._showLoadingProgress(Math.round(event.loaded / event.total * 100));
+            }
+        }, function() {
+            self.patientMeshLoading = false;
+            self._hideLoadingProgress();
+            self._setPatientScanLabel(false, true);
+        });
+    },
+
+    togglePatientMesh: function() {
+        if (this.showingPatientScan) {
+            this.showingPatientScan = false;
+            if (this.patientScanModel) this.patientScanModel.visible = false;
+            if (this.currentModel) this.currentModel.visible = true;
+            this._setPatientScanLabel(false);
+            return;
+        }
+        this.loadPatientMesh();
+    },
+
+    _setPatientScanLabel: function(showingScan, failed) {
+        var btn = document.getElementById("bodymap-scan-btn");
+        if (btn) btn.textContent = showingScan ? "Show Atlas" : "Show My Scan";
+
+        var text = document.getElementById("bodymap-state-text");
+        if (!text) return;
+        if (failed) {
+            text.textContent = "Couldn't load the model built from your scan. "
+                + "The standard atlas is still available.";
+            return;
+        }
+        if (showingScan) {
+            text.textContent = "This model was built from your own scan, not the "
+                + "standard atlas. Shapes and proportions are yours. Ask your "
+                + "doctor to confirm anything that looks unexpected.";
+        } else {
+            this._updateComparisonStatus();
+        }
+    },
+
     autoLoadModel: function() {
         var self = this;
+        this.checkPatientMesh();
         fetch("/api/demographics")
             .then(function(r) {
                 if (!r.ok) throw new Error("No profile");
