@@ -81,9 +81,15 @@ rate-limit, and retry transient failures with bounded exponential backoff.
   The unusable unauthenticated NLM ValueSet expansion fallback was removed;
   Snowstorm remains optional enrichment for terms outside the local set.
 
-### P8 — UI nice-to-haves (deferred by design)
-Text-size toggle, light mode, system-health panel ("is Ollama up, which model,
-disk space"), sidebar density (16 items). None block daily use after the polish pass.
+### P8 — UI nice-to-haves
+- **System-health panel — DONE 2026-07-30.** `GET /api/system-health` (six
+  checks: Ollama, both MedGemma models, disk, Presidio, vault; 15 s cache,
+  never raises, no patient data) + "System Status" dashboard card with
+  plain-language hints. Loads at app init, before unlock — visible exactly when
+  the stack is broken. Tests: `tests/test_system_health.py` (9).
+  Spec: `docs/superpowers/specs/2026-07-30-system-health-panel-design.md`.
+- Still deferred: text-size toggle, light mode, sidebar density (16 items).
+  None block daily use after the polish pass.
 
 ### Housekeeping
 - Removed the stale `nested-leaping-goose.md` rebuild-plan reference from

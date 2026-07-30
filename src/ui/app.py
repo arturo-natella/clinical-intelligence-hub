@@ -66,6 +66,159 @@ _pipeline_progress: dict = {
     "terminal_log": [],   # Recent log lines for terminal restore
 }
 
+# ── System Health (dashboard System Status card) ──────────────
+# Reads only local machine state — never patient data.
+
+try:
+    import ollama
+except ImportError:  # pragma: no cover - client library absent entirely
+    ollama = None
+
+try:
+    from src.extraction.text_extractor import MODEL_NAME as TEXT_MODEL_NAME
+except Exception:  # pragma: no cover - keep health checks alive regardless
+    TEXT_MODEL_NAME = "jwang580/medgemma_27b_q8_0"
+try:
+    from src.imaging.vision_analyzer import MODEL_NAME as VISION_MODEL_NAME
+except Exception:  # pragma: no cover
+    VISION_MODEL_NAME = os.environ.get("MEDPREP_VISION_MODEL", "medgemma:4b").strip() or "medgemma:4b"
+
+_HEALTH_CACHE_SECONDS = 15
+_DISK_WARN_GB = 50
+_DISK_FAIL_GB = 10
+_health_cache: dict = {"at": 0.0, "payload": None}
+
+
+def _health_check(check_id, label, status, detail, hint=""):
+    return {"id": check_id, "label": label, "status": status, "detail": detail, "hint": hint}
+
+
+def _installed_model_names():
+    """Single bounded ollama.list() call; raises when the daemon is unreachable."""
+    if ollama is None:
+        raise RuntimeError("ollama client library not installed")
+    listing = ollama.list()
+    models = getattr(listing, "models", None)
+    if models is None and isinstance(listing, dict):
+        models = listing.get("models")
+    names = set()
+    for item in models or []:
+        name = getattr(item, "model", None) or getattr(item, "name", None)
+        if name is None and isinstance(item, dict):
+            name = item.get("model") or item.get("name")
+        if name:
+            names.add(str(name))
+    return names
+
+
+def _model_present(names, model_name):
+    candidates = {model_name, f"{model_name}:latest", model_name.split(":", 1)[0]}
+    return bool(names & candidates)
+
+
+def _build_system_health():
+    checks = []
+
+    names = None
+    try:
+        names = _installed_model_names()
+        checks.append(_health_check("ollama", "AI engine (Ollama)", "ok", "Running"))
+    except Exception:
+        hint = "Start the Ollama app, then press Refresh."
+        if ollama is None:
+            hint = "The Ollama software is not installed on this Mac."
+        checks.append(_health_check("ollama", "AI engine (Ollama)", "fail", "Not running", hint))
+
+    if names is None:
+        unknown_hint = "Can't check until the AI engine is running."
+        checks.append(_health_check(
+            "medgemma_text", "Text model (MedGemma 27B)", "unknown", "Not checked", unknown_hint,
+        ))
+        checks.append(_health_check(
+            "medgemma_vision", "Image model (MedGemma 4B)", "unknown", "Not checked", unknown_hint,
+        ))
+    else:
+        if _model_present(names, TEXT_MODEL_NAME):
+            checks.append(_health_check("medgemma_text", "Text model (MedGemma 27B)", "ok", "Installed"))
+        else:
+            checks.append(_health_check(
+                "medgemma_text", "Text model (MedGemma 27B)", "fail", "Not installed",
+                f"Records can't be analyzed without it. In Terminal run: ollama pull {TEXT_MODEL_NAME}",
+            ))
+        if _model_present(names, VISION_MODEL_NAME):
+            checks.append(_health_check("medgemma_vision", "Image model (MedGemma 4B)", "ok", "Installed"))
+        else:
+            checks.append(_health_check(
+                "medgemma_vision", "Image model (MedGemma 4B)", "warn", "Not installed",
+                f"X-rays and scans will be skipped. In Terminal run: ollama pull {VISION_MODEL_NAME}",
+            ))
+
+    try:
+        usage = shutil.disk_usage(DATA_DIR)
+        free_gb = usage.free / (1024 ** 3)
+        detail = f"{free_gb:,.0f} GB free"
+        if free_gb < _DISK_FAIL_GB:
+            checks.append(_health_check(
+                "disk", "Disk space", "fail", detail,
+                "Too little space to analyze safely — free up disk space first.",
+            ))
+        elif free_gb < _DISK_WARN_GB:
+            checks.append(_health_check(
+                "disk", "Disk space", "warn", detail,
+                "Getting low — consider freeing space before long analyses.",
+            ))
+        else:
+            checks.append(_health_check("disk", "Disk space", "ok", detail))
+    except Exception:
+        checks.append(_health_check("disk", "Disk space", "unknown", "Not checked", "Couldn't read disk space."))
+
+    try:
+        import importlib.util
+        has_presidio = importlib.util.find_spec("presidio_analyzer") is not None
+    except Exception:
+        has_presidio = False
+    if has_presidio:
+        checks.append(_health_check("privacy", "Privacy shield (Presidio)", "ok", "Ready"))
+    else:
+        checks.append(_health_check(
+            "privacy", "Privacy shield (Presidio)", "warn", "Not installed",
+            "Cloud analysis stays switched off until it's installed. Local analysis still works.",
+        ))
+
+    if _passphrase:
+        checks.append(_health_check("vault", "Records vault", "ok", "Unlocked"))
+    else:
+        checks.append(_health_check(
+            "vault", "Records vault", "warn", "Locked",
+            "Unlock to restore your saved profile and reports.",
+        ))
+
+    rank = {"ok": 0, "unknown": 1, "warn": 1, "fail": 2}
+    overall_rank = max(rank[c["status"]] for c in checks)
+    overall = {0: "ok", 1: "warn", 2: "fail"}[overall_rank]
+
+    return {
+        "checked_at": datetime.now().isoformat(),
+        "overall": overall,
+        "checks": checks,
+    }
+
+
+@app.route("/api/system-health")
+def api_system_health():
+    force = request.args.get("refresh") == "1"
+    now = time.monotonic()
+    if (
+        not force
+        and _health_cache["payload"] is not None
+        and now - _health_cache["at"] < _HEALTH_CACHE_SECONDS
+    ):
+        return jsonify(_health_cache["payload"])
+    payload = _build_system_health()
+    _health_cache["payload"] = payload
+    _health_cache["at"] = now
+    return jsonify(payload)
+
 def _broadcast_progress(event: dict):
     """Send a progress event to all active SSE listeners and update persistent state."""
     with _sse_listeners_lock:

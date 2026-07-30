@@ -342,6 +342,21 @@
                 <div class="dash-eyebrow">Overdue &amp; Recommended Tests</div>
                 <div id="dash-overdue" style="min-height:40px; color:var(--text-secondary); font-size:13px;">No overdue tests</div>
             </div>
+
+            <!-- System Status — is the local stack ready? (full width) -->
+            <div class="dash-card span-3" id="dash-system-health">
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+                    <div class="dash-eyebrow" style="margin-bottom:0;">System Status</div>
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <span id="dash-health-stamp" class="dash-kpi-unit"></span>
+                        <button class="btn btn-outline btn-sm" onclick="App.loadSystemHealth(true);">Refresh</button>
+                    </div>
+                </div>
+                <div id="dash-health-overall" class="health-overall"></div>
+                <div id="dash-health-body" class="health-body">
+                    <div class="health-hint">Checking your system…</div>
+                </div>
+            </div>
         </div>
 
         <!-- Drop Zone -->

@@ -298,6 +298,10 @@ var App = {
             })(sidebarItems[i]);
         }
 
+        // System status is profile-independent — check it even before unlock,
+        // which is exactly when a broken local stack needs to be visible.
+        App.loadSystemHealth();
+
         // Enter key on passphrase input
         $("passphrase-input").addEventListener("keydown", function(e) {
             if (e.key === "Enter") App.unlock();
@@ -907,7 +911,63 @@ var App = {
 
     // ── Dashboard ─────────────────────────────────────
 
+    loadSystemHealth: async function(force) {
+        var container = $("dash-health-body");
+        if (!container) return;
+        try {
+            var data = await api("/api/system-health" + (force ? "?refresh=1" : ""));
+            App.renderSystemHealth(data);
+        } catch (e) {
+            while (container.firstChild) container.removeChild(container.firstChild);
+            var err = document.createElement("div");
+            err.className = "health-hint";
+            err.textContent = "Couldn't check your system — press Refresh to try again.";
+            container.appendChild(err);
+        }
+    },
+
+    renderSystemHealth: function(data) {
+        var overallEl = $("dash-health-overall");
+        if (overallEl) {
+            overallEl.className = "health-overall health-" + data.overall;
+            overallEl.textContent = data.overall === "ok" ? "All systems ready"
+                : data.overall === "fail" ? "Needs attention before analyzing"
+                : "Working, with warnings";
+        }
+        var container = $("dash-health-body");
+        if (!container) return;
+        while (container.firstChild) container.removeChild(container.firstChild);
+        (data.checks || []).forEach(function(check) {
+            var item = document.createElement("div");
+            item.className = "health-item";
+            var row = document.createElement("div");
+            row.className = "health-row";
+            var dot = document.createElement("span");
+            dot.className = "health-dot health-" + check.status;
+            row.appendChild(dot);
+            var label = document.createElement("span");
+            label.className = "health-label";
+            label.textContent = check.label;
+            row.appendChild(label);
+            var detail = document.createElement("span");
+            detail.className = "health-detail";
+            detail.textContent = check.detail;
+            row.appendChild(detail);
+            item.appendChild(row);
+            if (check.status !== "ok" && check.hint) {
+                var hint = document.createElement("div");
+                hint.className = "health-hint";
+                hint.textContent = check.hint;
+                item.appendChild(hint);
+            }
+            container.appendChild(item);
+        });
+        var stamp = $("dash-health-stamp");
+        if (stamp) stamp.textContent = "Checked just now";
+    },
+
     loadDashboard: async function() {
+        App.loadSystemHealth();
         try {
             var data = await api("/api/dashboard");
             if (!data.has_data) return;
