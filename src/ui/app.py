@@ -406,18 +406,6 @@ def index():
     return send_from_directory(str(STATIC_DIR), "index.html")
 
 
-@app.route("/assets/<path:filename>")
-def assets(filename):
-    """Serve static assets (anatomy images, etc.)."""
-    return send_from_directory(str(STATIC_DIR / "assets"), filename)
-
-
-@app.route("/models/<path:filename>", methods=["GET", "HEAD"])
-def models(filename):
-    """Serve 3D model files (GLB, etc.)."""
-    return send_from_directory(str(STATIC_DIR / "models"), filename)
-
-
 @app.route("/js/<path:filename>")
 def javascript(filename):
     """Serve JavaScript files."""
@@ -4359,27 +4347,6 @@ def pgx_collisions():
             type(e).__name__,
         )
         return jsonify({"error": "PGx collision analysis unavailable"}), 500
-
-
-@app.route("/api/patient-mesh")
-def patient_mesh():
-    """Report whether Pass 1c built a mesh from the patient's own scan.
-
-    Returns only what the Body Map needs to load it — local paths stay
-    server-side, since DICOM directory names can contain patient names.
-    """
-    analysis = (_profile_data or {}).get("analysis") or {}
-    twin = analysis.get("volumetric_twin") or {}
-    url = twin.get("url") if isinstance(twin, dict) else None
-
-    if not url:
-        return jsonify({"available": False})
-
-    return jsonify({
-        "available": True,
-        "url": url,
-        "generated_at": twin.get("generated_at", ""),
-    })
 
 
 @app.route("/api/deep-insights")

@@ -5,6 +5,36 @@
 
 ---
 
+> ## ⚠️ FEATURE REMOVED — 2026-07-30
+>
+> **The 3D body map described in this document no longer exists in the codebase.**
+> It was removed on 2026-07-30. This file is kept as a research record, not as
+> documentation of current behaviour. Everything below describes a deleted feature.
+>
+> **Why it was removed:** no open anatomy atlas is *the patient's* anatomy — every
+> available dataset (Z-Anatomy, NIH HRA) derives from Visible Human cadaver scans.
+> Producing a real map of this patient would require medical-grade volumetric
+> imaging that is not obtainable. The fidelity chase documented below had no finish
+> line because the target was mis-specified.
+>
+> Two defects made the viewer actively misleading in the meantime: the procedural
+> deformation engine fabricated organ size and texture with no source (violating the
+> project's clinical-provenance principle), and region matching used substring
+> comparison without word boundaries, so "heart failure" pinned to the **head**
+> (`"heart"` contains `"ear"`) and every right-sided finding landed on the left.
+>
+> **Full rationale:** [`docs/superpowers/specs/2026-07-30-body-map-removal-design.md`](superpowers/specs/2026-07-30-body-map-removal-design.md)
+>
+> **Still useful here:** the licensing survey of every open 3D anatomy atlas
+> (which are CC BY, which prohibit derivatives, why Zygote is unusable) and the
+> "Diagnose Before Prescribe" lesson in Lessons Learned.
+>
+> **Pipeline scripts** referenced in the File Map below were preserved at
+> `docs/archive/body-map-pipeline/`. The 1.4 GB of model data was deleted and is
+> re-downloadable from the source URLs listed in Data Sources & Licenses.
+
+---
+
 ## Where We Started
 
 ### The Vision

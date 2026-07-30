@@ -10,43 +10,6 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="/tailwind-config.js"></script>
 
-    <!-- Three.js for 3D Anatomy Viewer -->
-    <!-- Three.js — ESM with import map so addons resolve "three" internally -->
-    <script type="importmap">
-    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" } }
-    </script>
-    <script type="module">
-        import * as _THREE from "three";
-        const base = "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm";
-        const { OrbitControls } = await import(base + "/controls/OrbitControls.js");
-        const { GLTFLoader } = await import(base + "/loaders/GLTFLoader.js");
-        // Post-processing pipeline
-        const { EffectComposer } = await import(base + "/postprocessing/EffectComposer.js");
-        const { RenderPass } = await import(base + "/postprocessing/RenderPass.js");
-        const { SSAOPass } = await import(base + "/postprocessing/SSAOPass.js");
-        const { UnrealBloomPass } = await import(base + "/postprocessing/UnrealBloomPass.js");
-        const { OutputPass } = await import(base + "/postprocessing/OutputPass.js");
-        // HDR environment loader
-        const { RGBELoader } = await import(base + "/loaders/RGBELoader.js");
-        // Module namespace is immutable — copy to mutable object
-        const THREE = {};
-        Object.getOwnPropertyNames(_THREE).forEach(k => { THREE[k] = _THREE[k]; });
-        THREE.OrbitControls = OrbitControls;
-        THREE.GLTFLoader = GLTFLoader;
-        THREE.EffectComposer = EffectComposer;
-        THREE.RenderPass = RenderPass;
-        THREE.SSAOPass = SSAOPass;
-        THREE.UnrealBloomPass = UnrealBloomPass;
-        THREE.OutputPass = OutputPass;
-        THREE.RGBELoader = RGBELoader;
-        try {
-            const { DRACOLoader } = await import(base + "/loaders/DRACOLoader.js");
-            THREE.DRACOLoader = DRACOLoader;
-        } catch (e) { /* DRACO not required */ }
-        window.THREE = THREE;
-        window.dispatchEvent(new Event("three-ready"));
-    </script>
-
     <!-- D3.js for Snowball Differential Diagnostician graph -->
     <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
 
@@ -133,10 +96,6 @@
         <button class="sidebar-item active" data-view="dashboard" aria-label="Dashboard" aria-current="page">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0a1 1 0 01-1-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 01-1 1"/></svg>
             <span class="sidebar-label">Dashboard</span>
-        </button>
-        <button class="sidebar-item" data-view="bodymap" aria-label="Body Map">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
-            <span class="sidebar-label">Body Map</span>
         </button>
         <button class="sidebar-item" data-view="timeline" aria-label="Timeline">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6"/></svg>
@@ -495,112 +454,7 @@
                 <button class="btn btn-success" onclick="App.generateReport();">Generate Report</button>
                 <button class="btn btn-outline" onclick="App.navigateTo('crossdisc');">Cross-Disciplinary</button>
                 <button class="btn btn-outline" onclick="App.navigateTo('flags');">View Flags</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- ── Body Map (3D Anatomy Viewer) ────────────────── -->
-    <div id="view-bodymap" class="view">
-        <div class="card">
-            <div class="card-title">3D Interactive Anatomy Viewer</div>
-
-            <!-- Toolbar: layers + controls -->
-            <div class="bodymap-toolbar">
-                <button class="btn btn-sm btn-outline bodymap-layer active" data-layer="skin">Skin</button>
-                <button class="btn btn-sm btn-outline bodymap-layer" data-layer="muscle">Muscle</button>
-                <button class="btn btn-sm btn-outline bodymap-layer" data-layer="fascia" style="color:#c4a46c;">Fascia</button>
-                <button class="btn btn-sm btn-outline bodymap-layer" data-layer="skeleton">Skeleton</button>
-                <!-- Organs dropdown -->
-                <div class="bodymap-organ-group">
-                    <button class="btn btn-sm btn-outline bodymap-layer" data-layer="organs" id="bodymap-organs-btn">Organs &#9662;</button>
-                    <div class="bodymap-organ-dropdown" id="bodymap-organ-dropdown">
-                        <button class="btn btn-sm btn-outline bodymap-organ-btn active" data-organ="all">All Organs</button>
-                        <button class="btn btn-sm btn-outline bodymap-organ-btn" data-organ="heart" style="color:#c82828;">Heart</button>
-                        <button class="btn btn-sm btn-outline bodymap-organ-btn" data-organ="lungs" style="color:#d4a0a0;">Lungs</button>
-                        <button class="btn btn-sm btn-outline bodymap-organ-btn" data-organ="brain" style="color:#d4b8d4;">Brain</button>
-                        <button class="btn btn-sm btn-outline bodymap-organ-btn" data-organ="liver" style="color:#8b4513;">Liver</button>
-                        <button class="btn btn-sm btn-outline bodymap-organ-btn" data-organ="kidneys" style="color:#a0522d;">Kidneys</button>
-                        <button class="btn btn-sm btn-outline bodymap-organ-btn" data-organ="gi_tract" style="color:#d4a86c;">GI Tract</button>
-                        <button class="btn btn-sm btn-outline bodymap-organ-btn" data-organ="reproductive" style="color:#c87090;">Reproductive</button>
-                        <button class="btn btn-sm btn-outline bodymap-organ-btn" data-organ="other">Other</button>
-                    </div>
-                </div>
-                <button class="btn btn-sm btn-outline bodymap-layer" data-layer="vasculature" style="color:#c82828;">Vessels</button>
-                <button class="btn btn-sm btn-outline bodymap-layer" data-layer="nervous" style="color:#d4c850;">Nerves</button>
-                <div style="flex:1;"></div>
-                <button class="btn btn-sm btn-outline bodymap-healthy-toggle" id="bodymap-healthy-toggle" title="Toggle between healthy baseline and your current state" onclick="BodyMap3D.toggleHealthyView();">Show Healthy</button>
-                <!-- Revealed by BodyMap3D.checkPatientMesh() only when Pass 1c built a mesh from the patient's scan -->
-                <button class="btn btn-sm btn-outline" id="bodymap-scan-btn" title="Show the 3D model built from your own scan instead of the standard atlas" onclick="BodyMap3D.togglePatientMesh();" style="display:none; color:var(--accent-teal); border-color:var(--accent-teal);">Show My Scan</button>
-                <button class="btn btn-sm btn-outline" id="snowball-dx-btn" title="Graph-theory differential diagnosis from your findings" onclick="SnowballDx.toggle();" style="color:var(--accent-amethyst); border-color:var(--accent-amethyst);">Differential Dx</button>
-                <button class="btn btn-sm gender-toggle" id="gender-toggle" title="Switch anatomy model">&#9794;</button>
-                <!-- Zoom-to-region dropdown -->
-                <div class="bodymap-organ-group">
-                    <button class="btn btn-sm btn-outline" id="bodymap-region-btn" title="Zoom to body region">Focus &#9662;</button>
-                    <div class="bodymap-organ-dropdown" id="bodymap-region-dropdown">
-                        <button class="btn btn-sm btn-outline bodymap-region-btn" data-region="head">Head</button>
-                        <button class="btn btn-sm btn-outline bodymap-region-btn" data-region="chest">Chest</button>
-                        <button class="btn btn-sm btn-outline bodymap-region-btn" data-region="abdomen">Abdomen</button>
-                        <button class="btn btn-sm btn-outline bodymap-region-btn" data-region="pelvis">Pelvis</button>
-                        <button class="btn btn-sm btn-outline bodymap-region-btn" data-region="left-arm">Left Arm</button>
-                        <button class="btn btn-sm btn-outline bodymap-region-btn" data-region="right-arm">Right Arm</button>
-                        <button class="btn btn-sm btn-outline bodymap-region-btn" data-region="left-leg">Left Leg</button>
-                        <button class="btn btn-sm btn-outline bodymap-region-btn" data-region="right-leg">Right Leg</button>
-                    </div>
-                </div>
-                <button class="btn btn-sm btn-outline" id="bodymap-zoom-in" title="Zoom in">+</button>
-                <button class="btn btn-sm btn-outline" id="bodymap-zoom-out" title="Zoom out">&minus;</button>
-                <button class="btn btn-sm btn-outline" id="bodymap-reset-btn">Reset View</button>
-            </div>
-
-            <div class="bodymap-statebar">
-                <div class="bodymap-state-chip" id="bodymap-state-chip" data-mode="current">Current State</div>
-                <div class="bodymap-state-text" id="bodymap-state-text">Showing the baseline anatomy. Load a patient record to project findings onto the model, then use Show Healthy for a before/after comparison.</div>
-            </div>
-
-            <div style="display:flex; gap:24px;">
-                <!-- 3D Canvas Container -->
-                <div id="bodymap-canvas-container" style="position:relative; width:500px; height:700px; flex-shrink:0;">
-                    <canvas id="bodymap-canvas"></canvas>
-                    <!-- Tooltip overlay (positioned via JS) -->
-                    <div id="bodymap-tooltip" class="bodymap-tooltip" style="display:none;"></div>
-                    <!-- Loading spinner -->
-                    <div id="bodymap-loading" class="bodymap-loading">Loading anatomy model...</div>
-                </div>
-
-                <!-- 2D Fallback (hidden when WebGL works) -->
-                <div id="bodymap-2d-fallback" style="display:none;">
-                    <div style="position:relative; width:400px;">
-                        <img id="bodymap-img" src="/assets/anatomy.png" alt="Body Map"
-                             style="width:100%; height:auto; display:block;">
-                        <svg id="bodymap-overlay" style="position:absolute; top:0; left:0; width:100%; height:100%;"
-                             viewBox="0 0 400 600" preserveAspectRatio="xMidYMid meet">
-                            <ellipse cx="200" cy="55" rx="50" ry="50" fill="transparent"
-                                     class="bodymap-zone" data-region="head"/>
-                            <rect x="135" y="120" width="130" height="100" rx="10" fill="transparent"
-                                  class="bodymap-zone" data-region="chest"/>
-                            <rect x="140" y="225" width="120" height="80" rx="10" fill="transparent"
-                                  class="bodymap-zone" data-region="abdomen"/>
-                            <rect x="75" y="130" width="55" height="170" rx="15" fill="transparent"
-                                  class="bodymap-zone" data-region="left-arm"/>
-                            <rect x="270" y="130" width="55" height="170" rx="15" fill="transparent"
-                                  class="bodymap-zone" data-region="right-arm"/>
-                            <rect x="145" y="308" width="110" height="60" rx="10" fill="transparent"
-                                  class="bodymap-zone" data-region="pelvis"/>
-                            <rect x="130" y="375" width="65" height="210" rx="15" fill="transparent"
-                                  class="bodymap-zone" data-region="left-leg"/>
-                            <rect x="205" y="375" width="65" height="210" rx="15" fill="transparent"
-                                  class="bodymap-zone" data-region="right-leg"/>
-                        </svg>
-                    </div>
-                </div>
-
-                <!-- Findings Panel -->
-                <div class="bodymap-findings-panel">
-                    <div class="findings-title" id="bodymap-region-title">Select a body region</div>
-                    <div id="bodymap-findings-list" style="color:var(--text-secondary); font-size:14px;">
-                        Click or orbit around the 3D model, then click a body region to see related findings from your medical records.
-                    </div>
-                </div>
+                <button class="btn btn-outline" id="snowball-dx-btn" title="Graph-theory differential diagnosis from your findings" onclick="SnowballDx.toggle();" style="color:var(--accent-amethyst); border-color:var(--accent-amethyst);">Differential Dx</button>
             </div>
         </div>
     </div>
@@ -1187,7 +1041,6 @@
 <!-- ═══════════════════════════════════════════════════════
      JavaScript
      ═══════════════════════════════════════════════════════ -->
-<script src="/js/bodymap3d.js?v=8.0"></script>
 <script src="/js/snowball.js"></script>
 <script src="/js/cascades.js"></script>
 <script src="/js/pgx_map.js"></script>
