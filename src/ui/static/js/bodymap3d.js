@@ -3552,6 +3552,22 @@ var BodyMap3D = {
             return provenance || {};
         }
 
+        // Imaging findings are list[ImagingFinding]; legacy profiles may still
+        // hold a bare string. Flatten either to searchable text — joining the
+        // raw array would yield "[object Object]".
+        function findingsText(raw) {
+            if (!raw) return "";
+            if (typeof raw === "string") return raw;
+            if (!Array.isArray(raw)) return "";
+            var parts = [];
+            for (var i = 0; i < raw.length; i++) {
+                var entry = raw[i];
+                if (typeof entry === "string") parts.push(entry);
+                else if (entry && entry.description) parts.push(entry.description);
+            }
+            return parts.join(" ");
+        }
+
         function pushFinding(payload) {
             var fullText = (payload.text || "").toLowerCase().trim();
             if (!fullText) return;
@@ -3614,7 +3630,7 @@ var BodyMap3D = {
                     img[b].study_type,
                     img[b].body_region,
                     img[b].description,
-                    img[b].findings
+                    findingsText(img[b].findings)
                 ].filter(Boolean).join(" ")
             });
         }

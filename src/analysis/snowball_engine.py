@@ -18,6 +18,7 @@ Algorithm:
 import re
 from collections import defaultdict
 
+from src.analysis.imaging_findings import normalize_findings
 from src.local_llm import call_local_text_model, parse_json_array_from_text
 
 
@@ -1647,8 +1648,8 @@ class SnowballEngine:
 
         # Imaging findings (from MONAI + radiomics)
         for study in timeline.get("imaging", []):
-            for finding in study.get("findings", []):
-                desc = finding.get("description", "")
+            for finding in normalize_findings(study.get("findings")):
+                desc = str(finding.get("description") or "")
                 if desc:
                     corpus.append({
                         "text": desc.lower(),

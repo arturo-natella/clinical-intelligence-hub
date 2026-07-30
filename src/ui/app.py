@@ -934,27 +934,50 @@ def _build_demo_profile():
             "imaging": [
                 {"modality": "Fundoscopy", "body_region": "Eyes", "study_date": "2024-06-20",
                  "description": "Bilateral non-proliferative diabetic retinopathy with scattered microaneurysms",
-                 "findings": "Dot-blot hemorrhages and hard exudates in both eyes. No neovascularization.",
+                 "findings": [
+                     {"description": "Dot-blot hemorrhages and hard exudates in both eyes", "body_region": "Eyes"},
+                     {"description": "No neovascularization", "body_region": "Eyes"},
+                 ],
                  "provider": "Dr. Lisa Park"},
                 {"modality": "Chest X-Ray", "body_region": "Chest", "study_date": "2025-01-15",
                  "description": "PA and lateral chest radiograph",
-                 "findings": "No acute cardiopulmonary disease. Heart size normal. No pleural effusion.",
+                 "findings": [
+                     {"description": "No acute cardiopulmonary disease", "body_region": "Chest"},
+                     {"description": "Heart size normal", "body_region": "Chest"},
+                     {"description": "No pleural effusion", "body_region": "Chest"},
+                 ],
                  "provider": "Portland Radiology Associates"},
                 {"modality": "Echocardiogram", "body_region": "Heart", "study_date": "2024-09-10",
                  "description": "Transthoracic echocardiogram",
-                 "findings": "EF 55%. Mild concentric LVH. No valvular abnormalities. Grade I diastolic dysfunction.",
+                 "findings": [
+                     {"description": "EF 55%", "body_region": "Heart"},
+                     {"description": "Mild concentric LVH", "body_region": "Heart"},
+                     {"description": "No valvular abnormalities", "body_region": "Heart"},
+                     {"description": "Grade I diastolic dysfunction", "body_region": "Heart"},
+                 ],
                  "provider": "Dr. James Chen"},
                 {"modality": "Nerve Conduction Study", "body_region": "Lower Extremities", "study_date": "2023-11-05",
                  "description": "Bilateral lower extremity nerve conduction study and EMG",
-                 "findings": "Reduced sensory nerve conduction velocities bilaterally consistent with distal symmetric polyneuropathy.",
+                 "findings": [
+                     {"description": "Reduced sensory nerve conduction velocities bilaterally consistent with distal symmetric polyneuropathy",
+                      "body_region": "Lower Extremities"},
+                 ],
                  "provider": "Dr. Michael Torres"},
                 {"modality": "Carotid Ultrasound", "body_region": "Neck", "study_date": "2025-03-20",
                  "description": "Bilateral carotid duplex ultrasound",
-                 "findings": "Mild bilateral intimal thickening. No hemodynamically significant stenosis. IMT 0.9mm.",
+                 "findings": [
+                     {"description": "Mild bilateral intimal thickening", "body_region": "Neck"},
+                     {"description": "No hemodynamically significant stenosis", "body_region": "Neck"},
+                     {"description": "IMT 0.9mm", "body_region": "Neck", "measurements": {"imt_mm": 0.9}},
+                 ],
                  "provider": "Portland Vascular Lab"},
                 {"modality": "Abdominal Ultrasound", "body_region": "Abdomen", "study_date": "2025-06-15",
                  "description": "Right upper quadrant ultrasound",
-                 "findings": "Mild hepatic steatosis (fatty liver). No gallstones. Kidneys normal size bilateral.",
+                 "findings": [
+                     {"description": "Mild hepatic steatosis (fatty liver)", "body_region": "Abdomen"},
+                     {"description": "No gallstones", "body_region": "Abdomen"},
+                     {"description": "Kidneys normal size bilateral", "body_region": "Abdomen"},
+                 ],
                  "provider": "Portland Radiology Associates"},
             ],
             "genetics": [
@@ -1907,10 +1930,12 @@ def get_flags():
 
     # Append radiomic threshold flags from imaging findings
     try:
+        from src.analysis.imaging_findings import normalize_findings
+
         timeline = _profile_data.get("clinical_timeline", {})
         for study in timeline.get("imaging", []):
-            for finding in study.get("findings", []):
-                radiomic = finding.get("radiomic_features", {})
+            for finding in normalize_findings(study.get("findings")):
+                radiomic = finding.get("radiomic_features") or {}
                 for tf in radiomic.get("threshold_flags", []):
                     flags.append({
                         "severity": tf.get("level", "moderate"),
