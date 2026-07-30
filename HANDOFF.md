@@ -97,6 +97,21 @@ rate-limit, and retry transient failures with bounded exponential backoff.
 - Still deferred: light mode, sidebar density (16 items). Neither blocks
   daily use after the polish pass.
 
+### Cross-disciplinary unification — DONE 2026-07-30
+The feature's three layers now compose (spec:
+`docs/superpowers/specs/2026-07-30-crossdisc-unify-design.md`): the 29+7 query
+engine is wired into Pass 3 (was a literal `[]` at the pipeline seam), engine
+results snapshot-cache as deep-insight kind `cross_specialty` (8 ms cached vs
+live Ollama+PubMed per view), stored + engine layers merge deduplicated
+(`src/analysis/crossdisc_merge.py`) for the endpoint AND report, Pass 4
+citations attach to their connections, the model retains layer fields, and the
+report labels origins with an honest empty case. UI: five severities render,
+filter chips + specialty select, session "Hide for now", local-AI credit
+corrected. Ride-alongs fixed: Visit Prep 500, duplicate APS triad, stale "22
+conditions" label, graph drawn synchronously (rAF never fired in background
+tabs). Deferred: matching rigor (Direction 2 — abnormal-only labs, negation),
+vault-persisted dismissals. Tests: `tests/test_crossdisc_unify.py` (14).
+
 ### Housekeeping
 - Removed the stale `nested-leaping-goose.md` rebuild-plan reference from
   `CLAUDE.md`.

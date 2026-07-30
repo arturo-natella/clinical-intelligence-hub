@@ -821,8 +821,30 @@ class Pipeline:
             import json
             profile_summary = json.dumps(redacted, indent=2, default=str)
 
+            # Fan out the 29-specialty + 7-domain query engine over the
+            # redacted timeline (this was a literal [] until 2026-07-30).
+            queries = []
+            try:
+                from src.analysis.cross_disciplinary import CrossDisciplinaryEngine
+
+                timeline = redacted.get("clinical_timeline", {}) or {}
+                queries = CrossDisciplinaryEngine().build_prioritized_queries({
+                    "medications": timeline.get("medications", []),
+                    "labs": timeline.get("labs", []),
+                    "diagnoses": timeline.get("diagnoses", []),
+                    "genetics": timeline.get("genetics", []),
+                })
+            except Exception as e:
+                logger.warning(
+                    "Cross-disciplinary query fan-out failed (error_type=%s)",
+                    type(e).__name__,
+                )
+            logger.info(
+                "Pass 3 fan-out: %d cross-disciplinary queries", len(queries)
+            )
+
             # analyze() runs both Pass 3 and Pass 4 internally
-            results = dr.analyze(profile_summary, [])
+            results = dr.analyze(profile_summary, queries)
 
             self._profile.analysis.cross_disciplinary.extend(
                 results.get("connections", [])

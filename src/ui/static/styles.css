@@ -5384,6 +5384,57 @@ a, button, input, textarea, select {
     font-weight: 600;
 }
 
+/* Cross-disciplinary filter bar + hide control */
+.crossdisc-filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin: 10px 0 4px;
+}
+
+.crossdisc-filter-chip {
+    font-size: 13px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border-muted);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.crossdisc-filter-chip:hover { border-color: var(--border-loud); color: var(--text-primary); }
+
+.crossdisc-filter-chip.is-active {
+    background: var(--accent-primary-12);
+    border-color: var(--accent-primary);
+    color: var(--accent-primary-text);
+}
+
+.crossdisc-filter-select {
+    font-size: 13px;
+    padding: 4px 10px;
+    border-radius: 8px;
+    background: var(--bg-raised);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-muted);
+    font-family: inherit;
+}
+
+.crossdisc-filter-empty {
+    padding: 24px;
+    color: var(--text-muted);
+    font-size: 14px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    align-items: center;
+}
+
+.crossdisc-hide-btn { margin-top: 10px; }
+
 /* System Status card */
 .health-overall {
     margin: 10px 0 12px;

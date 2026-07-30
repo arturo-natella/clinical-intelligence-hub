@@ -922,51 +922,123 @@ class ReportBuilder:
 
     # ── Section 8: Cross-Disciplinary ─────────────────────────
 
+    def _merged_cross_disciplinary(self, analysis: AnalysisResults) -> list[dict]:
+        """Stored cloud connections + snapshot-cached engine results, deduped.
+
+        The same merge the UI endpoint serves, so the report and the app
+        never disagree about what was found.
+        """
+        from src.analysis.crossdisc_merge import merge_connections
+
+        stored = [c.model_dump(mode="json") for c in analysis.cross_disciplinary]
+        engine: list = []
+        snapshot = analysis.cross_specialty_patterns
+        data = getattr(snapshot, "data", None)
+        if isinstance(data, dict):
+            engine = data.get("connections", []) or []
+        return merge_connections(stored, engine)
+
     def _section_8_cross_disciplinary(self, analysis: AnalysisResults):
         """Cross-specialty connections that individual doctors might miss."""
+        origin_labels = {
+            "pattern_database": "Validated pattern database",
+            "local_ai": "Local AI discovery (PubMed-checked)",
+            "cloud_analysis": "Cloud cross-disciplinary analysis",
+        }
+        severity_icons = {
+            "critical": "🔴", "high": "🟠", "moderate": "🟡",
+            "low": "🟢", "info": "ℹ️",
+        }
+
         self._doc.add_heading("8. Cross-Disciplinary Insights", level=1)
 
         self._doc.add_paragraph(
-            "These connections were found by analyzing your complete medical "
-            "records across all 29 medical specialties and 7 adjacent health "
-            "domains. Individual specialists may not see these patterns because "
-            "they only review data within their specialty."
+            "These connections come from up to three layers of analysis: a "
+            "validated multi-specialty disease pattern database, local AI "
+            "pattern discovery checked against PubMed, and — when cloud "
+            "analysis is enabled — a cross-disciplinary review spanning 29 "
+            "medical specialties and 7 adjacent health domains. Individual "
+            "specialists may not see these patterns because they only review "
+            "data within their specialty."
         )
 
-        if analysis.cross_disciplinary:
-            for connection in analysis.cross_disciplinary:
-                severity_icon = self._severity_icon(connection.severity)
-                p = self._doc.add_paragraph()
-                p.add_run(f"{severity_icon} {connection.title}").bold = True
+        connections = self._merged_cross_disciplinary(analysis)
 
-                self._doc.add_paragraph(f"    {connection.description}")
+        if connections:
+            for connection in connections:
+                sev = str(connection.get("severity", "moderate")).lower()
+                icon = severity_icons.get(sev, "•")
+                p = self._doc.add_paragraph()
+                p.add_run(f"{icon} {connection.get('title', '')}").bold = True
+
+                origin = origin_labels.get(
+                    connection.get("connection_type", ""), "Analysis"
+                )
+                also = [
+                    origin_labels.get(x, x)
+                    for x in connection.get("also_matched_by", [])
+                ]
+                origin_line = f"    Identified by: {origin}"
+                if also:
+                    origin_line += " — independently matched by " + ", ".join(also)
+                self._doc.add_paragraph(origin_line)
+
+                self._doc.add_paragraph(f"    {connection.get('description', '')}")
                 self._doc.add_paragraph(
-                    f"    Specialties: {', '.join(connection.specialties)}"
+                    f"    Specialties: {', '.join(connection.get('specialties', []))}"
                 )
 
-                if connection.supporting_literature:
+                hits = connection.get("total_hits")
+                possible = connection.get("total_possible")
+                if hits and possible:
+                    self._doc.add_paragraph(
+                        f"    Match strength: {hits} of {possible} known "
+                        f"indicators found in your records"
+                    )
+                if connection.get("matched_labs"):
+                    self._doc.add_paragraph(
+                        "    Lab findings involved: "
+                        + ", ".join(connection["matched_labs"][:6])
+                    )
+
+                lit = [
+                    item for item in connection.get("supporting_literature", [])
+                    if isinstance(item, dict)
+                ]
+                if lit:
                     lit_refs = []
-                    for lit in connection.supporting_literature[:3]:
-                        ref = lit.title
-                        if lit.journal and lit.year:
-                            ref += f" ({lit.journal}, {lit.year})"
-                        if lit.doi:
-                            ref += f" DOI: {lit.doi}"
+                    for item in lit[:3]:
+                        ref = str(item.get("title", ""))
+                        if item.get("journal") and item.get("year"):
+                            ref += f" ({item['journal']}, {item['year']})"
+                        if item.get("doi"):
+                            ref += f" DOI: {item['doi']}"
                         lit_refs.append(ref)
                     self._doc.add_paragraph(
                         "    Supporting literature: " + "; ".join(lit_refs)
                     )
+                elif connection.get("diagnostic_source"):
+                    self._doc.add_paragraph(
+                        f"    Diagnostic criteria: {connection['diagnostic_source']}"
+                    )
+                elif connection.get("evidence_source"):
+                    self._doc.add_paragraph(
+                        f"    Evidence basis: {connection['evidence_source']}"
+                    )
 
-                if connection.question_for_doctor:
+                if connection.get("question_for_doctor"):
                     p = self._doc.add_paragraph()
                     p.add_run("    → Ask your doctor: ").bold = True
-                    p.add_run(connection.question_for_doctor)
+                    p.add_run(connection["question_for_doctor"])
 
                 self._doc.add_paragraph()  # Spacer
         else:
             self._doc.add_paragraph(
-                "No cross-disciplinary connections were identified. "
-                "This may indicate your care is well-coordinated across providers."
+                "Cloud pattern analysis did not run for this report (the app "
+                "was offline or no cloud API key is configured), and the local "
+                "pattern engines found no matches to show. This is a technical "
+                "status, not a clinical finding — it does not mean your "
+                "records were checked and cleared."
             )
 
         # Community insights (clearly labeled)

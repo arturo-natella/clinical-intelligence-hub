@@ -1048,6 +1048,7 @@ def _build_demo_profile():
             ],
             "cross_disciplinary": [
                 {"title": "Diabetes-Cardiovascular-Renal axis", "severity": "high",
+                 "connection_type": "cloud_analysis",
                  "specialties": ["Endocrinology", "Cardiology", "Nephrology"],
                  "description": "Here\u2019s something we found. The good news is we spotted it early. What\u2019s happening: your diabetes, heart, and kidneys are all connected. When blood sugar stays high, it puts extra stress on your heart and kidneys. Your heart is already working harder (that\u2019s the LVH finding), and your kidney function has been slowly dropping. These three things feed into each other \u2014 but there are medications that can help all three at once.",
                  "patient_data_points": [
@@ -1061,6 +1062,7 @@ def _build_demo_profile():
                  "evidence_source": "ADA Standards of Care 2025, ACC/AHA Heart Failure Guidelines, KDIGO CKD Guidelines",
                  "diagnostic_source": "ADA Standards of Medical Care in Diabetes (Diabetes Care 2025); ACC/AHA Guideline for Management of Heart Failure (Circulation 2022); KDIGO Clinical Practice Guideline for CKD (Kidney Int 2024)"},
                 {"title": "Metabolic syndrome cluster", "severity": "moderate",
+                 "connection_type": "cloud_analysis",
                  "specialties": ["Endocrinology", "Cardiology", "Hepatology"],
                  "description": "Here\u2019s something we found. Your body is showing a cluster of related issues \u2014 weight, blood sugar, blood pressure, cholesterol, and liver changes. When these happen together, doctors call it metabolic syndrome. Each one alone is manageable, but together they multiply the risk. The good news: treating the root causes (like weight and insulin resistance) can improve several of these at once.",
                  "patient_data_points": [
@@ -1074,6 +1076,7 @@ def _build_demo_profile():
                  "evidence_source": "NCEP ATP III Metabolic Syndrome Criteria, ADA/EASD Consensus Report, AASLD NAFLD Practice Guidelines",
                  "diagnostic_source": "NCEP ATP III Metabolic Syndrome Definition (Circulation 2005;112:2735-2752); ADA/EASD Consensus Report on T2DM Management (Diabetes Care 2022); AASLD Practice Guidance on NAFLD (Hepatology 2023)"},
                 {"title": "Microvascular damage correlation", "severity": "moderate",
+                 "connection_type": "cloud_analysis",
                  "specialties": ["Neurology", "Ophthalmology", "Endocrinology"],
                  "description": "Here\u2019s something we found, and it\u2019s good that we caught it. Two things showed up that are related: changes in your eyes (retinopathy) and numbness in your feet (neuropathy). Both are caused by high blood sugar damaging tiny blood vessels. When this kind of damage shows up in the eyes and nerves, it\u2019s a signal to watch the kidneys more closely too \u2014 since they have similar small blood vessels.",
                  "patient_data_points": [
@@ -2243,42 +2246,24 @@ def get_cross_disciplinary():
     analysis = _profile_data.get("analysis", {})
     connections = list(analysis.get("cross_disciplinary", []))
 
-    # Run cross-specialty systemic disease correlation on demand. Lightweight
-    # consumers such as the Body Map can request only already-persisted items.
+    # Merge in the snapshot-cached cross-specialty engine (rule triads +
+    # local-AI discovery). The snapshot recomputes only when clinical inputs
+    # change or ?refresh=1 — previously this ran Ollama + PubMed on every
+    # request. Lightweight consumers such as the Body Map can request only
+    # already-persisted items with ?stored=1.
     stored_only = request.args.get("stored", "").strip().lower() in {
         "1", "true", "yes",
     }
     if not stored_only:
         try:
-            from src.analysis.diagnostic_engine.cross_specialty import CrossSpecialtyEngine
+            from src.analysis.crossdisc_merge import merge_connections
 
-            engine = CrossSpecialtyEngine()
-            correlations = engine.analyze(_profile_data)
-
-            for c in correlations:
-                hits = c.get("total_hits", 0)
-                possible = c.get("total_possible", 0)
-                entry = {
-                    "type": c.get("type", "systemic_correlation"),
-                    "title": c["disease"],
-                    "specialties": c["specialties"],
-                    "severity": c.get("severity", "moderate"),
-                    "description": c["description"],
-                    "patient_data_points": c.get("matched_symptoms", []),
-                    "matched_labs": c.get("matched_labs", []),
-                    "question_for_doctor": c.get("recommendation", ""),
-                    "total_hits": hits,
-                    "total_possible": possible,
-                    "evidence_source": c.get("evidence_source", ""),
-                    "diagnostic_source": c.get("diagnostic_source", ""),
-                }
-                # Pass through PubMed verification for AI discoveries
-                if c.get("type") == "ai_discovered_correlation":
-                    entry["pubmed_verified"] = c.get("pubmed_verified", False)
-                    entry["pubmed_citations"] = c.get("pubmed_citations", [])
-                connections.append(entry)
+            result = _compute_and_persist_deep_insight("cross_specialty")
+            connections = merge_connections(
+                connections, result.get("connections", [])
+            )
         except Exception as e:
-            logger.debug(
+            logger.warning(
                 "Cross-specialty correlation failed (error_type=%s)",
                 type(e).__name__,
             )
@@ -2414,9 +2399,10 @@ def questions():
     if not question_text:
         return jsonify({"error": "Question text is required"}), 400
 
-    # Prevent exact duplicates
+    # Prevent exact duplicates (entries may be legacy plain strings)
     for q in questions_list:
-        if q.get("question", "").strip().lower() == question_text.lower():
+        existing = _normalize_question_entry(q).get("question", "")
+        if existing.strip().lower() == question_text.lower():
             return jsonify({"ok": True, "duplicate": True})
 
     new_q = {

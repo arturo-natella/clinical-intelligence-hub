@@ -372,6 +372,14 @@ class CrossDisciplinaryConnection(BaseModel):
     date_found: datetime = Field(default_factory=datetime.now)
     confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     provenance: list[Provenance] = Field(default_factory=list)
+    # Which layer produced it: "pattern_database" | "local_ai" | "cloud_analysis"
+    connection_type: str = "cloud_analysis"
+    total_hits: Optional[int] = None        # Rule engine: matched indicators
+    total_possible: Optional[int] = None    # Rule engine: known indicators
+    matched_labs: list[str] = Field(default_factory=list)
+    evidence_source: str = ""
+    diagnostic_source: str = ""
+    pubmed_verified: Optional[bool] = None  # Local-AI layer only
 
 
 # ── Monitoring Alert ───────────────────────────────────────
@@ -429,6 +437,7 @@ class AnalysisResults(BaseModel):
     biomarker_cascades: Optional[DeepInsightSnapshot] = None
     pgx_collision_map: Optional[DeepInsightSnapshot] = None
     lab_trajectories: Optional[DeepInsightSnapshot] = None
+    cross_specialty_patterns: Optional[DeepInsightSnapshot] = None
 
 
 class PatientProfile(BaseModel):

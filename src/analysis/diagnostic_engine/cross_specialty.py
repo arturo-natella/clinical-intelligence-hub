@@ -311,10 +311,14 @@ SYSTEMIC_DISEASE_TRIADS = {
         ),
     },
     "Antiphospholipid Syndrome (APS)": {
-        "specialties": ["Rheumatology", "Hematology", "Obstetrics/Gynecology", "Neurology"],
+        "specialties": [
+            "Rheumatology", "Hematology", "Vascular Medicine",
+            "Obstetrics/Gynecology", "Neurology",
+        ],
         "symptoms": [
             "dvt", "deep vein thrombosis", "pulmonary embolism",
-            "recurrent miscarriage", "stroke", "livedo reticularis",
+            "recurrent miscarriage", "recurrent pregnancy loss", "miscarriage",
+            "stroke", "tia", "livedo reticularis",
             "thrombocytopenia", "migraine",
         ],
         "lab_markers": [
@@ -630,30 +634,6 @@ SYSTEMIC_DISEASE_TRIADS = {
             "Revised Ghent Nosology for Marfan Syndrome "
             "(J Med Genet 2010;47:476-485); 2022 ACC/AHA Guideline "
             "for the Diagnosis and Management of Aortic Disease"
-        ),
-    },
-
-    # Vascular Medicine
-    "Antiphospholipid Syndrome": {
-        "specialties": ["Vascular Medicine", "Hematology", "Obstetrics/Gynecology", "Neurology"],
-        "symptoms": [
-            "deep vein thrombosis", "dvt", "pulmonary embolism",
-            "stroke", "tia", "miscarriage", "recurrent pregnancy loss",
-            "livedo reticularis", "thrombocytopenia",
-        ],
-        "lab_markers": [
-            "lupus anticoagulant", "anticardiolipin", "anti-beta2 glycoprotein",
-            "aptt prolonged",
-        ],
-        "description": (
-            "An autoimmune clotting disorder that causes blood clots "
-            "in veins and arteries, strokes, and pregnancy complications. "
-            "A hematologist, neurologist, and OB/GYN may each see "
-            "different pieces of the same disease."
-        ),
-        "diagnostic_source": (
-            "2023 ACR/EULAR Antiphospholipid Syndrome Classification "
-            "Criteria (Ann Rheum Dis 2023;82:1258-1270)"
         ),
     },
 
@@ -998,6 +978,7 @@ class CrossSpecialtyEngine:
                 spec_names = ", ".join(profile["specialties"][:3])
                 alerts.append({
                     "type": "systemic_correlation",
+                    "connection_type": "pattern_database",
                     "disease": disease,
                     "specialties": profile["specialties"],
                     "severity": severity,
@@ -1009,8 +990,9 @@ class CrossSpecialtyEngine:
                     "threshold": threshold,
                     "diagnostic_source": profile.get("diagnostic_source", ""),
                     "evidence_source": (
-                        "Validated systemic disease pattern database "
-                        "(22 clinically documented multi-specialty conditions)"
+                        f"Validated systemic disease pattern database "
+                        f"({len(SYSTEMIC_DISEASE_TRIADS)} clinically documented "
+                        f"multi-specialty conditions)"
                     ),
                     "recommendation": (
                         f"We found findings in your records that "
@@ -1229,6 +1211,7 @@ class CrossSpecialtyEngine:
 
                 ai_alerts.append({
                     "type": "ai_discovered_correlation",
+                    "connection_type": "local_ai",
                     "disease": disease,
                     "specialties": s.get("specialties", []),
                     "severity": "moderate",

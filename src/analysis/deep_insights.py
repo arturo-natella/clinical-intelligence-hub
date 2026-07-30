@@ -24,6 +24,7 @@ INSIGHT_FIELDS = {
     "biomarker_cascades": "biomarker_cascades",
     "pgx_collisions": "pgx_collision_map",
     "trajectories": "lab_trajectories",
+    "cross_specialty": "cross_specialty_patterns",
 }
 
 
@@ -69,6 +70,16 @@ def _relevant_inputs(profile_data: dict, insight_type: str) -> dict:
             "medications": timeline.get("medications", []),
             "genetics": timeline.get("genetics", []),
             "symptoms": timeline.get("symptoms", []),
+        }
+    if insight_type == "cross_specialty":
+        # Mirrors CrossSpecialtyEngine._build_corpus inputs.
+        return {
+            "diagnoses": timeline.get("diagnoses", []),
+            "labs": timeline.get("labs", []),
+            "medications": timeline.get("medications", []),
+            "symptoms": timeline.get("symptoms", []),
+            "imaging": timeline.get("imaging", []),
+            "genetics": timeline.get("genetics", []),
         }
     raise ValueError(f"Unknown deep insight type: {insight_type}")
 
@@ -186,6 +197,18 @@ def _compute_pgx_collisions(profile_data: dict) -> dict:
     return PharmacogenomicEngine().analyze(profile_data)
 
 
+def _compute_cross_specialty(profile_data: dict) -> dict:
+    """Rule-triad + local-AI cross-specialty correlations, snapshot-cached.
+
+    Wraps the engine list in an object so the generic snapshot plumbing
+    (dict-shaped ``data``) applies unchanged.
+    """
+    from src.analysis.diagnostic_engine.cross_specialty import CrossSpecialtyEngine
+
+    connections = CrossSpecialtyEngine().analyze(profile_data)
+    return {"connections": connections if isinstance(connections, list) else []}
+
+
 def _compute_trajectories(profile_data: dict) -> dict:
     from src.analysis.trajectory import TrajectoryForecaster
 
@@ -218,6 +241,7 @@ _COMPUTERS: dict[str, Callable[[dict], dict]] = {
     "biomarker_cascades": _compute_biomarker_cascades,
     "pgx_collisions": _compute_pgx_collisions,
     "trajectories": _compute_trajectories,
+    "cross_specialty": _compute_cross_specialty,
 }
 
 

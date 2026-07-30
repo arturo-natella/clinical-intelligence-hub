@@ -44,18 +44,56 @@ var CrossDiscGraph = {
         "Obstetrics/Gynecology": "#D898C0",
         "Dentistry":             "#80C0B0",
         "Urology":               "#A0B8D8",
+        // Canonical 29-specialty taxonomy names (cross_disciplinary.py)
+        "Nutrition/Metabolic Medicine":    "#8BD470",
+        "Genetics/Genomics":               "#A0D0F0",
+        "Otolaryngology":                  "#B09870",
+        "Pharmacology/Pharmacogenomics":   "#90B8A0",
+        "Pathology":                       "#B888A8",
+        "Radiology":                       "#88A8B8",
+        "Surgery":                         "#C89078",
+        "Integrative Medicine":            "#98C8A0",
     },
 
-    _sevRadius: { high: 28, moderate: 22, low: 16 },
-    _sevColor: { high: "#C84040", moderate: "#C8A848", low: "#58B888" },
+    _sevRadius: { critical: 32, high: 28, moderate: 22, low: 16, info: 13 },
+    _sevColor: {
+        critical: "#C84040", high: "#C87850", moderate: "#C8A848",
+        low: "#58B888", info: "#7AB0F0",
+    },
 
     render: function(containerId, connections) {
-        var container = document.getElementById(containerId);
+        this._containerId = containerId;
+        this._all = connections || [];
+        if (!this._hidden) this._hidden = {};
+        if (this._sevActive === undefined) this._sevActive = null;
+        if (this._specActive === undefined) this._specActive = null;
+        this._renderView();
+    },
+
+    _visibleConnections: function() {
+        var visible = [];
+        for (var i = 0; i < this._all.length; i++) {
+            var c = this._all[i];
+            c.__allIdx = i;
+            if (this._hidden[i]) continue;
+            if (this._sevActive
+                && String(c.severity || "moderate").toLowerCase() !== this._sevActive) continue;
+            if (this._specActive
+                && (c.specialties || []).indexOf(this._specActive) === -1) continue;
+            visible.push(c);
+        }
+        return visible;
+    },
+
+    _renderView: function() {
+        var self = this;
+        var container = document.getElementById(this._containerId);
         if (!container) return;
 
         while (container.firstChild) container.removeChild(container.firstChild);
         this._activePatternId = null;
 
+        var connections = this._all;
         if (!connections || connections.length === 0) {
             container.appendChild(this._buildEmptyState(
                 "No cross-disciplinary connections found.",
@@ -64,7 +102,9 @@ var CrossDiscGraph = {
             return;
         }
 
-        var specialties = this._getUniqueSpecialties(connections);
+        var all = this._all;
+        connections = this._visibleConnections();
+        var specialties = this._getUniqueSpecialties(all);
         var shell = document.createElement("div");
         shell.className = "crossdisc-shell";
 
@@ -84,20 +124,44 @@ var CrossDiscGraph = {
 
         var summary = document.createElement("div");
         summary.className = "crossdisc-summary";
-        summary.appendChild(this._summaryChip(connections.length + " pattern" + (connections.length === 1 ? "" : "s")));
+        summary.appendChild(this._summaryChip(all.length + " pattern" + (all.length === 1 ? "" : "s")));
         summary.appendChild(this._summaryChip(specialties.length + " specialties"));
 
-        var questionsReady = connections.filter(function(c) { return !!c.question_for_doctor; }).length;
+        var questionsReady = all.filter(function(c) { return !!c.question_for_doctor; }).length;
         if (questionsReady > 0) {
             summary.appendChild(this._summaryChip(questionsReady + " visit question" + (questionsReady === 1 ? "" : "s")));
         }
 
-        var verifiedCount = connections.filter(function(c) { return !!c.pubmed_verified; }).length;
+        var verifiedCount = all.filter(function(c) { return !!c.pubmed_verified; }).length;
         if (verifiedCount > 0) {
             summary.appendChild(this._summaryChip(verifiedCount + " PubMed-verified"));
         }
         header.appendChild(summary);
         shell.appendChild(header);
+
+        shell.appendChild(this._buildFilterBar());
+
+        if (connections.length === 0) {
+            var none = document.createElement("div");
+            none.className = "crossdisc-filter-empty";
+            var noneText = document.createElement("div");
+            noneText.textContent = "All patterns are hidden by the current filters.";
+            none.appendChild(noneText);
+            var reset = document.createElement("button");
+            reset.type = "button";
+            reset.className = "btn btn-sm btn-outline";
+            reset.textContent = "Show all patterns";
+            reset.onclick = function() {
+                self._sevActive = null;
+                self._specActive = null;
+                self._hidden = {};
+                self._renderView();
+            };
+            none.appendChild(reset);
+            shell.appendChild(none);
+            container.appendChild(shell);
+            return;
+        }
 
         var body = document.createElement("div");
         body.className = "crossdisc-body";
@@ -141,11 +205,10 @@ var CrossDiscGraph = {
 
         container.appendChild(shell);
 
-        var graphData = this._buildGraphData(connections);
-        var self = this;
-        requestAnimationFrame(function() {
-            self._renderD3(graphDiv, graphData, connections);
-        });
+        // Draw synchronously: the shell is already attached (clientWidth is
+        // measurable), and requestAnimationFrame never fires in background
+        // tabs — which left the pane permanently empty.
+        this._renderD3(graphDiv, this._buildGraphData(connections), connections);
     },
 
     _buildEmptyState: function(titleText, bodyText) {
@@ -170,6 +233,65 @@ var CrossDiscGraph = {
         chip.className = "crossdisc-summary-chip";
         chip.textContent = text;
         return chip;
+    },
+
+    _buildFilterBar: function() {
+        var self = this;
+        var bar = document.createElement("div");
+        bar.className = "crossdisc-filter-bar";
+
+        var present = {};
+        this._all.forEach(function(c) {
+            present[String(c.severity || "moderate").toLowerCase()] = true;
+        });
+        ["critical", "high", "moderate", "low", "info"].forEach(function(sev) {
+            if (!present[sev]) return;
+            var chip = document.createElement("button");
+            chip.type = "button";
+            chip.className = "crossdisc-filter-chip" + (self._sevActive === sev ? " is-active" : "");
+            chip.textContent = sev.charAt(0).toUpperCase() + sev.slice(1);
+            chip.setAttribute("aria-pressed", self._sevActive === sev ? "true" : "false");
+            chip.onclick = function() {
+                self._sevActive = (self._sevActive === sev) ? null : sev;
+                self._renderView();
+            };
+            bar.appendChild(chip);
+        });
+
+        var specSelect = document.createElement("select");
+        specSelect.className = "crossdisc-filter-select";
+        specSelect.setAttribute("aria-label", "Filter patterns by specialty");
+        var allOpt = document.createElement("option");
+        allOpt.value = "";
+        allOpt.textContent = "All specialties";
+        specSelect.appendChild(allOpt);
+        this._getUniqueSpecialties(this._all).forEach(function(spec) {
+            var opt = document.createElement("option");
+            opt.value = spec;
+            opt.textContent = spec;
+            if (self._specActive === spec) opt.selected = true;
+            specSelect.appendChild(opt);
+        });
+        specSelect.onchange = function() {
+            self._specActive = specSelect.value || null;
+            self._renderView();
+        };
+        bar.appendChild(specSelect);
+
+        var hiddenCount = Object.keys(this._hidden || {}).length;
+        if (hiddenCount > 0) {
+            var unhide = document.createElement("button");
+            unhide.type = "button";
+            unhide.className = "crossdisc-filter-chip";
+            unhide.textContent = hiddenCount + " hidden — show";
+            unhide.onclick = function() {
+                self._hidden = {};
+                self._renderView();
+            };
+            bar.appendChild(unhide);
+        }
+
+        return bar;
     },
 
     _getUniqueSpecialties: function(connections) {
@@ -239,7 +361,7 @@ var CrossDiscGraph = {
         this._svg = svg;
 
         var defs = svg.append("defs");
-        ["high", "moderate", "low"].forEach(function(sev) {
+        Object.keys(self._sevColor).forEach(function(sev) {
             var grad = defs.append("linearGradient")
                 .attr("id", "crossdisc-sev-" + sev)
                 .attr("x1", "0%").attr("y1", "0%")
@@ -549,6 +671,20 @@ var CrossDiscGraph = {
             card.appendChild(visitBox);
         }
 
+        var hideSelf = this;
+        var hideBtn = document.createElement("button");
+        hideBtn.type = "button";
+        hideBtn.className = "btn btn-sm btn-outline crossdisc-hide-btn";
+        hideBtn.textContent = "Hide for now";
+        hideBtn.setAttribute("aria-label", "Hide this pattern until the page reloads");
+        hideBtn.onclick = function() {
+            if (connection.__allIdx !== undefined) {
+                hideSelf._hidden[connection.__allIdx] = true;
+            }
+            hideSelf._renderView();
+        };
+        card.appendChild(hideBtn);
+
         var disclaimer = document.createElement("div");
         disclaimer.className = "crossdisc-disclaimer";
         disclaimer.textContent = "This is a pattern worth exploring, not a diagnosis. Your doctor can decide whether it changes testing, monitoring, or treatment.";
@@ -620,13 +756,13 @@ var CrossDiscGraph = {
 
             var aiLead = document.createElement("div");
             aiLead.className = "crossdisc-source-copy";
-            aiLead.textContent = "Gemini identified this pattern from your records and surfaced supporting rationale where available.";
+            aiLead.textContent = "Your local AI model (running on this Mac) identified this pattern from your records and surfaced supporting rationale where available.";
             box.appendChild(aiLead);
 
             if (evidenceSource) {
                 var cites = document.createElement("div");
                 cites.className = "crossdisc-source-copy";
-                cites.textContent = "Gemini cites: " + evidenceSource;
+                cites.textContent = "The local model cites: " + evidenceSource;
                 box.appendChild(cites);
             }
 

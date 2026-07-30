@@ -22,6 +22,7 @@ model rather than the separately billed managed Deep Research agent.
 
 import json
 import logging
+import re
 from typing import Optional
 
 from src.models import (
@@ -232,6 +233,7 @@ For each citation, provide:
 - year: Publication year
 - doi: DOI if available
 - relevance_summary: 1-2 sentences on how this relates to the patient
+- connection_title: the exact text of the listed connection this citation supports
 
 Also generate any additional questions the patient should ask their doctor
 based on the literature findings.
@@ -250,7 +252,7 @@ Output as JSON with:
             )
 
             raw = json.loads(response.text)
-            return self._parse_pass4_results(raw)
+            return self._parse_pass4_results(raw, connections)
 
         except json.JSONDecodeError as e:
             logger.warning(
@@ -265,30 +267,62 @@ Output as JSON with:
             )
             return None
 
-    def _parse_pass4_results(self, raw: dict) -> dict:
-        """Parse Pass 4 raw JSON into LiteratureCitation models."""
+    def _parse_pass4_results(self, raw: dict, connections: list | None = None) -> dict:
+        """Parse Pass 4 raw JSON into LiteratureCitation models.
+
+        Citations that name a connection_title also attach to that
+        connection's supporting_literature, so evidence travels with the
+        finding into the report instead of dying in the flat list.
+        """
         results = {"literature": [], "questions": []}
+        connections = connections or []
 
         for cite in raw.get("literature", []):
             if not isinstance(cite, dict):
                 continue
             title = cite.get("title", "")
-            if title:
-                results["literature"].append(LiteratureCitation(
-                    title=title,
-                    authors=cite.get("authors"),
-                    journal=cite.get("journal"),
-                    year=cite.get("year"),
-                    doi=cite.get("doi"),
-                    pubmed_id=cite.get("pubmed_id"),
-                    relevance_summary=cite.get("relevance_summary"),
-                ))
+            if not title:
+                continue
+            citation = LiteratureCitation(
+                title=title,
+                authors=cite.get("authors"),
+                journal=cite.get("journal"),
+                year=cite.get("year"),
+                doi=cite.get("doi"),
+                pubmed_id=cite.get("pubmed_id"),
+                relevance_summary=cite.get("relevance_summary"),
+            )
+            results["literature"].append(citation)
+
+            target = self._match_connection(
+                cite.get("connection_title", ""), connections
+            )
+            if target is not None:
+                target.supporting_literature.append(citation)
 
         results["questions"] = [
             q for q in raw.get("questions", []) if isinstance(q, str)
         ]
 
         return results
+
+    @staticmethod
+    def _normalize_connection_title(text) -> str:
+        text = re.sub(r"\([^)]*\)", " ", str(text or ""))
+        return re.sub(r"[^a-z0-9 ]+", " ", text.lower()).strip()
+
+    def _match_connection(self, connection_title: str, connections: list):
+        """Fuzzy-match a Pass 4 connection_title back to its connection."""
+        wanted = self._normalize_connection_title(connection_title)
+        if len(wanted) < 8:
+            return None
+        for conn in connections:
+            have = self._normalize_connection_title(getattr(conn, "title", ""))
+            if not have:
+                continue
+            if have == wanted or wanted in have or have in wanted:
+                return conn
+        return None
 
     # ── Setup ───────────────────────────────────────────────
 

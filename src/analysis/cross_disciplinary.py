@@ -215,6 +215,21 @@ class CrossDisciplinaryEngine:
         )
         return queries
 
+    def build_prioritized_queries(self, profile_data: dict, cap: int = 60) -> list[dict]:
+        """Pass 3 fan-out: highest-priority queries first, hard-capped.
+
+        Stable sort preserves builder order within each priority tier, so
+        the capped prompt stays deterministic for identical profiles.
+        """
+        queries = self.build_queries(profile_data)
+        rank = {"high": 0, "medium": 1, "low": 2}
+        queries.sort(
+            key=lambda q: rank.get(str(q.get("priority", "medium")).lower(), 1)
+        )
+        if cap and cap > 0:
+            queries = queries[:cap]
+        return queries
+
     def get_deep_research_prompt(self, queries: list[dict],
                                  profile_summary: str) -> str:
         """
