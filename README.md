@@ -67,7 +67,6 @@ Use the sidebar to switch between views:
 | View | What It Shows |
 |------|---------------|
 | **Dashboard** | Patient overview: risk score, medication count, conditions, flags, lab trends, overdue tests |
-| **Body Map** | 3D interactive anatomy model (Z-Anatomy, 2,749 muscle meshes) with 6 dissection layers, HDR lighting, SSAO, and clinical findings pinned to body regions. ⚠️ *Under active development — see [CHANGELOG](CHANGELOG.md).* |
 | **Timeline** | D3.js swim-lane visualization of your medical history — medications, diagnoses, labs, procedures, imaging, symptoms — with zoom and brush navigation |
 | **Medications** | Active medications, drug-drug interactions, pharmacogenomic alerts |
 | **Labs** | Lab results table with flagged values and trends over time |
@@ -91,12 +90,6 @@ The embedded **Clinical Assistant** (bottom-right of Dashboard) lets you ask que
 Click the gear icon in the sidebar to configure your Google API key (needed for Gemini 3 Flash analysis).
 
 ## Key Features in Detail
-
-### 3D Anatomy Viewer
-
-Interactive Three.js body map with 6 dissection layers (skin, muscle, fascia, skeleton, vasculature, nerves) plus on-demand organ loading. Features HDR environment lighting, SSAO contact shadows, bloom post-processing, and PBR materials per tissue type. Clinical findings are pinned to anatomical regions. Click any region to zoom in, view findings, and see AI-generated explanations of what they mean in plain English. Toggle between your findings and a healthy baseline with "Show Healthy / Show My State."
-
-> **Status (March 2026):** The Body Map is under active development. We're aware of visual and interaction issues and are shipping fixes as fast as we can fix them — see [CHANGELOG.md](CHANGELOG.md) for the latest. A dedicated female anatomy model is planned. If you have suggestions or encounter bugs, email **arturo@goamaru.com**.
 
 ### 26-Source Clinical Validation
 
@@ -198,8 +191,7 @@ src/
 ├── imaging/            # Medical image analysis
 │   ├── monai_detector.py        # MONAI pre-trained model inference
 │   ├── model_manager.py         # Sequential model load/unload
-│   ├── vision_analyzer.py       # MedGemma 4B image analysis
-│   └── volumetric_renderer.py   # DICOM → MONAI → GLB 3D export
+│   └── vision_analyzer.py       # MedGemma 4B image analysis
 ├── privacy/            # PII redaction
 │   └── redactor.py              # Microsoft Presidio + regex
 ├── validation/         # 26 independent API clients

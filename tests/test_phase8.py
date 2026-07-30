@@ -979,15 +979,7 @@ def test_static_files_exist():
     assert (static_dir / "styles.css").exists(), "styles.css missing"
     assert (static_dir / "app.js").exists(), "app.js missing"
 
-    # Check assets
-    assets_dir = static_dir / "assets"
-    assert (assets_dir / "anatomy.png").exists(), "anatomy.png missing"
-    assert (assets_dir / "anatomy_back.png").exists(), "anatomy_back.png missing"
-    assert (assets_dir / "anatomy_muscle.png").exists(), "anatomy_muscle.png missing"
-    assert (assets_dir / "anatomy_skeleton.png").exists(), "anatomy_skeleton.png missing"
-    assert (assets_dir / "anatomy_organs.png").exists(), "anatomy_organs.png missing"
-
-    print("✓ All static files and assets exist")
+    print("✓ All static files exist")
 
 
 def test_index_html_structure():
@@ -997,7 +989,6 @@ def test_index_html_structure():
 
     required_views = [
         "view-dashboard",
-        "view-bodymap",
         "view-timeline",
         "view-medications",
         "view-labs",
@@ -1046,7 +1037,6 @@ def test_app_js_structure():
 
     # Main controllers
     assert "var App = {" in js or "var App =" in js, "Missing App controller"
-    assert "var BodyMap2DFallback = {" in js or "var BodyMap2DFallback =" in js, "Missing BodyMap2DFallback controller"
     assert "var Timeline = {" in js or "var Timeline =" in js, "Missing Timeline controller"
 
     # Key functions
@@ -1094,7 +1084,6 @@ def test_css_has_all_components():
         ".modal",
         ".community-warning",
         ".timeline-item",
-        ".bodymap-zone",
         "@media",
     ]
 

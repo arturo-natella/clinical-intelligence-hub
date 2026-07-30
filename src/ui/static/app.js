@@ -557,7 +557,6 @@ var App = {
         // Load data for the view if needed
         var loaders = {
             dashboard: function() { App.loadDashboard(); },
-            bodymap: function() { App.initBodyMap3D(); },
             medications: function() { App.loadMedications(); },
             labs: function() { App.loadLabs(); },
             imaging: function() { App.loadImaging(); },
@@ -596,22 +595,6 @@ var App = {
         if (!panel) return;
         var isOpen = panel.style.transform === "translateX(0px)" || panel.style.transform === "translateX(0%)";
         panel.style.transform = isOpen ? "translateX(100%)" : "translateX(0px)";
-    },
-
-    // ── 3D Body Map Initialization ───────────────────
-
-    initBodyMap3D: function() {
-        if (typeof THREE === "undefined") {
-            // Three.js module still loading — wait for it
-            window.addEventListener("three-ready", function() { App.initBodyMap3D(); }, { once: true });
-            return;
-        }
-        if (typeof BodyMap3D !== "undefined" && !BodyMap3D.initialized) {
-            BodyMap3D.init("bodymap-canvas-container");
-        } else if (typeof BodyMap3D !== "undefined" && BodyMap3D.initialized) {
-            // Already initialized — just refresh findings if profile loaded
-            BodyMap3D.loadFindings();
-        }
     },
 
     // ── Demo Data ──────────────────────────────────────
@@ -3189,126 +3172,6 @@ var App = {
         table.appendChild(tbody);
         section.appendChild(table);
         return section;
-    },
-};
-
-
-// ══════════════════════════════════════════════════════════
-//  BodyMap2DFallback — 2D Fallback (used when WebGL unavailable)
-//  Primary 3D viewer is in bodymap3d.js (BodyMap3D)
-// ══════════════════════════════════════════════════════════
-
-var BodyMap2DFallback = {
-    currentLayer: "skin",
-    currentSide: "front",
-
-    layerImages: {
-        "skin-front": "/assets/anatomy.png",
-        "skin-back": "/assets/anatomy_back.png",
-        "muscle-front": "/assets/anatomy_muscle.png",
-        "muscle-back": "/assets/anatomy_muscle.png",
-        "skeleton-front": "/assets/anatomy_skeleton.png",
-        "skeleton-back": "/assets/anatomy_skeleton.png",
-        "organs-front": "/assets/anatomy_organs.png",
-        "organs-back": "/assets/anatomy_organs.png",
-    },
-
-    regionMapping: {
-        head: ["neurology", "brain", "head", "neurological", "mental", "cognitive", "headache", "migraine", "seizure", "eye", "ear", "sinus", "thyroid"],
-        chest: ["cardiac", "heart", "lung", "pulmonary", "respiratory", "chest", "cardio", "coronary", "thorax", "rib", "breast"],
-        abdomen: ["gastro", "liver", "hepat", "pancrea", "stomach", "intestin", "colon", "abdom", "gallbladder", "spleen", "kidney", "renal"],
-        pelvis: ["pelvic", "bladder", "uterus", "prostate", "reproduct", "urinary", "urological"],
-        "left-arm": ["arm", "upper extremity", "shoulder", "elbow", "wrist", "hand"],
-        "right-arm": ["arm", "upper extremity", "shoulder", "elbow", "wrist", "hand"],
-        "left-leg": ["leg", "lower extremity", "hip", "knee", "ankle", "foot", "femur", "tibia"],
-        "right-leg": ["leg", "lower extremity", "hip", "knee", "ankle", "foot", "femur", "tibia"],
-    },
-
-    setLayer: function(layer) {
-        BodyMap2DFallback.currentLayer = layer;
-        var key = layer + "-" + BodyMap2DFallback.currentSide;
-        var img = $("bodymap-img");
-        if (img) img.src = BodyMap2DFallback.layerImages[key] || BodyMap2DFallback.layerImages["skin-front"];
-    },
-
-    selectRegion: async function(region) {
-        var zones = document.querySelectorAll(".bodymap-zone");
-        for (var i = 0; i < zones.length; i++) {
-            var isSelected = zones[i].dataset.region === region;
-            zones[i].style.fill = isSelected ? "rgba(220, 38, 38, 0.15)" : "transparent";
-            zones[i].style.stroke = isSelected ? "var(--heat)" : "none";
-            zones[i].style.strokeWidth = isSelected ? "2" : "0";
-        }
-
-        var regionName = region.replace(/-/g, " ").replace(/\b\w/g, function(c) { return c.toUpperCase(); });
-        $("bodymap-region-title").textContent = regionName;
-
-        var keywords = BodyMap2DFallback.regionMapping[region] || [];
-        var findings = [];
-
-        try {
-            var results = await Promise.all([
-                api("/api/diagnoses"),
-                api("/api/imaging"),
-                api("/api/flags"),
-            ]);
-            var diagnoses = results[0];
-            var imaging = results[1];
-            var flags = results[2];
-
-            for (var a = 0; a < diagnoses.length; a++) {
-                var dx = diagnoses[a];
-                var dxText = (dx.name + " " + (dx.status || "")).toLowerCase();
-                for (var b = 0; b < keywords.length; b++) {
-                    if (dxText.indexOf(keywords[b]) >= 0) {
-                        findings.push({ type: "Diagnosis", text: dx.name, detail: dx.status || "" });
-                        break;
-                    }
-                }
-            }
-
-            for (var c = 0; c < imaging.length; c++) {
-                var study = imaging[c];
-                var studyText = ((study.body_region || "") + " " + (study.description || "")).toLowerCase();
-                var matched = false;
-                for (var d = 0; d < keywords.length; d++) {
-                    if (studyText.indexOf(keywords[d]) >= 0) { matched = true; break; }
-                }
-                if (matched) {
-                    findings.push({ type: "Imaging", text: study.description || study.modality, detail: formatDate(study.study_date) });
-                }
-            }
-
-            for (var g = 0; g < flags.length; g++) {
-                var fl = flags[g];
-                var flText = ((fl.title || "") + " " + (fl.description || "")).toLowerCase();
-                for (var h = 0; h < keywords.length; h++) {
-                    if (flText.indexOf(keywords[h]) >= 0) {
-                        findings.push({ type: "Flag", text: fl.title, detail: fl.description || "" });
-                        break;
-                    }
-                }
-            }
-        } catch (ex) { /* no data */ }
-
-        var container = $("bodymap-findings-list");
-        if (!container) return;
-        if (findings.length === 0) {
-            container.textContent = "No findings related to this region in your records.";
-            container.style.color = "var(--text-muted)";
-        } else {
-            var html = "";
-            for (var m = 0; m < findings.length; m++) {
-                var fn = findings[m];
-                html += '<div style="padding:8px 0; border-bottom:1px solid var(--border-faint);">'
-                    + '<span class="badge badge-info" style="margin-right:8px;">' + escapeHtml(fn.type) + "</span>"
-                    + "<strong>" + escapeHtml(fn.text) + "</strong>"
-                    + '<div style="font-size:12px; color:var(--text-muted); margin-top:2px;">' + escapeHtml(fn.detail) + "</div>"
-                    + "</div>";
-            }
-            safeSetHtml(container, html);
-            container.style.color = "";
-        }
     },
 };
 

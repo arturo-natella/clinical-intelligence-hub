@@ -36,16 +36,6 @@ def test_treatment_cards_render_medication_and_lab_evidence_metadata():
     assert "lab.current.source_file" in trajectories_js
 
 
-def test_body_map_translation_includes_all_requested_finding_types():
-    bodymap_js = _read("src/ui/static/js/bodymap3d.js")
-
-    assert 'fetch("/api/cross-disciplinary?stored=1")' in bodymap_js
-    assert 'type: "cross-disciplinary"' in bodymap_js
-    assert "fl[c].description" in bodymap_js
-    assert "translation_text" in bodymap_js
-    assert "finding.translation_text || finding.text" in bodymap_js
-
-
 def test_general_clinical_glossary_extends_lab_plain_language_pattern():
     app_js = _read("src/ui/static/app.js")
 

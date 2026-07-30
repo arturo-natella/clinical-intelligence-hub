@@ -465,19 +465,7 @@ def test_all_static_assets_present():
     assert (static_dir / "styles.css").exists()
     assert (static_dir / "app.js").exists()
 
-    # Anatomy assets
-    assets = static_dir / "assets"
-    required_images = [
-        "anatomy.png",
-        "anatomy_back.png",
-        "anatomy_muscle.png",
-        "anatomy_skeleton.png",
-        "anatomy_organs.png",
-    ]
-    for img in required_images:
-        assert (assets / img).exists(), f"Missing: {img}"
-
-    print(f"✓ All static files present (3 core + {len(required_images)} anatomy images)")
+    print("✓ All static files present (3 core)")
 
 
 # ── Governance Files Test ─────────────────────────────────

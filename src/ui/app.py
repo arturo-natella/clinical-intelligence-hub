@@ -406,18 +406,6 @@ def index():
     return send_from_directory(str(STATIC_DIR), "index.html")
 
 
-@app.route("/assets/<path:filename>")
-def assets(filename):
-    """Serve static assets (anatomy images, etc.)."""
-    return send_from_directory(str(STATIC_DIR / "assets"), filename)
-
-
-@app.route("/models/<path:filename>", methods=["GET", "HEAD"])
-def models(filename):
-    """Serve 3D model files (GLB, etc.)."""
-    return send_from_directory(str(STATIC_DIR / "models"), filename)
-
-
 @app.route("/js/<path:filename>")
 def javascript(filename):
     """Serve JavaScript files."""
