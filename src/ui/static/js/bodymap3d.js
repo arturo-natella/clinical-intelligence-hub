@@ -3718,7 +3718,10 @@ var BodyMap3D = {
                     img[b].study_type,
                     img[b].body_region,
                     img[b].description,
-                    img[b].findings
+                    // Findings are objects; joining them raw yields "[object Object]".
+                    (App._normalizeFindings(img[b].findings) || [])
+                        .map(function(f) { return f.description; })
+                        .join(" ")
                 ].filter(Boolean).join(" ")
             });
         }

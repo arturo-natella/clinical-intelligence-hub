@@ -160,6 +160,24 @@ whenever imaging findings are plain strings —
 `_build_demo_profile()` stores one string per study. Pre-existing (a54f1c3),
 and it means Differential diagnosis never appears in the new Deep Analysis card.
 
+### Imaging findings shape — FIXED 2026-07-30
+`ImagingStudy.findings` is `list[ImagingFinding]`, but `_build_demo_profile()`
+stored one plain **string** per study. Every consumer that iterated it walked
+the string character by character:
+
+- `POST /api/snowball-diagnoses` called `.get()` on a character → **500**, so
+  Differential diagnosis never appeared in the new Deep Analysis card;
+- the Imaging view rendered **507 empty boxes** (one per character);
+- `bodymap3d.js` joined findings raw, which yields `[object Object]` for real
+  (correctly-shaped) pipeline data.
+
+Fixed at the source (demo now emits `[{"description": …}]`) **and**
+defensively in every consumer: `_normalize_findings()` in `snowball_engine.py`
+and `App._normalizeFindings()` in `app.js`, both accepting strings, objects,
+or mixed lists. Verified live: snowball 500 → 200 (99 ranked conditions),
+imaging 507 empty boxes → 6 real findings. Tests:
+`tests/test_imaging_findings_shape.py` (5).
+
 ### Housekeeping
 - Removed the stale `nested-leaping-goose.md` rebuild-plan reference from
   `CLAUDE.md`.

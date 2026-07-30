@@ -1405,6 +1405,31 @@ CATEGORY_COLORS = {
 }
 
 
+def _normalize_findings(findings) -> list[dict]:
+    """Coerce imaging findings to the model shape: a list of finding objects.
+
+    `ImagingStudy.findings` is `list[ImagingFinding]`, but legacy and demo
+    records stored one plain string per study. Iterating that yields single
+    characters, which used to raise AttributeError here and 500 the endpoint.
+    """
+    if not findings:
+        return []
+    if isinstance(findings, str):
+        text = findings.strip()
+        return [{"description": text}] if text else []
+    if isinstance(findings, dict):
+        findings = [findings]
+
+    normalized: list[dict] = []
+    for finding in findings:
+        if isinstance(finding, dict):
+            if str(finding.get("description") or "").strip():
+                normalized.append(finding)
+        elif isinstance(finding, str) and finding.strip():
+            normalized.append({"description": finding.strip()})
+    return normalized
+
+
 class SnowballEngine:
     """
     Graph-theory differential diagnosis engine.
@@ -1645,9 +1670,11 @@ class SnowballEngine:
                             "original": f"Patient data contradicts: {claim} (avg {avg:.1f})",
                         })
 
-        # Imaging findings (from MONAI + radiomics)
+        # Imaging findings (from MONAI + radiomics). Findings are normally
+        # list[ImagingFinding], but legacy/demo records stored a single
+        # string — iterating that walks it character by character.
         for study in timeline.get("imaging", []):
-            for finding in study.get("findings", []):
+            for finding in _normalize_findings(study.get("findings")):
                 desc = finding.get("description", "")
                 if desc:
                     corpus.append({

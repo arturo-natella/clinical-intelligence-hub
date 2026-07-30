@@ -917,6 +917,27 @@ var App = {
 
     // ── Dashboard ─────────────────────────────────────
 
+    // Imaging findings are list[ImagingFinding], but legacy records stored a
+    // single string — indexing that renders one empty box per character.
+    _normalizeFindings: function(findings) {
+        if (!findings) return [];
+        if (typeof findings === "string") {
+            var text = findings.trim();
+            return text ? [{description: text}] : [];
+        }
+        if (!Array.isArray(findings)) return [];
+        var out = [];
+        for (var i = 0; i < findings.length; i++) {
+            var f = findings[i];
+            if (typeof f === "string") {
+                if (f.trim()) out.push({description: f.trim()});
+            } else if (f && f.description) {
+                out.push(f);
+            }
+        }
+        return out;
+    },
+
     TEXT_SCALE_STEPS: [
         { value: "1", label: "Standard" },
         { value: "1.15", label: "Large" },
@@ -2023,7 +2044,7 @@ var App = {
             for (var i = 0; i < studies.length; i++) {
                 var s = studies[i];
                 var findingsHtml = "";
-                var findings = s.findings || [];
+                var findings = App._normalizeFindings(s.findings);
                 for (var j = 0; j < findings.length; j++) {
                     var f = findings[j];
                     findingsHtml += '<div style="padding:8px 12px; background:var(--bg-raised); border-radius:8px; margin-top:8px;">'
