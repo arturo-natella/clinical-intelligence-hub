@@ -1,7 +1,9 @@
 # MedPrep Session Handoff — 2026-07-17
 
-**Repo state:** `main` @ `fe45bf2`, with uncommitted P1-P7 work in the working
-tree. Current test suite: **426 passed** (5 dependency deprecation warnings).
+**Repo state:** `main` @ `a54f1c3`, pushed, working tree clean — the P1–P7 batch
+is committed (branch `7.30.26-p1-p7-phi-logs-ci-deep-insights`, fast-forwarded to
+main on 2026-07-30). Test suite: **426 passed** locally AND on the first GitHub
+Actions run (ubuntu, 2m53s, green).
 Server: launch config `"hub"`, Flask on **:5050**. Demo patient works end-to-end.
 Prior handoffs (2026-03-13, 2026-04-15) are in git history; fix details live in
 `~/.claude/projects/-Users-owner-Desktop-Tech-Tools-MedPrep/memory/bugs-and-fixes.md`.
@@ -32,10 +34,10 @@ logging. Exception objects are reduced to their type before logging or progress
 display. Regression tests assert that PHI sentinels never reach the log stream
 and statically reject direct interpolation of patient-bearing values.
 
-### P2 — CI on GitHub  *(completed locally 2026-07-17)*
-Added a read-only Ubuntu GitHub Actions workflow for push/PR with Python 3.13,
-pip caching, dependency installation, and `python -m pytest tests/ -q`.
-Apple Vision is now installed only on macOS.
+### P2 — CI on GitHub  *(DONE — verified green 2026-07-30)*
+Read-only Ubuntu GitHub Actions workflow for push/PR with Python 3.13, pip
+caching, dependency installation, and `python -m pytest tests/ -q`. Apple
+Vision installs only on macOS. First run passed on ubuntu-latest in 2m53s.
 
 ### P3 — Full-corpus soak run  *(bookmarked / deferred 2026-07-17)*
 The exact 7,278-page PDF is present, but no full run has completed. The prior
