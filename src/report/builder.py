@@ -936,7 +936,11 @@ class ReportBuilder:
         data = getattr(snapshot, "data", None)
         if isinstance(data, dict):
             engine = data.get("connections", []) or []
-        return merge_connections(stored, engine)
+        dismissed = {
+            item.key for item in analysis.dismissed_findings
+            if item.kind == "cross_disciplinary" and item.key
+        }
+        return merge_connections(stored, engine, dismissed_keys=dismissed)
 
     def _section_8_cross_disciplinary(self, analysis: AnalysisResults):
         """Cross-specialty connections that individual doctors might miss."""

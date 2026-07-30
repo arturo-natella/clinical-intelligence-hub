@@ -122,15 +122,32 @@ def _merge_into(base: dict, incoming: dict) -> None:
         base["severity"] = incoming["severity"]
 
 
-def merge_connections(stored: list, engine_results: list) -> list[dict]:
+def dismissal_key(title: str) -> str:
+    """Stable key for a dismissed finding — same normalization as dedupe."""
+    return _dedupe_key(title)
+
+
+def merge_connections(
+    stored: list,
+    engine_results: list,
+    dismissed_keys: set | None = None,
+) -> list[dict]:
     """Stored cloud connections + engine correlations, deduped and enriched.
 
     Duplicate = same parenthetical-stripped casefolded title AND at least one
     shared specialty (an empty specialty list on either side counts as
     overlapping). Stored entries are kept as the base; duplicates merge their
     evidence in rather than appearing twice.
+
+    ``dismissed_keys`` removes findings the reader marked "not relevant", so a
+    dismissal made once is honored by the graph, dashboard, and report alike.
     """
-    merged: list[dict] = [dict(item) for item in stored or [] if isinstance(item, dict)]
+    dismissed = dismissed_keys or set()
+
+    merged: list[dict] = [
+        dict(item) for item in stored or []
+        if isinstance(item, dict) and _dedupe_key(item.get("title", "")) not in dismissed
+    ]
     index: dict[str, dict] = {}
     for entry in merged:
         key = _dedupe_key(entry.get("title", ""))
@@ -142,7 +159,7 @@ def merge_connections(stored: list, engine_results: list) -> list[dict]:
             continue
         entry = _normalize_engine_entry(raw)
         key = _dedupe_key(entry.get("title", ""))
-        if not key:
+        if not key or key in dismissed:
             continue
         existing = index.get(key)
         if existing is not None and _specialties_overlap(existing, entry):

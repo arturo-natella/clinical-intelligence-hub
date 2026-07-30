@@ -424,6 +424,14 @@ class DeepInsightSnapshot(BaseModel):
     data: dict = Field(default_factory=dict)
 
 
+class DismissedFinding(BaseModel):
+    """A finding the reader marked 'not relevant'. Lives in the encrypted vault."""
+    key: str                                # Normalized title (merge dedupe key)
+    kind: str = "cross_disciplinary"
+    title: str = ""
+    dismissed_at: datetime = Field(default_factory=datetime.now)
+
+
 class AnalysisResults(BaseModel):
     """All analysis outputs from the pipeline."""
     flags: list[ClinicalFlag] = Field(default_factory=list)
@@ -438,6 +446,7 @@ class AnalysisResults(BaseModel):
     pgx_collision_map: Optional[DeepInsightSnapshot] = None
     lab_trajectories: Optional[DeepInsightSnapshot] = None
     cross_specialty_patterns: Optional[DeepInsightSnapshot] = None
+    dismissed_findings: list[DismissedFinding] = Field(default_factory=list)
 
 
 class PatientProfile(BaseModel):

@@ -288,5 +288,7 @@ def test_graph_covers_five_severities_and_credits_local_ai():
     assert "local AI model" in js
 
     assert "_buildFilterBar" in js
-    assert "Hide for now" in js
+    assert "Not relevant" in js, "dismissal must be persisted, not session-only"
+    assert "/api/findings/dismiss" in js
+    assert "_hidden" not in js, "session-only hiding was replaced by vault-persisted dismissals"
     assert "Nutrition/Metabolic Medicine" in js, "canonical taxonomy colors missing"

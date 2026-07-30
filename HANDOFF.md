@@ -112,6 +112,24 @@ conditions" label, graph drawn synchronously (rAF never fired in background
 tabs). Deferred: matching rigor (Direction 2 — abnormal-only labs, negation),
 vault-persisted dismissals. Tests: `tests/test_crossdisc_unify.py` (14).
 
+### Matching rigor + persisted dismissals — DONE 2026-07-30
+Spec: `docs/superpowers/specs/2026-07-30-matching-rigor-design.md`. New
+`src/analysis/diagnostic_engine/evidence_match.py` keeps labs structured
+(direction from flag, or computed from reference range) and matches text per
+record entry, so a NORMAL ferritin no longer satisfies `"high ferritin"`, a
+negative ANA no longer satisfies `"ana positive"`, and `"denies chest pain"` /
+`"family history of stroke"` stop counting as findings. Balanced policy: a
+triad needs ≥1 specific signal (abnormal lab or a symptom outside
+`NON_SPECIFIC_SYMPTOMS`) — vague fatigue+headache clusters no longer fire.
+Also fixed a field asymmetry: demo/legacy labs use `test_name`, so the old
+corpus saw **zero labs** — the matcher now accepts `name`/`test_name`/`test`
+(demo went from 0 to 3 lab-backed findings). Dismissals persist in the
+encrypted vault (`AnalysisResults.dismissed_findings`,
+`POST /api/findings/dismiss|restore`, `GET /api/findings/dismissed`) and are
+filtered inside `merge_connections`, so "Not relevant" holds across reloads
+and keeps the finding out of the Word report. Tests:
+`tests/test_matching_rigor.py` (26). Suite 478.
+
 ### Housekeeping
 - Removed the stale `nested-leaping-goose.md` rebuild-plan reference from
   `CLAUDE.md`.

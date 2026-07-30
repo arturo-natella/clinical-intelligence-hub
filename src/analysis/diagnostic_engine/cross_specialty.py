@@ -19,6 +19,10 @@ Results feed into:
 import logging
 from typing import Optional
 
+from src.analysis.diagnostic_engine.evidence_match import (
+    build_evidence,
+    is_specific_symptom,
+)
 from src.local_llm import call_local_text_model, parse_json_array_from_text
 
 logger = logging.getLogger("CIH-CrossSpecialty")
@@ -26,7 +30,7 @@ logger = logging.getLogger("CIH-CrossSpecialty")
 
 # ── Systemic Disease Triads ──────────────────────────────────
 #
-# 22 conditions that present across multiple seemingly unrelated
+# Conditions that present across multiple seemingly unrelated
 # specialties.  Each entry has:
 #   specialties      – which departments might each see a piece
 #   symptoms         – terms to match in diagnoses, symptoms, findings
@@ -943,29 +947,30 @@ class CrossSpecialtyEngine:
             },
         ]
         """
+        # Free-text corpus feeds the local-AI prompt; structured evidence does
+        # the matching (a normal ferritin must not satisfy "high ferritin").
         corpus = self._build_corpus(profile_data)
-        corpus_text = " | ".join(corpus)
+        evidence = build_evidence(profile_data)
 
         alerts = []
 
         for disease, profile in SYSTEMIC_DISEASE_TRIADS.items():
-            symptom_hits = []
-            for symptom in profile["symptoms"]:
-                if symptom.lower() in corpus_text:
-                    symptom_hits.append(symptom)
+            symptom_hits = [
+                symptom for symptom in profile["symptoms"]
+                if evidence.match_symptom(symptom)
+            ]
+            lab_hits = [
+                marker for marker in profile["lab_markers"]
+                if evidence.match_lab_marker(marker)
+            ]
 
-            lab_hits = []
-            for lab in profile["lab_markers"]:
-                # Flexible matching — strip qualifiers
-                lab_base = (
-                    lab.lower()
-                    .replace("high ", "")
-                    .replace("low ", "")
-                    .replace(" positive", "")
-                    .replace(" elevated", "")
-                )
-                if lab_base in corpus_text:
-                    lab_hits.append(lab)
+            # A triad needs one signal that actually points at it: an abnormal
+            # lab, or a symptom that isn't common to half the table.
+            has_specific_signal = bool(lab_hits) or any(
+                is_specific_symptom(symptom) for symptom in symptom_hits
+            )
+            if not has_specific_signal:
+                continue
 
             total_hits = len(symptom_hits) + len(lab_hits)
             total_possible = len(profile["symptoms"]) + len(profile["lab_markers"])

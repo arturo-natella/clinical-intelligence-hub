@@ -62,12 +62,27 @@ var CrossDiscGraph = {
     },
 
     render: function(containerId, connections) {
+        var self = this;
         this._containerId = containerId;
         this._all = connections || [];
-        if (!this._hidden) this._hidden = {};
         if (this._sevActive === undefined) this._sevActive = null;
         if (this._specActive === undefined) this._specActive = null;
+        if (this._dismissedCount === undefined) this._dismissedCount = 0;
         this._renderView();
+
+        // Dismissed findings are filtered out server-side; fetch the count so
+        // the reader can always get them back.
+        fetch("/api/findings/dismissed?kind=cross_disciplinary")
+            .then(function(r) { return r.ok ? r.json() : null; })
+            .then(function(data) {
+                if (!data) return;
+                var count = (data.dismissed || []).length;
+                if (count !== self._dismissedCount) {
+                    self._dismissedCount = count;
+                    self._renderView();
+                }
+            })
+            .catch(function() { /* count is a convenience, not a requirement */ });
     },
 
     _visibleConnections: function() {
@@ -75,7 +90,6 @@ var CrossDiscGraph = {
         for (var i = 0; i < this._all.length; i++) {
             var c = this._all[i];
             c.__allIdx = i;
-            if (this._hidden[i]) continue;
             if (this._sevActive
                 && String(c.severity || "moderate").toLowerCase() !== this._sevActive) continue;
             if (this._specActive
@@ -154,7 +168,6 @@ var CrossDiscGraph = {
             reset.onclick = function() {
                 self._sevActive = null;
                 self._specActive = null;
-                self._hidden = {};
                 self._renderView();
             };
             none.appendChild(reset);
@@ -278,20 +291,64 @@ var CrossDiscGraph = {
         };
         bar.appendChild(specSelect);
 
-        var hiddenCount = Object.keys(this._hidden || {}).length;
-        if (hiddenCount > 0) {
-            var unhide = document.createElement("button");
-            unhide.type = "button";
-            unhide.className = "crossdisc-filter-chip";
-            unhide.textContent = hiddenCount + " hidden — show";
-            unhide.onclick = function() {
-                self._hidden = {};
-                self._renderView();
+        if (this._dismissedCount > 0) {
+            var restore = document.createElement("button");
+            restore.type = "button";
+            restore.className = "crossdisc-filter-chip";
+            restore.textContent = this._dismissedCount + " set aside — bring back";
+            restore.onclick = function() {
+                restore.disabled = true;
+                self._restoreAllDismissed();
             };
-            bar.appendChild(unhide);
+            bar.appendChild(restore);
         }
 
         return bar;
+    },
+
+    _dismiss: function(connection, button) {
+        var self = this;
+        var title = connection.title || connection.disease || "";
+        if (!title) return;
+        if (button) {
+            button.disabled = true;
+            button.textContent = "Setting aside…";
+        }
+        fetch("/api/findings/dismiss", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({kind: "cross_disciplinary", title: title}),
+        }).then(function(r) {
+            if (!r.ok) throw new Error("dismiss failed");
+            return r.json();
+        }).then(function(data) {
+            self._dismissedCount = (data.dismissed || []).length;
+            if (typeof App !== "undefined" && App.loadCrossDisciplinary) {
+                App.loadCrossDisciplinary();
+            }
+        }).catch(function() {
+            if (button) {
+                button.disabled = false;
+                button.textContent = "Couldn't save — try again";
+            }
+        });
+    },
+
+    _restoreAllDismissed: function() {
+        var self = this;
+        fetch("/api/findings/restore", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({kind: "cross_disciplinary", all: true}),
+        }).then(function(r) {
+            if (!r.ok) throw new Error("restore failed");
+            return r.json();
+        }).then(function(data) {
+            self._dismissedCount = (data.dismissed || []).length;
+            if (typeof App !== "undefined" && App.loadCrossDisciplinary) {
+                App.loadCrossDisciplinary();
+            }
+        }).catch(function() { self._renderView(); });
     },
 
     _getUniqueSpecialties: function(connections) {
@@ -671,19 +728,17 @@ var CrossDiscGraph = {
             card.appendChild(visitBox);
         }
 
-        var hideSelf = this;
-        var hideBtn = document.createElement("button");
-        hideBtn.type = "button";
-        hideBtn.className = "btn btn-sm btn-outline crossdisc-hide-btn";
-        hideBtn.textContent = "Hide for now";
-        hideBtn.setAttribute("aria-label", "Hide this pattern until the page reloads");
-        hideBtn.onclick = function() {
-            if (connection.__allIdx !== undefined) {
-                hideSelf._hidden[connection.__allIdx] = true;
-            }
-            hideSelf._renderView();
-        };
-        card.appendChild(hideBtn);
+        var self = this;
+        var dismissBtn = document.createElement("button");
+        dismissBtn.type = "button";
+        dismissBtn.className = "btn btn-sm btn-outline crossdisc-hide-btn";
+        dismissBtn.textContent = "Not relevant";
+        dismissBtn.setAttribute(
+            "aria-label",
+            "Set this pattern aside — it stays out of your reports until you bring it back"
+        );
+        dismissBtn.onclick = function() { self._dismiss(connection, dismissBtn); };
+        card.appendChild(dismissBtn);
 
         var disclaimer = document.createElement("div");
         disclaimer.className = "crossdisc-disclaimer";

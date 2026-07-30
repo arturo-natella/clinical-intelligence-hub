@@ -2237,6 +2237,127 @@ def get_interactions():
     return jsonify(analysis.get("drug_interactions", []))
 
 
+_DISMISSIBLE_KINDS = {"cross_disciplinary"}
+
+
+def _dismissed_keys(kind: str = "cross_disciplinary") -> set:
+    """Normalized keys of findings the reader marked 'not relevant'."""
+    analysis = (_profile_data or {}).get("analysis", {}) or {}
+    entries = analysis.get("dismissed_findings", []) or []
+    return {
+        str(item.get("key") or "")
+        for item in entries
+        if isinstance(item, dict)
+        and item.get("kind", "cross_disciplinary") == kind
+        and item.get("key")
+    }
+
+
+@app.route("/api/findings/dismissed")
+def list_dismissed_findings():
+    """Findings the reader set aside — the UI needs the count to offer undo."""
+    kind = (request.args.get("kind") or "cross_disciplinary").strip()
+    if kind not in _DISMISSIBLE_KINDS:
+        return jsonify({"error": f"Unknown finding kind: {kind}"}), 400
+
+    analysis = (_profile_data or {}).get("analysis", {}) or {}
+    entries = [
+        {
+            "key": item.get("key", ""),
+            "title": item.get("title", ""),
+            "dismissed_at": item.get("dismissed_at", ""),
+        }
+        for item in analysis.get("dismissed_findings", []) or []
+        if isinstance(item, dict) and item.get("kind", "cross_disciplinary") == kind
+    ]
+    return jsonify({"dismissed": entries})
+
+
+@app.route("/api/findings/dismiss", methods=["POST"])
+def dismiss_finding():
+    """Mark a finding not relevant. Persists in the encrypted vault (PHI-derived)."""
+    from src.analysis.crossdisc_merge import dismissal_key
+
+    if not _profile_data:
+        return jsonify({"error": "No profile loaded"}), 400
+
+    data = request.get_json(silent=True) or {}
+    kind = (data.get("kind") or "cross_disciplinary").strip()
+    title = (data.get("title") or "").strip()
+    if kind not in _DISMISSIBLE_KINDS:
+        return jsonify({"error": f"Unknown finding kind: {kind}"}), 400
+    if not title:
+        return jsonify({"error": "Finding title is required"}), 400
+
+    key = dismissal_key(title)
+    if not key:
+        return jsonify({"error": "Finding title is required"}), 400
+
+    analysis = _profile_data.setdefault("analysis", {})
+    entries = analysis.setdefault("dismissed_findings", [])
+    already = any(
+        isinstance(item, dict) and item.get("key") == key and item.get("kind") == kind
+        for item in entries
+    )
+    if not already:
+        entries.append({
+            "key": key,
+            "kind": kind,
+            "title": title,
+            "dismissed_at": datetime.now().isoformat(),
+        })
+        if not _save_profile_to_vault():
+            entries[:] = [
+                item for item in entries
+                if not (isinstance(item, dict) and item.get("key") == key)
+            ]
+            return jsonify({"error": "Could not save your choice"}), 500
+
+    return jsonify({"ok": True, "dismissed": sorted(_dismissed_keys(kind))})
+
+
+@app.route("/api/findings/restore", methods=["POST"])
+def restore_finding():
+    """Undo a dismissal — one finding by title, or all of a kind."""
+    from src.analysis.crossdisc_merge import dismissal_key
+
+    if not _profile_data:
+        return jsonify({"error": "No profile loaded"}), 400
+
+    data = request.get_json(silent=True) or {}
+    kind = (data.get("kind") or "cross_disciplinary").strip()
+    if kind not in _DISMISSIBLE_KINDS:
+        return jsonify({"error": f"Unknown finding kind: {kind}"}), 400
+
+    analysis = _profile_data.setdefault("analysis", {})
+    entries = analysis.setdefault("dismissed_findings", [])
+    previous = list(entries)
+
+    if data.get("all"):
+        entries[:] = [
+            item for item in entries
+            if not (isinstance(item, dict) and item.get("kind", "cross_disciplinary") == kind)
+        ]
+    else:
+        key = dismissal_key((data.get("title") or "").strip())
+        if not key:
+            return jsonify({"error": "Finding title is required"}), 400
+        entries[:] = [
+            item for item in entries
+            if not (
+                isinstance(item, dict)
+                and item.get("key") == key
+                and item.get("kind", "cross_disciplinary") == kind
+            )
+        ]
+
+    if entries != previous and not _save_profile_to_vault():
+        entries[:] = previous
+        return jsonify({"error": "Could not save your choice"}), 500
+
+    return jsonify({"ok": True, "dismissed": sorted(_dismissed_keys(kind))})
+
+
 @app.route("/api/cross-disciplinary")
 def get_cross_disciplinary():
     """Get cross-disciplinary connections, including cross-specialty correlations."""
@@ -2254,19 +2375,27 @@ def get_cross_disciplinary():
     stored_only = request.args.get("stored", "").strip().lower() in {
         "1", "true", "yes",
     }
+    dismissed = _dismissed_keys("cross_disciplinary")
     if not stored_only:
         try:
             from src.analysis.crossdisc_merge import merge_connections
 
             result = _compute_and_persist_deep_insight("cross_specialty")
             connections = merge_connections(
-                connections, result.get("connections", [])
+                connections, result.get("connections", []), dismissed_keys=dismissed
             )
         except Exception as e:
             logger.warning(
                 "Cross-specialty correlation failed (error_type=%s)",
                 type(e).__name__,
             )
+    elif dismissed:
+        from src.analysis.crossdisc_merge import dismissal_key
+
+        connections = [
+            c for c in connections
+            if dismissal_key(c.get("title", "")) not in dismissed
+        ]
 
     source_index = _record_source_index(_profile_data)
     return jsonify([
