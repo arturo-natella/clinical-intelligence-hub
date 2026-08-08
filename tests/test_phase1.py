@@ -144,6 +144,38 @@ def test_database():
         print("✓ Database: SQLite with WAL mode, state tracking, redaction log, alerts all working")
 
 
+def test_database_recovers_orphaned_pipeline_runs_without_touching_checkpoints():
+    """Startup recovery must close stale metadata while preserving resume data."""
+    from src.database import Database
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db = Database(Path(tmpdir) / "test.db")
+        db.upsert_file_state(
+            file_id="resume-file",
+            filename="record.pdf",
+            file_type="pdf_text",
+            sha256_hash="resume-hash",
+            file_size_bytes=100,
+            status="extracting",
+        )
+        db.update_text_checkpoint("resume-file", chunks_completed=3, chunks_total=10)
+        db.start_pipeline_run("orphaned-run")
+
+        assert db.recover_interrupted_pipeline_runs() == 1
+        run = db._get_conn().execute(
+            "SELECT status, completed_at FROM pipeline_runs WHERE run_id = 'orphaned-run'"
+        ).fetchone()
+        checkpoint = db.get_file_state("resume-file")
+
+        assert run["status"] == "interrupted"
+        assert run["completed_at"] is not None
+        assert checkpoint["status"] == "extracting"
+        assert checkpoint["text_chunks_completed"] == 3
+        assert checkpoint["text_chunks_total"] == 10
+        assert db.recover_interrupted_pipeline_runs() == 0
+        db.close()
+
+
 def test_database_migrates_legacy_processing_state_for_chunk_resume():
     """Existing patient databases gain resume columns without data loss."""
     from src.database import Database

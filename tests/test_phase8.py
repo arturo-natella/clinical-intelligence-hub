@@ -831,6 +831,48 @@ def test_api_call_pause_control_is_independent_of_pipeline_pause(monkeypatch):
     print("✓ API calls can pause independently while local processing continues")
 
 
+def test_api_calls_are_paused_by_default_at_app_startup():
+    """Paid external stages require an explicit resume after each app launch."""
+    import subprocess
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from src.ui.app import _api_calls_allowed; "
+            "raise SystemExit(0 if not _api_calls_allowed.is_set() else 1)",
+        ],
+        cwd=str(Path(__file__).parent.parent),
+        check=False,
+    )
+
+    assert result.returncode == 0
+
+
+def test_app_startup_recovers_orphaned_pipeline_runs(monkeypatch):
+    """Startup recovery closes stale run metadata without removing checkpoints."""
+    import src.ui.app as app_module
+    from src.database import Database
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        data_dir = Path(tmpdir)
+        db = Database(data_dir / "cih.db")
+        db.start_pipeline_run("orphaned-run")
+        db.close()
+
+        monkeypatch.setattr(app_module, "DATA_DIR", data_dir)
+        assert app_module._recover_orphaned_pipeline_runs() == 1
+
+        db = Database(data_dir / "cih.db")
+        run = db._get_conn().execute(
+            "SELECT status, completed_at FROM pipeline_runs WHERE run_id = 'orphaned-run'"
+        ).fetchone()
+        db.close()
+
+        assert run["status"] == "interrupted"
+        assert run["completed_at"] is not None
+
+
 def test_api_returns_empty_without_profile():
     """API endpoints return empty data without a loaded profile."""
     from src.ui.app import app
@@ -1012,7 +1054,7 @@ def test_index_html_structure():
     assert "profile-list" in html
     assert "profile-indicator" in html
     assert "data-api-pause-button" in html
-    assert "Pause API Calls" in html
+    assert "Resume API Calls" in html
 
     # Check chat entry point
     assert "dashboard-chat" in html or "view-chat" in html
