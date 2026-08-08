@@ -371,9 +371,9 @@
             </div>
             <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border-faint); display:flex; align-items:center; justify-content:center; gap:12px; flex-wrap:wrap;">
                 <button class="btn btn-outline btn-sm" data-api-pause-button
-                        onclick="App.toggleApiCalls();">Pause API Calls</button>
-                <span data-api-pause-status style="font-size:12px; color:var(--accent-green);">
-                    APIs enabled after local processing
+                        onclick="App.toggleApiCalls();">Resume API Calls</button>
+                <span data-api-pause-status style="font-size:12px; color:var(--accent-amber);">
+                    API calls paused — local record processing continues
                 </span>
             </div>
         </div>
@@ -387,9 +387,9 @@
                     Analyze Records
                 </button>
                 <button class="btn btn-outline btn-sm" data-api-pause-button
-                        onclick="App.toggleApiCalls();">Pause API Calls</button>
-                <span data-api-pause-status style="font-size:12px; color:var(--accent-green);">
-                    APIs enabled after local processing
+                        onclick="App.toggleApiCalls();">Resume API Calls</button>
+                <span data-api-pause-status style="font-size:12px; color:var(--accent-amber);">
+                    API calls paused — local record processing continues
                 </span>
             </div>
         </div>
@@ -401,14 +401,14 @@
                 <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
                     <button data-api-pause-button onclick="App.toggleApiCalls()" style="
                         background: transparent;
-                        color: var(--accent-amber, #f59e0b);
-                        border: 1px solid var(--accent-amber, #f59e0b);
+                        color: var(--accent-green, #3fb950);
+                        border: 1px solid var(--accent-green, #3fb950);
                         padding: 6px 12px;
                         border-radius: 6px;
                         font-size: 0.82rem;
                         font-weight: 600;
                         cursor: pointer;
-                    ">Pause API Calls</button>
+                    ">Resume API Calls</button>
                     <button id="pause-btn" onclick="App.togglePause()" style="
                         background: var(--accent-amber, #f59e0b);
                         color: #000;
@@ -421,8 +421,8 @@
                     ">Pause Processing</button>
                 </div>
             </div>
-            <div data-api-pause-status style="font-size:12px; color:var(--accent-green); margin-top:8px;">
-                APIs enabled after local processing
+            <div data-api-pause-status style="font-size:12px; color:var(--accent-amber); margin-top:8px;">
+                API calls paused — local record processing continues
             </div>
             <div class="progress-container">
                 <div class="progress-bar">

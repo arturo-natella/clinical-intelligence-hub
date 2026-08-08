@@ -283,7 +283,8 @@ var App = {
     _activeProfileId: null,
     _activeProfileName: null,
     _profiles: [],
-    _apiCallsPaused: false,
+    // External calls require an explicit user action after each app launch.
+    _apiCallsPaused: true,
 
     // ── Initialization ────────────────────────────────
 

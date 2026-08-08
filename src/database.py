@@ -411,15 +411,27 @@ class Database:
 
     # ── Pipeline Run Tracking ──────────────────────────────
 
-    def start_pipeline_run(self, run_id: str):
-        """Record the start of a pipeline run."""
+    def recover_interrupted_pipeline_runs(self) -> int:
+        """Close run records left ``running`` after a previous app exit.
+
+        This deliberately changes only run metadata.  Processing-state rows
+        and their chunk checkpoints stay intact so a later analysis can resume
+        safely instead of treating partially processed records as complete.
+        """
         conn = self._get_conn()
-        conn.execute("""
+        cursor = conn.execute("""
             UPDATE pipeline_runs SET
-                completed_at = datetime('now'),
+                completed_at = COALESCE(completed_at, datetime('now')),
                 status = 'interrupted'
             WHERE status = 'running'
         """)
+        conn.commit()
+        return cursor.rowcount
+
+    def start_pipeline_run(self, run_id: str):
+        """Record the start of a pipeline run."""
+        self.recover_interrupted_pipeline_runs()
+        conn = self._get_conn()
         conn.execute(
             "INSERT INTO pipeline_runs (run_id, started_at, status) VALUES (?, datetime('now'), 'running')",
             (run_id,)

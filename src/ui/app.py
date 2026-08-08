@@ -55,7 +55,8 @@ _environmental_sync_worker = None
 _pipeline_paused: threading.Event = threading.Event()
 _pipeline_paused.set()  # Not paused by default (set = running)
 _api_calls_allowed: threading.Event = threading.Event()
-_api_calls_allowed.set()  # Local processing always runs; external stages may be paused
+# External calls are opt-in for every app launch.  Local processing always runs;
+# the pipeline waits at the cloud boundary until the user explicitly resumes.
 
 # Persistent pipeline progress — survives page refresh / SSE reconnect
 _pipeline_progress: dict = {
@@ -91,6 +92,25 @@ _health_cache: dict = {"at": 0.0, "payload": None}
 
 def _health_check(check_id, label, status, detail, hint=""):
     return {"id": check_id, "label": label, "status": status, "detail": detail, "hint": hint}
+
+
+def _recover_orphaned_pipeline_runs() -> int:
+    """Mark runs from a previous app process as interrupted at startup."""
+    try:
+        from src.database import Database
+
+        db = Database(DATA_DIR / "cih.db")
+        recovered_runs = db.recover_interrupted_pipeline_runs()
+        db.close()
+        if recovered_runs:
+            logger.info("Recovered %d interrupted pipeline run(s) at startup", recovered_runs)
+        return recovered_runs
+    except Exception as exc:
+        logger.warning(
+            "Pipeline-run recovery skipped (error_type=%s)",
+            type(exc).__name__,
+        )
+        return 0
 
 
 def _installed_model_names():
@@ -4833,6 +4853,11 @@ def run(host: str = "127.0.0.1", port: int = 5000, debug: bool = False):
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # A process crash cannot run the normal completion path.  Repair only the
+    # operational run ledger at startup; resumable file checkpoints and all
+    # encrypted patient data remain untouched.
+    _recover_orphaned_pipeline_runs()
 
     # Auto-unlock from VAULT_PASSPHRASE env var (set by start.command)
     env_passphrase = os.environ.get("VAULT_PASSPHRASE")
