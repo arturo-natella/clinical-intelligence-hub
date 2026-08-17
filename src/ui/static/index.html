@@ -379,26 +379,25 @@
                 </button>
             </div>
             <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border-faint); display:flex; align-items:center; justify-content:center; gap:12px; flex-wrap:wrap;">
-                <button class="btn btn-outline btn-sm" data-api-pause-button
-                        onclick="App.toggleApiCalls();">Resume API Calls</button>
-                <span data-api-pause-status style="font-size:12px; color:var(--accent-amber);">
-                    API calls paused — local record processing continues
+                <span style="font-size:12px; color:var(--accent-green);">
+                    Upload in as many batches as you need. Files stay on this Mac; no external APIs run while staging.
                 </span>
             </div>
         </div>
 
         <!-- Uploaded Files -->
         <div class="card" id="files-card" style="display:none;">
-            <div class="card-title">Uploaded Files</div>
+            <div class="card-title">Staged Files</div>
             <div id="file-list"></div>
             <div style="margin-top:16px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
                 <button class="btn btn-primary" onclick="App.startAnalysis();">
-                    Analyze Records
+                    Done Uploading — Start Local Processing
                 </button>
-                <button class="btn btn-outline btn-sm" data-api-pause-button
-                        onclick="App.toggleApiCalls();">Resume API Calls</button>
-                <span data-api-pause-status style="font-size:12px; color:var(--accent-amber);">
-                    API calls paused — local record processing continues
+                <button class="btn btn-outline btn-sm" onclick="document.getElementById('file-input').click();">
+                    Add Another Batch
+                </button>
+                <span style="font-size:12px; color:var(--accent-amber);">
+                    External APIs remain locked until local processing and redaction are complete.
                 </span>
             </div>
         </div>
@@ -417,7 +416,7 @@
                         font-size: 0.82rem;
                         font-weight: 600;
                         cursor: pointer;
-                    ">Resume API Calls</button>
+                    ">APIs Locked During Local Processing</button>
                     <button id="pause-btn" onclick="App.togglePause()" style="
                         background: var(--accent-amber, #f59e0b);
                         color: #000;
@@ -431,7 +430,7 @@
                 </div>
             </div>
             <div data-api-pause-status style="font-size:12px; color:var(--accent-amber); margin-top:8px;">
-                API calls paused — local record processing continues
+                External APIs stay off until local processing and redaction finish
             </div>
             <div class="progress-container">
                 <div class="progress-bar">

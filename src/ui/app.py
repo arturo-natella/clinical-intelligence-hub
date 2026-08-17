@@ -27,6 +27,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from flask import Flask, jsonify, request, Response, send_from_directory
+from werkzeug.utils import secure_filename
 
 logger = logging.getLogger("CIH-App")
 
@@ -1150,11 +1151,44 @@ def _build_demo_profile():
 
 # ── File Upload ───────────────────────────────────────────────
 
-@app.route("/api/upload", methods=["POST"])
+def _staging_upload_dir() -> Path:
+    """Return the active profile's private local upload-staging directory."""
+    profile_key = secure_filename(_active_profile_id or "default") or "default"
+    return UPLOAD_DIR / "staging" / profile_key
+
+
+def _staged_upload_metadata(staging_dir: Path) -> list[dict]:
+    """Return browser-safe metadata for locally staged files."""
+    staged = []
+    if not staging_dir.exists():
+        return staged
+
+    paths = sorted(
+        staging_dir.iterdir(),
+        key=lambda path: (path.stat().st_mtime_ns, path.name),
+    )
+    for path in paths:
+        if not path.is_file() or path.name.startswith("."):
+            continue
+        display_name = path.name[9:] if len(path.name) > 9 and path.name[8] == "_" else path.name
+        staged.append({"name": display_name, "size": path.stat().st_size})
+    return staged
+
+
+@app.route("/api/upload", methods=["GET", "POST"])
 def upload_files():
-    """Handle file upload (drag-and-drop or file picker)."""
+    """Stage upload batches locally until the user starts processing."""
     if not _passphrase:
         return jsonify({"error": "Vault not unlocked"}), 401
+
+    staging_dir = _staging_upload_dir()
+
+    if request.method == "GET":
+        staged_files = _staged_upload_metadata(staging_dir)
+        return jsonify({
+            "files": staged_files,
+            "staged_total": len(staged_files),
+        })
 
     if "files" not in request.files:
         return jsonify({"error": "No files provided"}), 400
@@ -1162,26 +1196,32 @@ def upload_files():
     if _pipeline_thread and _pipeline_thread.is_alive():
         return jsonify({"error": "Cannot upload while analysis is running"}), 409
 
-    # Clear previous uploads so only the current batch is analyzed
-    if UPLOAD_DIR.exists():
-        shutil.rmtree(UPLOAD_DIR)
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    start_new_stage = request.form.get("start_new_stage", "0").strip().lower() in {
+        "1", "true", "yes",
+    }
+    if start_new_stage and staging_dir.exists():
+        shutil.rmtree(staging_dir)
+    staging_dir.mkdir(parents=True, exist_ok=True)
     uploaded = []
 
     for file in request.files.getlist("files"):
         if file.filename:
-            safe_name = f"{uuid.uuid4().hex[:8]}_{file.filename}"
-            filepath = UPLOAD_DIR / safe_name
+            display_name = secure_filename(file.filename) or "upload"
+            safe_name = f"{uuid.uuid4().hex[:8]}_{display_name}"
+            filepath = staging_dir / safe_name
             file.save(str(filepath))
             uploaded.append({
-                "name": file.filename,
-                "path": str(filepath),
+                "name": display_name,
                 "size": filepath.stat().st_size,
             })
 
+    staged_files = _staged_upload_metadata(staging_dir)
     return jsonify({
         "uploaded": len(uploaded),
         "files": uploaded,
+        "staged_files": staged_files,
+        "staged_total": len(staged_files),
+        "stage_reset": start_new_stage,
     })
 
 
@@ -1198,15 +1238,25 @@ def start_analysis():
     if _pipeline_thread and _pipeline_thread.is_alive():
         return jsonify({"error": "Analysis already running"}), 409
 
-    # Gather uploaded files
-    if not UPLOAD_DIR.exists():
+    # Atomically close the active local staging session before processing.
+    staging_dir = _staging_upload_dir()
+    if not staging_dir.exists():
         return jsonify({"error": "No files uploaded"}), 400
 
-    input_files = list(UPLOAD_DIR.glob("*"))
+    input_files = list(staging_dir.glob("*"))
     input_files = [f for f in input_files if f.is_file() and not f.name.startswith(".")]
 
     if not input_files:
         return jsonify({"error": "No files to analyze"}), 400
+
+    run_input_dir = UPLOAD_DIR / "runs" / uuid.uuid4().hex
+    run_input_dir.parent.mkdir(parents=True, exist_ok=True)
+    staging_dir.rename(run_input_dir)
+    input_files = [run_input_dir / path.name for path in input_files]
+
+    # Every upload session starts with external calls locked. Local extraction
+    # and redaction run first; the user may resume APIs only at that boundary.
+    _api_calls_allowed.clear()
 
     # Start pipeline in background thread
     _pipeline_thread = threading.Thread(
@@ -1333,10 +1383,12 @@ def pipeline_status():
     """Return persisted pipeline progress so the UI can restore on refresh."""
     running = _pipeline_running()
     paused = not _pipeline_paused.is_set()
+    api_calls_ready = running and _pipeline_progress["pass"] == "api_waiting"
     return jsonify({
         "running": running,
         "paused": paused,
         "api_calls_paused": not _api_calls_allowed.is_set(),
+        "api_calls_ready": api_calls_ready,
         "pass": _pipeline_progress["pass"],
         "message": _pipeline_progress["message"],
         "percent": _pipeline_progress["percent"],
@@ -1389,6 +1441,16 @@ def set_api_call_state():
         )
         event_name = "api_calls_paused"
     else:
+        if not _pipeline_running() or _pipeline_progress["pass"] != "api_waiting":
+            return jsonify({
+                "error": (
+                    "External APIs remain locked until all staged files finish "
+                    "local processing and redaction"
+                ),
+                "api_calls_paused": True,
+                "api_calls_ready": False,
+                "pipeline_running": _pipeline_running(),
+            }), 409
         _api_calls_allowed.set()
         state = "enabled"
         message = "API calls enabled — they will start only after local processing passes."
@@ -1405,6 +1467,9 @@ def set_api_call_state():
     return jsonify({
         "state": state,
         "api_calls_paused": requested_paused,
+        "api_calls_ready": (
+            _pipeline_running() and _pipeline_progress["pass"] == "api_waiting"
+        ),
         "pipeline_running": _pipeline_running(),
     })
 
