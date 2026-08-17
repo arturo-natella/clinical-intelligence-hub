@@ -285,6 +285,7 @@ var App = {
     _profiles: [],
     // External calls require an explicit user action after each app launch.
     _apiCallsPaused: true,
+    _pipelineRunning: false,
 
     // ── Initialization ────────────────────────────────
 
@@ -323,6 +324,7 @@ var App = {
         try {
             var status = await api("/api/session/status");
             if (status.unlocked) {
+                App._pipelineRunning = Boolean(status.pipeline_running);
                 $("passphrase-modal").style.display = "none";
 
                 // Restore profile state
@@ -624,6 +626,27 @@ var App = {
         if (files.length) App.handleFiles(files);
     },
 
+    showUpload: function() {
+        App.navigateTo("dashboard");
+
+        if (App._pipelineRunning) {
+            var progressCard = $("progress-card");
+            if (progressCard) {
+                progressCard.scrollIntoView({ behavior: "smooth", block: "start" });
+            }
+            return;
+        }
+
+        var uploadCard = $("upload-card");
+        if (!uploadCard) return;
+
+        uploadCard.style.display = "block";
+        uploadCard.scrollIntoView({ behavior: "smooth", block: "start" });
+
+        var dropZone = $("drop-zone");
+        if (dropZone) dropZone.focus({ preventScroll: true });
+    },
+
     handleFiles: async function(files) {
         var formData = new FormData();
         for (var i = 0; i < files.length; i++) {
@@ -670,6 +693,7 @@ var App = {
         try {
             var status = await api("/api/pipeline/status");
             App._updateApiCallControls(Boolean(status.api_calls_paused));
+            App._pipelineRunning = Boolean(status.running);
             if (!status.running) return;
 
             // Show the progress card, hide upload/actions
@@ -725,6 +749,7 @@ var App = {
                 headers: { "Content-Type": "application/json" },
             });
 
+            App._pipelineRunning = true;
             $("upload-card").style.display = "none";
             $("files-card").style.display = "none";
             $("progress-card").style.display = "block";
@@ -805,6 +830,7 @@ var App = {
 
             if (data.pass === "complete") {
                 App._evtSource.close();
+                App._pipelineRunning = false;
                 $("progress-card").style.display = "none";
                 $("actions-card").style.display = "block";
                 App.loadAllData();
@@ -812,8 +838,10 @@ var App = {
 
             if (data.pass === "error") {
                 App._evtSource.close();
+                App._pipelineRunning = false;
                 $("progress-text").textContent = data.message;
                 $("progress-fill").style.background = "var(--accent-red)";
+                $("upload-card").style.display = "block";
             }
         };
 
@@ -1338,9 +1366,9 @@ var App = {
                 }
             }
 
-            // Show actions, hide upload
+            // Existing profiles can always add more records between analysis runs.
             $("actions-card").style.display = "block";
-            $("upload-card").style.display = "none";
+            $("upload-card").style.display = App._pipelineRunning ? "none" : "block";
             $("files-card").style.display = "none";
         } catch (e) {
             // No data yet, keep defaults

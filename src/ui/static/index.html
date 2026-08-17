@@ -97,6 +97,10 @@
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0a1 1 0 01-1-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 01-1 1"/></svg>
             <span class="sidebar-label">Dashboard</span>
         </button>
+        <button class="sidebar-item" id="sidebar-upload-btn" onclick="App.showUpload();" aria-label="Add medical records">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5A3.375 3.375 0 0010.125 2.25H5.625A1.125 1.125 0 004.5 3.375v17.25a1.125 1.125 0 001.125 1.125h12.75a1.125 1.125 0 001.125-1.125V18m-7.5-6v6m3-3h-6"/></svg>
+            <span class="sidebar-label">Add Records</span>
+        </button>
         <button class="sidebar-item" data-view="timeline" aria-label="Timeline">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6"/></svg>
             <span class="sidebar-label">Timeline</span>
@@ -201,6 +205,9 @@
                     </div>
                 </div>
                 <div style="display:flex; gap:8px; flex-shrink:0; align-items:center;">
+                    <button class="btn btn-primary btn-sm" onclick="App.showUpload();" id="dash-upload-btn">
+                        Add Records
+                    </button>
                     <button class="btn btn-secondary btn-sm" onclick="App.prepareForVisit();" id="dash-visit-prep-btn">
                         Visit Prep
                     </button>
@@ -349,9 +356,11 @@
         <!-- Drop Zone -->
         <div class="card" id="upload-card">
             <div class="drop-zone" id="drop-zone"
+                 role="button" tabindex="0" aria-label="Upload medical records"
                  ondragover="event.preventDefault(); this.classList.add('drag-over');"
                  ondragleave="this.classList.remove('drag-over');"
                  ondrop="App.handleDrop(event);"
+                 onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); document.getElementById('file-input').click(); }"
                  onclick="document.getElementById('file-input').click();"
                  style="cursor:pointer;">
                 <div class="drop-zone-icon">+</div>

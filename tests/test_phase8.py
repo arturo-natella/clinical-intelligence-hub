@@ -1156,6 +1156,26 @@ def test_app_js_structure():
     print("✓ app.js has all required controllers and methods")
 
 
+def test_existing_profile_keeps_document_upload_accessible():
+    """Returning users must retain visible, keyboard-accessible ingestion controls."""
+    static_dir = Path(__file__).parent.parent / "src" / "ui" / "static"
+    html = (static_dir / "index.html").read_text()
+    js = (static_dir / "app.js").read_text()
+
+    assert 'id="sidebar-upload-btn"' in html
+    assert 'id="dash-upload-btn"' in html
+    assert 'aria-label="Upload medical records"' in html
+    assert 'role="button" tabindex="0"' in html
+    assert "showUpload: function()" in js
+
+    load_dashboard = js.split("loadDashboard: async function()", 1)[1].split(
+        "loadMedications: async function()", 1
+    )[0]
+    assert '$("upload-card").style.display = App._pipelineRunning ? "none" : "block";' in load_dashboard
+
+    print("✓ Existing profiles retain clear document-upload entry points")
+
+
 def test_css_has_all_components():
     """styles.css defines all required component styles."""
     static_dir = Path(__file__).parent.parent / "src" / "ui" / "static"
