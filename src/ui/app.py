@@ -263,9 +263,9 @@ LOCAL_ASSISTANT_MODEL = os.environ.get("MEDPREP_ASSISTANT_MODEL", "gpt-oss:20b")
 
 
 def _passphrase_bypass_enabled() -> bool:
-    """Allow temporary local testing without the unlock modal."""
-    value = os.environ.get("MEDPREP_SKIP_PASSPHRASE", "1").strip().lower()
-    return value not in {"0", "false", "no"}
+    """Allow explicitly opted-in local testing without the unlock modal."""
+    value = os.environ.get("MEDPREP_SKIP_PASSPHRASE", "").strip().lower()
+    return value in {"1", "true", "yes"}
 
 
 def _activate_dev_passphrase_bypass() -> bool:
@@ -278,7 +278,7 @@ def _activate_dev_passphrase_bypass() -> bool:
     _passphrase = _DEV_BYPASS_SENTINEL
     logger.warning(
         "Passphrase gate bypassed for local development "
-        "(set MEDPREP_SKIP_PASSPHRASE=0 to re-enable it)"
+        "(unset MEDPREP_SKIP_PASSPHRASE to re-enable it)"
     )
     return True
 
