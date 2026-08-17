@@ -644,6 +644,20 @@ def test_flask_app_adds_repo_root_to_sys_path():
     print("✓ Flask app adds repo root to sys.path")
 
 
+def test_flask_app_requires_explicit_passphrase_bypass(monkeypatch):
+    """An absent bypass setting must leave the vault locked."""
+    import src.ui.app as app_module
+
+    monkeypatch.delenv("MEDPREP_SKIP_PASSPHRASE", raising=False)
+    monkeypatch.setattr(app_module, "_passphrase", None)
+
+    assert app_module._passphrase_bypass_enabled() is False
+    assert app_module._activate_dev_passphrase_bypass() is False
+    assert app_module._passphrase is None
+
+    print("✓ Flask app keeps the passphrase gate enabled by default")
+
+
 def test_flask_app_can_bypass_passphrase_for_local_dev(monkeypatch):
     """Local dev bypass can mark the session unlocked without a vault passphrase."""
     import src.ui.app as app_module
@@ -659,6 +673,43 @@ def test_flask_app_can_bypass_passphrase_for_local_dev(monkeypatch):
         app_module._passphrase = original_passphrase
 
     print("✓ Flask app supports temporary local passphrase bypass")
+
+
+def test_api_unlock_rejects_blank_passphrase_by_default(monkeypatch):
+    """A blank unlock request cannot activate the development sentinel by default."""
+    import src.ui.app as app_module
+
+    monkeypatch.delenv("MEDPREP_SKIP_PASSPHRASE", raising=False)
+    monkeypatch.setattr(app_module, "_passphrase", None)
+    monkeypatch.setattr(app_module, "_profile_data", None)
+
+    with app_module.app.test_client() as client:
+        response = client.post("/api/unlock", json={"passphrase": ""})
+
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "Passphrase is required"}
+    assert app_module._passphrase is None
+
+    print("✓ Blank unlock requests leave the vault locked by default")
+
+
+def test_api_profile_creation_requires_real_passphrase_by_default(monkeypatch, tmp_path):
+    """The safe default cannot create a profile encrypted with the dev sentinel."""
+    import src.ui.app as app_module
+
+    monkeypatch.delenv("MEDPREP_SKIP_PASSPHRASE", raising=False)
+    monkeypatch.setattr(app_module, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(app_module, "_passphrase", None)
+    monkeypatch.setattr(app_module, "_profile_data", None)
+
+    with app_module.app.test_client() as client:
+        response = client.post("/api/profiles", json={"name": "Test profile"})
+
+    assert response.status_code == 401
+    assert response.get_json() == {"error": "Vault not unlocked"}
+    assert not (tmp_path / "profiles").exists()
+
+    print("✓ Profile creation requires a real passphrase by default")
 
 
 def test_api_session_clear_deletes_local_patient_data(monkeypatch):
