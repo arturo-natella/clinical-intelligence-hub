@@ -6,6 +6,7 @@ and static file serving. Does not test actual browser rendering
 (that requires manual verification).
 """
 
+import io
 import json
 import sqlite3
 import sys
@@ -838,13 +839,20 @@ def test_flask_test_client():
     print("✓ Flask test client works, session status returns correct fields")
 
 
-def test_api_call_pause_control_is_independent_of_pipeline_pause(monkeypatch):
-    """The API control should pause cloud stages without pausing local work."""
+def test_api_call_pause_control_waits_for_local_safety_boundary(monkeypatch):
+    """External APIs cannot resume before local processing and redaction finish."""
     import src.ui.app as app_module
 
     original_api_state = app_module._api_calls_allowed.is_set()
     original_pipeline_state = app_module._pipeline_paused.is_set()
-    monkeypatch.setattr(app_module, "_pipeline_thread", None)
+    original_progress_pass = app_module._pipeline_progress["pass"]
+
+    class RunningThread:
+        @staticmethod
+        def is_alive():
+            return True
+
+    monkeypatch.setattr(app_module, "_pipeline_thread", RunningThread())
 
     try:
         app_module._api_calls_allowed.set()
@@ -863,11 +871,22 @@ def test_api_call_pause_control_is_independent_of_pipeline_pause(monkeypatch):
             assert json.loads(status_resp.data)["api_calls_paused"] is True
             assert app_module._pipeline_paused.is_set() is True
 
+            app_module._pipeline_progress["pass"] = "pass_1a"
+            early_resume_resp = client.post(
+                "/api/pipeline/api-calls",
+                data=json.dumps({"paused": False}),
+                content_type="application/json",
+            )
+            assert early_resume_resp.status_code == 409
+            assert app_module._api_calls_allowed.is_set() is False
+
+            app_module._pipeline_progress["pass"] = "api_waiting"
             resume_resp = client.post(
                 "/api/pipeline/api-calls",
                 data=json.dumps({"paused": False}),
                 content_type="application/json",
             )
+            assert resume_resp.status_code == 200
             assert json.loads(resume_resp.data)["api_calls_paused"] is False
     finally:
         if original_api_state:
@@ -878,8 +897,103 @@ def test_api_call_pause_control_is_independent_of_pipeline_pause(monkeypatch):
             app_module._pipeline_paused.set()
         else:
             app_module._pipeline_paused.clear()
+        app_module._pipeline_progress["pass"] = original_progress_pass
 
-    print("✓ API calls can pause independently while local processing continues")
+    print("✓ API calls remain locked until the local safety boundary")
+
+
+def test_upload_batches_accumulate_in_profile_stage(monkeypatch, tmp_path):
+    """Multiple picker batches remain staged together until analysis starts."""
+    import src.ui.app as app_module
+
+    monkeypatch.setattr(app_module, "UPLOAD_DIR", tmp_path / "uploads")
+    monkeypatch.setattr(app_module, "_passphrase", "test-passphrase")
+    monkeypatch.setattr(app_module, "_active_profile_id", "profile-1")
+    monkeypatch.setattr(app_module, "_pipeline_thread", None)
+
+    with app_module.app.test_client() as client:
+        first = client.post(
+            "/api/upload",
+            data={
+                "start_new_stage": "1",
+                "files": (io.BytesIO(b"first"), "first.pdf"),
+            },
+            content_type="multipart/form-data",
+        )
+        second = client.post(
+            "/api/upload",
+            data={
+                "start_new_stage": "0",
+                "files": (io.BytesIO(b"second"), "second.pdf"),
+            },
+            content_type="multipart/form-data",
+        )
+        staged = client.get("/api/upload")
+
+    assert first.status_code == 200
+    assert first.get_json()["staged_total"] == 1
+    assert second.status_code == 200
+    assert second.get_json()["staged_total"] == 2
+    assert staged.status_code == 200
+    assert [item["name"] for item in staged.get_json()["files"]] == [
+        "first.pdf", "second.pdf",
+    ]
+
+    print("✓ Upload batches accumulate in one profile-scoped local stage")
+
+
+def test_done_uploading_closes_stage_and_locks_external_apis(monkeypatch, tmp_path):
+    """Starting a run moves the full stage and resets the external API gate."""
+    import src.ui.app as app_module
+
+    original_api_state = app_module._api_calls_allowed.is_set()
+    captured = {}
+
+    class DeferredThread:
+        def __init__(self, target, args, daemon):
+            captured["target"] = target
+            captured["args"] = args
+            captured["daemon"] = daemon
+            captured["started"] = False
+
+        def start(self):
+            captured["started"] = True
+
+        @staticmethod
+        def is_alive():
+            return False
+
+    monkeypatch.setattr(app_module, "UPLOAD_DIR", tmp_path / "uploads")
+    monkeypatch.setattr(app_module, "_passphrase", "test-passphrase")
+    monkeypatch.setattr(app_module, "_active_profile_id", "profile-1")
+    monkeypatch.setattr(app_module, "_pipeline_thread", None)
+    monkeypatch.setattr(app_module.threading, "Thread", DeferredThread)
+
+    try:
+        app_module._api_calls_allowed.set()
+        staging_dir = app_module._staging_upload_dir()
+        staging_dir.mkdir(parents=True)
+        (staging_dir / "12345678_first.pdf").write_bytes(b"first")
+        (staging_dir / "87654321_second.pdf").write_bytes(b"second")
+
+        with app_module.app.test_client() as client:
+            response = client.post("/api/analyze")
+
+        assert response.status_code == 200
+        assert response.get_json()["file_count"] == 2
+        assert captured["started"] is True
+        assert captured["daemon"] is True
+        assert len(captured["args"][0]) == 2
+        assert all(path.parent.parent.name == "runs" for path in captured["args"][0])
+        assert not staging_dir.exists()
+        assert app_module._api_calls_allowed.is_set() is False
+    finally:
+        if original_api_state:
+            app_module._api_calls_allowed.set()
+        else:
+            app_module._api_calls_allowed.clear()
+
+    print("✓ Done uploading atomically closes the stage and locks external APIs")
 
 
 def test_api_calls_are_paused_by_default_at_app_startup():
@@ -1105,7 +1219,10 @@ def test_index_html_structure():
     assert "profile-list" in html
     assert "profile-indicator" in html
     assert "data-api-pause-button" in html
-    assert "Resume API Calls" in html
+    assert "APIs Locked During Local Processing" in html
+    assert "Done Uploading — Start Local Processing" in html
+    assert "Add Another Batch" in html
+    assert "no external APIs run while staging" in html
 
     # Check chat entry point
     assert "dashboard-chat" in html or "view-chat" in html
@@ -1152,6 +1269,8 @@ def test_app_js_structure():
     assert "deleteProfile" in js, "Missing deleteProfile method"
     assert "toggleApiCalls" in js, "Missing API call pause controller"
     assert "api_calls_paused" in js, "Missing API call pause state handling"
+    assert "restoreStagedUploads" in js, "Missing staged upload restoration"
+    assert "_apiCallsReady" in js, "Missing external API readiness gate"
 
     print("✓ app.js has all required controllers and methods")
 

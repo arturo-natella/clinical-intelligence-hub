@@ -285,7 +285,9 @@ var App = {
     _profiles: [],
     // External calls require an explicit user action after each app launch.
     _apiCallsPaused: true,
+    _apiCallsReady: false,
     _pipelineRunning: false,
+    _uploadStageActive: false,
 
     // ── Initialization ────────────────────────────────
 
@@ -405,6 +407,11 @@ var App = {
         $("main-content").style.display = "block";
         App._updateProfileIndicator();
         App.refreshApiCallState();
+        App.uploadedFiles = [];
+        App._uploadStageActive = false;
+        App.renderFileList();
+        $("files-card").style.display = "none";
+        App.restoreStagedUploads();
     },
 
     _updateProfileIndicator: function() {
@@ -626,6 +633,19 @@ var App = {
         if (files.length) App.handleFiles(files);
     },
 
+    restoreStagedUploads: async function() {
+        try {
+            var result = await api("/api/upload");
+            App.uploadedFiles = result.files || [];
+            App._uploadStageActive = App.uploadedFiles.length > 0;
+            App.renderFileList();
+            $("files-card").style.display = App._uploadStageActive ? "block" : "none";
+        } catch (e) {
+            App.uploadedFiles = [];
+            App._uploadStageActive = false;
+        }
+    },
+
     showUpload: function() {
         App.navigateTo("dashboard");
 
@@ -649,6 +669,7 @@ var App = {
 
     handleFiles: async function(files) {
         var formData = new FormData();
+        formData.append("start_new_stage", App._uploadStageActive ? "0" : "1");
         for (var i = 0; i < files.length; i++) {
             formData.append("files", files[i]);
         }
@@ -659,9 +680,8 @@ var App = {
                 body: formData,
             });
 
-            for (var j = 0; j < result.files.length; j++) {
-                App.uploadedFiles.push(result.files[j]);
-            }
+            App.uploadedFiles = result.staged_files || result.files || [];
+            App._uploadStageActive = App.uploadedFiles.length > 0;
             App.renderFileList();
             $("files-card").style.display = "block";
         } catch (e) {
@@ -692,6 +712,7 @@ var App = {
          */
         try {
             var status = await api("/api/pipeline/status");
+            App._apiCallsReady = Boolean(status.api_calls_ready);
             App._updateApiCallControls(Boolean(status.api_calls_paused));
             App._pipelineRunning = Boolean(status.running);
             if (!status.running) return;
@@ -749,6 +770,10 @@ var App = {
                 headers: { "Content-Type": "application/json" },
             });
 
+            App.uploadedFiles = [];
+            App._uploadStageActive = false;
+            App._apiCallsReady = false;
+            App._updateApiCallControls(true);
             App._pipelineRunning = true;
             $("upload-card").style.display = "none";
             $("files-card").style.display = "none";
@@ -814,11 +839,13 @@ var App = {
             }
 
             if (data.pass === "api_calls_paused" || data.pass === "api_waiting") {
+                App._apiCallsReady = data.pass === "api_waiting";
                 App._updateApiCallControls(true);
                 if (data.pass === "api_waiting") {
                     $("progress-text").textContent = data.message;
                 }
             } else if (data.pass === "api_calls_resumed") {
+                App._apiCallsReady = true;
                 App._updateApiCallControls(false);
             }
 
@@ -831,6 +858,7 @@ var App = {
             if (data.pass === "complete") {
                 App._evtSource.close();
                 App._pipelineRunning = false;
+                App._apiCallsReady = false;
                 $("progress-card").style.display = "none";
                 $("actions-card").style.display = "block";
                 App.loadAllData();
@@ -839,6 +867,7 @@ var App = {
             if (data.pass === "error") {
                 App._evtSource.close();
                 App._pipelineRunning = false;
+                App._apiCallsReady = false;
                 $("progress-text").textContent = data.message;
                 $("progress-fill").style.background = "var(--accent-red)";
                 $("upload-card").style.display = "block";
@@ -876,8 +905,13 @@ var App = {
 
         var buttons = document.querySelectorAll("[data-api-pause-button]");
         for (var i = 0; i < buttons.length; i++) {
-            buttons[i].textContent = paused ? "Resume API Calls" : "Pause API Calls";
+            var locked = paused && !App._apiCallsReady;
+            buttons[i].disabled = locked;
+            buttons[i].textContent = locked
+                ? "APIs Locked During Local Processing"
+                : (paused ? "Resume API Calls" : "Pause API Calls");
             buttons[i].setAttribute("aria-pressed", paused ? "true" : "false");
+            buttons[i].setAttribute("aria-disabled", locked ? "true" : "false");
             buttons[i].style.color = paused
                 ? "var(--accent-green, #3fb950)"
                 : "var(--accent-amber, #f59e0b)";
@@ -888,8 +922,10 @@ var App = {
 
         var statuses = document.querySelectorAll("[data-api-pause-status]");
         for (var j = 0; j < statuses.length; j++) {
-            statuses[j].textContent = paused
-                ? "API calls paused — local record processing continues"
+            statuses[j].textContent = paused && !App._apiCallsReady
+                ? "External APIs stay off until local processing and redaction finish"
+                : paused
+                ? "Local processing is complete — external APIs are waiting for you"
                 : "APIs enabled after local processing";
             statuses[j].style.color = paused
                 ? "var(--accent-amber, #f59e0b)"
@@ -900,6 +936,7 @@ var App = {
     refreshApiCallState: async function() {
         try {
             var status = await api("/api/pipeline/status");
+            App._apiCallsReady = Boolean(status.api_calls_ready);
             App._updateApiCallControls(Boolean(status.api_calls_paused));
         } catch (e) {
             console.error("Failed to load API call state:", e);
@@ -907,6 +944,7 @@ var App = {
     },
 
     toggleApiCalls: async function() {
+        if (App._apiCallsPaused && !App._apiCallsReady) return;
         var shouldPause = !App._apiCallsPaused;
         try {
             var result = await api("/api/pipeline/api-calls", {
@@ -1369,7 +1407,7 @@ var App = {
             // Existing profiles can always add more records between analysis runs.
             $("actions-card").style.display = "block";
             $("upload-card").style.display = App._pipelineRunning ? "none" : "block";
-            $("files-card").style.display = "none";
+            $("files-card").style.display = App.uploadedFiles.length ? "block" : "none";
         } catch (e) {
             // No data yet, keep defaults
         }
