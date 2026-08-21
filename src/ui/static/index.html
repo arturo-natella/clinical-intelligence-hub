@@ -81,15 +81,18 @@
     </div>
 
     <!-- Active Profile Indicator -->
-    <div id="profile-indicator" class="px-4 py-3 border-b border-border-faint" style="display:none; cursor:pointer;" onclick="App.showProfileSelector()">
+    <button id="profile-indicator" type="button" aria-label="Patient profiles"
+            class="px-4 py-3 border-b border-border-faint"
+            style="display:block; width:100%; cursor:pointer; text-align:left; background:transparent; border-top:0; border-left:0; border-right:0;"
+            onclick="App.showProfileSelector()">
         <div style="display:flex; align-items:center; gap:8px;">
             <svg class="w-4 h-4" style="color:var(--accent-primary); flex-shrink:0;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/></svg>
             <div style="min-width:0;">
                 <div id="profile-name-display" style="font-size:13px; font-weight:500; color:var(--text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">No profile</div>
-                <div style="font-size:11px; color:var(--text-muted);">Click to switch</div>
+                <div id="profile-action-display" style="font-size:11px; color:var(--text-muted);">Create or switch</div>
             </div>
         </div>
-    </div>
+    </button>
 
     <!-- Nav items -->
     <div class="flex-1 overflow-y-auto py-3 space-y-1 px-2">
@@ -188,6 +191,22 @@
      Main Content Area (shifts right when sidebar open)
      ═══════════════════════════════════════════════════════ -->
 <main id="main-content" class="ml-56 transition-all duration-200 min-h-screen p-6" style="display:none;">
+
+    <div id="demo-mode-banner" role="status" aria-live="polite"
+         style="display:none; position:sticky; top:12px; z-index:45; margin-bottom:18px; padding:16px 18px; border:2px solid var(--accent-amethyst); border-radius:var(--radius-md); background:rgba(24,20,34,0.97); box-shadow:0 8px 28px rgba(0,0,0,0.35); align-items:center; gap:16px; flex-wrap:wrap;">
+        <div style="flex:1; min-width:260px;">
+            <div id="demo-mode-title" style="font-size:16px; font-weight:700; color:var(--accent-amethyst); letter-spacing:0.02em;">
+                SAMPLE PATIENT — NOT YOUR MEDICAL RECORD
+            </div>
+            <div id="demo-mode-description" style="margin-top:4px; color:var(--text-secondary); font-size:14px; line-height:1.45;">
+                You are previewing temporary demonstration data. It will not be saved to your encrypted patient profile.
+            </div>
+        </div>
+        <button id="demo-mode-exit" class="btn btn-outline" onclick="App.exitDemoData();"
+                style="border-color:var(--accent-amethyst); color:var(--accent-amethyst); white-space:nowrap;">
+            Exit Sample and Restore My Profile
+        </button>
+    </div>
 
     <!-- ── Dashboard — Diagnostic Command Center ─────── -->
     <div id="view-dashboard" class="view active">
@@ -375,7 +394,7 @@
                     Or click to browse files
                 </button>
                 <button class="btn btn-outline btn-sm" onclick="App.loadDemoData();" style="color:var(--accent-amethyst); border-color:var(--accent-amethyst);">
-                    Load Demo Patient
+                    Preview Sample Patient
                 </button>
             </div>
             <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border-faint); display:flex; align-items:center; justify-content:center; gap:12px; flex-wrap:wrap;">

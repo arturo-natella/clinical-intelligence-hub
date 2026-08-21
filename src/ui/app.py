@@ -52,6 +52,9 @@ _sse_listeners_lock = threading.Lock()
 _passphrase: str = None
 _profile_data: dict = None
 _active_profile_id: str = None
+_demo_mode: bool = False
+_profile_data_before_demo: dict = None
+_demo_was_persisted: bool = False
 _environmental_sync_worker = None
 _pipeline_paused: threading.Event = threading.Event()
 _pipeline_paused.set()  # Not paused by default (set = running)
@@ -303,7 +306,8 @@ def _purge_local_patient_data() -> dict:
       - encrypted API key vault
       - downloaded model assets bundled with the app
     """
-    global _profile_data, _active_profile_id
+    global _profile_data, _active_profile_id, _demo_mode, _profile_data_before_demo
+    global _demo_was_persisted
 
     from src.database import Database
     from src.encryption import EncryptedVault
@@ -326,6 +330,9 @@ def _purge_local_patient_data() -> dict:
         removed.append("profiles")
 
     _active_profile_id = None
+    _demo_mode = False
+    _profile_data_before_demo = None
+    _demo_was_persisted = False
 
     for directory, label in (
         (UPLOAD_DIR, "uploads"),
@@ -378,6 +385,8 @@ def _purge_local_patient_data() -> dict:
 
 
 def _environmental_sync_ready() -> bool:
+    if _demo_mode:
+        return False
     demographics = (_profile_data or {}).get("demographics", {}) if isinstance(_profile_data, dict) else {}
     return bool(_passphrase and (demographics.get("location") or "").strip())
 
@@ -441,10 +450,23 @@ def static_files(filename):
 
 # ── Vault / Session ───────────────────────────────────────────
 
+def _matches_builtin_demo_profile(profile: dict | None) -> bool:
+    """Identify only the exact legacy sample fixture previously saved by mistake."""
+    if not isinstance(profile, dict):
+        return False
+
+    sample = _build_demo_profile()
+    return (
+        profile.get("demographics") == sample.get("demographics")
+        and profile.get("clinical_timeline") == sample.get("clinical_timeline")
+    )
+
 @app.route("/api/unlock", methods=["POST"])
 def unlock_vault():
     """Unlock the encrypted vault with a passphrase."""
     global _passphrase, _profile_data, _active_profile_id
+    global _demo_mode, _profile_data_before_demo
+    global _demo_was_persisted
 
     data = request.get_json(silent=True) or {}
     passphrase = data.get("passphrase", "")
@@ -456,6 +478,8 @@ def unlock_vault():
             "has_profile": _profile_data is not None,
             "bypassed": True,
             "profiles": [],
+            "demo_mode": _demo_mode,
+            "demo_was_persisted": _demo_was_persisted,
         })
 
     if not passphrase:
@@ -470,6 +494,9 @@ def unlock_vault():
             return jsonify({"error": "Incorrect passphrase"}), 401
 
         _passphrase = passphrase
+        _demo_mode = False
+        _profile_data_before_demo = None
+        _demo_was_persisted = False
 
         # Migrate legacy single-file profile if it exists
         migrated_id = vault.migrate_legacy_profile()
@@ -486,11 +513,18 @@ def unlock_vault():
             if profile:
                 _profile_data = profile
 
+        if _matches_builtin_demo_profile(_profile_data):
+            _demo_mode = True
+            _demo_was_persisted = True
+            logger.warning("Legacy built-in sample data detected in active profile")
+
         return jsonify({
             "status": "unlocked",
             "has_profile": _profile_data is not None,
             "profiles": profiles,
             "active_profile_id": _active_profile_id,
+            "demo_mode": _demo_mode,
+            "demo_was_persisted": _demo_was_persisted,
         })
 
     except Exception as e:
@@ -520,6 +554,8 @@ def list_profiles():
 def create_profile():
     """Create a new patient profile."""
     global _active_profile_id, _profile_data
+    global _demo_mode, _profile_data_before_demo
+    global _demo_was_persisted
 
     if not _passphrase:
         return jsonify({"error": "Vault not unlocked"}), 401
@@ -535,6 +571,9 @@ def create_profile():
     profile_id = vault.create_profile(name)
 
     # Activate the new profile
+    _demo_mode = False
+    _profile_data_before_demo = None
+    _demo_was_persisted = False
     _active_profile_id = profile_id
     vault.active_profile_id = profile_id
     _profile_data = {}
@@ -553,6 +592,8 @@ def create_profile():
 def activate_profile(profile_id):
     """Switch to a different patient profile."""
     global _active_profile_id, _profile_data
+    global _demo_mode, _profile_data_before_demo
+    global _demo_was_persisted
 
     if not _passphrase:
         return jsonify({"error": "Vault not unlocked"}), 401
@@ -560,8 +601,8 @@ def activate_profile(profile_id):
     if _pipeline_thread and _pipeline_thread.is_alive():
         return jsonify({"error": "Cannot switch profiles while analysis is running"}), 409
 
-    # Save current profile before switching
-    if _active_profile_id and _profile_data:
+    # Never persist the temporary sample patient while switching profiles.
+    if _active_profile_id and _profile_data and not _demo_mode:
         _save_profile_to_vault()
 
     from src.encryption import EncryptedVault
@@ -577,6 +618,9 @@ def activate_profile(profile_id):
     _active_profile_id = profile_id
     profile = vault.load_profile(profile_id)
     _profile_data = profile or {}
+    _demo_mode = False
+    _profile_data_before_demo = None
+    _demo_was_persisted = False
 
     return jsonify({
         "status": "activated",
@@ -596,6 +640,9 @@ def delete_profile_endpoint(profile_id):
     if _pipeline_thread and _pipeline_thread.is_alive():
         return jsonify({"error": "Cannot delete profile while analysis is running"}), 409
 
+    if _demo_mode:
+        return jsonify({"error": "Exit the sample patient before deleting a profile"}), 409
+
     from src.encryption import EncryptedVault
     vault = EncryptedVault(DATA_DIR, _passphrase)
     vault.delete_profile(profile_id)
@@ -614,6 +661,9 @@ def rename_profile_endpoint(profile_id):
     if not _passphrase:
         return jsonify({"error": "Vault not unlocked"}), 401
 
+    if _demo_mode:
+        return jsonify({"error": "Exit the sample patient before renaming a profile"}), 409
+
     data = request.get_json(silent=True) or {}
     new_name = data.get("name", "").strip()
     if not new_name:
@@ -630,10 +680,15 @@ def rename_profile_endpoint(profile_id):
 def reset_vault():
     """Delete encrypted vault files so the user can start fresh."""
     global _passphrase, _profile_data, _active_profile_id
+    global _demo_mode, _profile_data_before_demo
+    global _demo_was_persisted
 
     _passphrase = _DEV_BYPASS_SENTINEL if _passphrase_bypass_enabled() else None
     _profile_data = None
     _active_profile_id = None
+    _demo_mode = False
+    _profile_data_before_demo = None
+    _demo_was_persisted = False
 
     removed = []
     for fname in ["patient_profile.enc", "api_vault.enc"]:
@@ -682,16 +737,108 @@ def session_status():
         "unlocked": _passphrase is not None,
         "has_profile": _profile_data is not None,
         "pipeline_running": _pipeline_running(),
+        "demo_mode": _demo_mode,
+        "demo_was_persisted": _demo_was_persisted,
     })
 
 
 @app.route("/api/demo-data", methods=["POST"])
 def load_demo_data():
-    """Load comprehensive demo patient data for all tabs."""
-    global _profile_data
+    """Open an isolated, temporary sample patient for UI exploration."""
+    global _profile_data, _demo_mode, _profile_data_before_demo
+    global _demo_was_persisted
+
+    if not _passphrase:
+        return jsonify({"error": "Vault not unlocked"}), 401
+
+    if _pipeline_running():
+        return jsonify({"error": "Cannot open sample data while analysis is running"}), 409
+
+    if _demo_mode:
+        # Keep the current sample classification intact. In particular, an
+        # exact fixture persisted by an older release must remain marked as
+        # persisted until the user explicitly removes it.
+        return jsonify({
+            "status": "already_active",
+            "has_data": True,
+            "demo_mode": True,
+            "temporary": not _demo_was_persisted,
+            "demo_was_persisted": _demo_was_persisted,
+        })
+
+    if not _demo_mode:
+        from copy import deepcopy
+
+        _profile_data_before_demo = deepcopy(_profile_data)
 
     _profile_data = _build_demo_profile()
-    return jsonify({"status": "loaded", "has_data": True})
+    _demo_mode = True
+    _demo_was_persisted = False
+    return jsonify({
+        "status": "loaded",
+        "has_data": True,
+        "demo_mode": True,
+        "temporary": True,
+        "demo_was_persisted": False,
+    })
+
+
+@app.route("/api/demo-data/exit", methods=["POST"])
+def exit_demo_data():
+    """Close the sample patient and restore the untouched real profile."""
+    global _profile_data, _demo_mode, _profile_data_before_demo
+    global _demo_was_persisted
+
+    if not _passphrase:
+        return jsonify({"error": "Vault not unlocked"}), 401
+
+    if not _demo_mode:
+        return jsonify({
+            "status": "not_active",
+            "has_profile": _profile_data is not None,
+            "demo_mode": False,
+        })
+
+    if _demo_was_persisted:
+        # Earlier versions could save the exact built-in fixture over the
+        # active profile. The user's explicit exit action removes that known
+        # sample while retaining the named encrypted profile itself.
+        persisted_sample = _profile_data
+        _profile_data = {}
+        _demo_mode = False
+        _demo_was_persisted = False
+        _profile_data_before_demo = None
+        try:
+            from src.encryption import EncryptedVault
+
+            vault = EncryptedVault(DATA_DIR, _passphrase)
+            vault.active_profile_id = _active_profile_id
+            vault.save_profile({}, _active_profile_id)
+        except Exception as exc:
+            _profile_data = persisted_sample
+            _demo_mode = True
+            _demo_was_persisted = True
+            logger.error(
+                "Failed to remove legacy sample data (error_type=%s)",
+                type(exc).__name__,
+            )
+            return jsonify({"error": "Could not remove previously saved sample data"}), 500
+        return jsonify({
+            "status": "sample_removed",
+            "has_profile": True,
+            "demo_mode": False,
+            "demo_was_persisted": False,
+        })
+
+    _profile_data = _profile_data_before_demo
+    _profile_data_before_demo = None
+    _demo_mode = False
+    _demo_was_persisted = False
+    return jsonify({
+        "status": "restored",
+        "has_profile": _profile_data is not None,
+        "demo_mode": False,
+    })
 
 
 def _build_demo_profile():
@@ -1235,6 +1382,9 @@ def start_analysis():
     if not _passphrase:
         return jsonify({"error": "Vault not unlocked"}), 401
 
+    if _demo_mode:
+        return jsonify({"error": "Exit the sample patient before analyzing records"}), 409
+
     if _pipeline_thread and _pipeline_thread.is_alive():
         return jsonify({"error": "Analysis already running"}), 409
 
@@ -1635,6 +1785,8 @@ def sync_environmental():
     """Fetch and stage environmental source snapshots for the saved location."""
     if not _passphrase:
         return jsonify({"error": "Vault not unlocked"}), 401
+    if _demo_mode:
+        return jsonify({"error": "External data sync is disabled for the sample patient"}), 409
 
     data = request.get_json(silent=True) or {}
     source_ids = data.get("sources")
@@ -2639,6 +2791,8 @@ def sweep_now():
     """
     if not _passphrase:
         return jsonify({"error": "Vault not unlocked"}), 401
+    if _demo_mode:
+        return jsonify({"error": "External literature search is disabled for the sample patient"}), 409
 
     profile = _profile_data or {}
 
@@ -3263,6 +3417,9 @@ def get_risk_breakdown():
 
 def _save_profile_to_vault():
     """Persist the current _profile_data back to the encrypted vault."""
+    if _demo_mode:
+        logger.info("Skipped profile save while temporary sample patient is active")
+        return True
     if not _passphrase or not _profile_data:
         return False
     try:

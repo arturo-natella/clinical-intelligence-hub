@@ -302,6 +302,8 @@ var App = {
     _apiCallsReady: false,
     _pipelineRunning: false,
     _uploadStageActive: false,
+    _demoMode: false,
+    _demoWasPersisted: false,
 
     // ── Initialization ────────────────────────────────
 
@@ -341,6 +343,8 @@ var App = {
             var status = await api("/api/session/status");
             if (status.unlocked) {
                 App._pipelineRunning = Boolean(status.pipeline_running);
+                App._demoMode = Boolean(status.demo_mode);
+                App._demoWasPersisted = Boolean(status.demo_was_persisted);
                 $("passphrase-modal").style.display = "none";
 
                 // Restore profile state
@@ -357,6 +361,9 @@ var App = {
                 App._showMainUI();
                 if (status.has_profile) {
                     App.loadAllData();
+                }
+                if (App._profiles.length === 0 && !App._demoMode) {
+                    App.showProfileSelector();
                 }
 
                 // Restore progress bar if a pipeline is currently running
@@ -389,6 +396,8 @@ var App = {
             $("passphrase-modal").style.display = "none";
 
             App._profiles = result.profiles || [];
+            App._demoMode = Boolean(result.demo_mode);
+            App._demoWasPersisted = Boolean(result.demo_was_persisted);
 
             if (result.active_profile_id) {
                 // Single profile auto-activated
@@ -419,6 +428,7 @@ var App = {
     _showMainUI: function() {
         $("sidebar").style.display = "flex";
         $("main-content").style.display = "block";
+        App._setDemoMode(App._demoMode, App._demoWasPersisted);
         App._updateProfileIndicator();
         App.refreshApiCallState();
         App.uploadedFiles = [];
@@ -431,11 +441,19 @@ var App = {
     _updateProfileIndicator: function() {
         var indicator = $("profile-indicator");
         var nameEl = $("profile-name-display");
+        var actionEl = $("profile-action-display");
+        indicator.style.display = "block";
+        if (App._demoMode) {
+            nameEl.textContent = "Sample Patient";
+            if (actionEl) actionEl.textContent = "Temporary sample";
+            return;
+        }
         if (App._activeProfileName) {
-            indicator.style.display = "block";
             nameEl.textContent = App._activeProfileName;
+            if (actionEl) actionEl.textContent = "Click to switch";
         } else {
-            indicator.style.display = "none";
+            nameEl.textContent = "Patient Profiles";
+            if (actionEl) actionEl.textContent = "Create or switch";
         }
     },
 
@@ -499,6 +517,8 @@ var App = {
 
             App._activeProfileId = result.profile_id;
             App._activeProfileName = name;
+            App._demoMode = false;
+            App._demoWasPersisted = false;
             nameInput.value = "";
             $("profile-modal-error").style.display = "none";
             $("profile-modal").style.display = "none";
@@ -515,6 +535,8 @@ var App = {
             var p = App._profiles.find(function(p) { return p.id === profileId; });
             App._activeProfileId = profileId;
             App._activeProfileName = p ? p.name : "Profile";
+            App._demoMode = false;
+            App._demoWasPersisted = false;
             $("profile-modal").style.display = "none";
             App._showMainUI();
             App.loadAllData();
@@ -623,9 +645,39 @@ var App = {
 
     // ── Demo Data ──────────────────────────────────────
 
+    _setDemoMode: function(active, wasPersisted) {
+        App._demoMode = Boolean(active);
+        App._demoWasPersisted = App._demoMode && Boolean(wasPersisted);
+        var banner = $("demo-mode-banner");
+        if (banner) banner.style.display = App._demoMode ? "flex" : "none";
+        var title = $("demo-mode-title");
+        var description = $("demo-mode-description");
+        var exitButton = $("demo-mode-exit");
+        if (App._demoWasPersisted) {
+            if (title) title.textContent = "SAMPLE DATA DETECTED — NOT YOUR MEDICAL RECORD";
+            if (description) description.textContent = "An earlier version saved the built-in sample into this profile. Remove it before uploading your records.";
+            if (exitButton) exitButton.textContent = "Remove Saved Sample Data";
+        } else {
+            if (title) title.textContent = "SAMPLE PATIENT — NOT YOUR MEDICAL RECORD";
+            if (description) description.textContent = "You are previewing temporary demonstration data. It will not be saved to your encrypted patient profile.";
+            if (exitButton) exitButton.textContent = "Exit Sample and Restore My Profile";
+        }
+        App._updateProfileIndicator();
+    },
+
     loadDemoData: async function() {
+        if (!confirm(
+            "Preview a temporary sample patient?\n\n"
+            + "This is fictional demonstration data. It will not be saved to your encrypted patient profile."
+        )) {
+            return;
+        }
         try {
-            await api("/api/demo-data", { method: "POST" });
+            var result = await api("/api/demo-data", { method: "POST" });
+            App._setDemoMode(
+                Boolean(result.demo_mode),
+                Boolean(result.demo_was_persisted)
+            );
             App.loadDashboard();
             // Reload whichever view is active
             var active = document.querySelector(".nav-link.active");
@@ -634,7 +686,23 @@ var App = {
                 if (view && App.viewLoaders[view]) App.viewLoaders[view]();
             }
         } catch (e) {
-            // Silent fail
+            alert("Could not open the sample patient: " + e.message);
+        }
+    },
+
+    exitDemoData: async function() {
+        if (App._demoWasPersisted && !confirm(
+            "Remove the built-in sample data saved by the earlier Hub version?\n\n"
+            + "This removes the fictional sample from the active profile."
+        )) {
+            return;
+        }
+        try {
+            await api("/api/demo-data/exit", { method: "POST" });
+            App._setDemoMode(false, false);
+            window.location.reload();
+        } catch (e) {
+            alert("Could not exit the sample patient: " + e.message);
         }
     },
 
