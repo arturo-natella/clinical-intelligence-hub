@@ -199,33 +199,100 @@ NEGATED_DIAGNOSIS_STATUSES = frozenset({
     "negative",
     "refuted",
     "pertinent negative",
+    "pertinent negatives",
     "not present",
     "absent",
     "excluded",
 })
 
-# Cue phrases the extraction model may echo verbatim from the record
-# ("Pertinent negatives", "Negative for diabetes", "Denies chest pain")
-# instead of the canonical "Ruled out" the prompt asks for.
-_NEGATED_STATUS_PREFIXES = (
+# Prefixes that introduce a negated finding whatever follows them.
+_UNAMBIGUOUS_NEGATED_PREFIXES = (
     "ruled out",
     "pertinent negative",
-    "negative for",
-    "no history",
-    "no evidence of",
-    "denies",
-    "denied",
 )
 
+# Cue phrases the extraction model may echo from the record instead of the
+# canonical "Ruled out" the prompt asks for. Each takes an object —
+# "negative for X" — and negates only when X is the diagnosis it is attached
+# to. Matching these blindly is dangerous: the identical wording is routine
+# oncology SURVEILLANCE language for a condition the patient definitively
+# has ("No evidence of disease" = NED, "negative for recurrence"), and the
+# storage guard is a permanent drop.
+_NEGATION_CUES = tuple(sorted(
+    (
+        "no evidence of",
+        "no history of",
+        "no known",
+        "no history",
+        "negative for",
+        "denies",
+        "denied",
+    ),
+    key=len,
+    reverse=True,  # longest first, so "no history of" wins over "no history"
+))
 
-def is_negated_status(status: Optional[str]) -> bool:
-    """True when a diagnosis status marks a condition the record ruled out."""
+# Objects describing the STATE of a known condition rather than naming a
+# condition that was excluded. These never license a negation.
+_SURVEILLANCE_OBJECTS = frozenset({
+    "disease", "recurrence", "relapse", "metastasis", "metastases",
+    "progression", "residual", "evidence", "activity", "abnormality",
+    "abnormalities", "available", "known", "change", "changes",
+    "findings", "symptoms", "complaints", "distress", "deficits",
+})
+
+# A positive clause anywhere in the status means the record is asserting a
+# condition, not excluding one: "negative for diabetes, positive for
+# prediabetes" is a status on prediabetes, which the patient has.
+_POSITIVE_ASSERTIONS = (
+    "positive for",
+    "consistent with",
+    "confirmed",
+    "diagnosed",
+)
+
+_WORD_RE = re.compile(r"[a-z0-9]+")
+
+
+def _condition_words(text: str) -> set[str]:
+    """Words specific enough to identify a condition by name."""
+    return {
+        word for word in _WORD_RE.findall(text.lower())
+        if len(word) >= 4 and word not in _SURVEILLANCE_OBJECTS
+    }
+
+
+def is_negated_status(status: Optional[str], name: Optional[str] = None) -> bool:
+    """True when a diagnosis status marks a condition the record ruled out.
+
+    `name` is the diagnosis the status belongs to. Cue phrases such as
+    "negative for X" negate only when X is that diagnosis; without a name
+    they do not negate at all. That asymmetry is deliberate — a missed
+    pertinent negative is visible on screen and correctable, whereas a
+    wrongly negated diagnosis is dropped at the storage choke point and
+    logged as a bare count, so it is both unrecoverable and invisible.
+    """
     if not status:
         return False
+
     normalized = re.sub(r"[\s_\-]+", " ", str(status)).strip().lower()
     if normalized in NEGATED_DIAGNOSIS_STATUSES:
         return True
-    return normalized.startswith(_NEGATED_STATUS_PREFIXES)
+    if normalized.startswith(_UNAMBIGUOUS_NEGATED_PREFIXES):
+        return True
+
+    if not name or any(claim in normalized for claim in _POSITIVE_ASSERTIONS):
+        return False
+
+    for cue in _NEGATION_CUES:
+        if not normalized.startswith(cue):
+            continue
+        # Only the first clause is about this condition.
+        negated_object = re.split(r"[;,]", normalized[len(cue):], maxsplit=1)[0]
+        subject = _condition_words(negated_object)
+        return bool(subject and subject & _condition_words(str(name)))
+
+    return False
 
 
 class Procedure(BaseModel):

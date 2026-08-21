@@ -1133,7 +1133,9 @@ class Pipeline:
                         if isinstance(item, model_cls)
                         else model_cls.model_validate(item)
                     )
-                    if key == "diagnoses" and is_negated_status(parsed.status):
+                    if key == "diagnoses" and is_negated_status(
+                        parsed.status, parsed.name
+                    ):
                         negated += 1
                         continue
                     if key == "labs":

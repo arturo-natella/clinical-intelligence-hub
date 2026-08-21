@@ -32,6 +32,7 @@ APP_JS = REPO_ROOT / "src" / "ui" / "static" / "app.js"
 # ── Negated-status vocabulary ───────────────────────────────
 
 def test_negated_status_vocabulary_recognizes_ruled_out_variants():
+    """Canonical negations — unambiguous whatever the diagnosis is."""
     for status in (
         "Ruled out",
         "ruled-out",
@@ -41,14 +42,9 @@ def test_negated_status_vocabulary_recognizes_ruled_out_variants():
         "Negative",
         "Refuted",
         "Pertinent negative",
+        "Pertinent negatives",
         "Not present",
         "Absent",
-        # Likely model echoes of the source heading or cue phrase:
-        "Pertinent negatives",
-        "Negative for diabetes",
-        "No history of asthma",
-        "Denies chest pain",
-        "No evidence of malignancy",
     ):
         assert is_negated_status(status), status
 
@@ -56,6 +52,53 @@ def test_negated_status_vocabulary_recognizes_ruled_out_variants():
 def test_negated_status_vocabulary_keeps_real_statuses():
     for status in ("Active", "Chronic", "Resolved", "", None):
         assert not is_negated_status(status), repr(status)
+
+
+# ── Cue phrases negate only their own diagnosis ─────────────
+
+def test_cue_phrase_negates_when_its_object_is_the_diagnosis():
+    """A model echoing the record's cue phrase instead of "Ruled out"
+    still counts — but only when the phrase is about THIS condition."""
+    for status, name in (
+        ("Negative for diabetes", "Diabetes mellitus type 2"),
+        ("No history of asthma", "Asthma"),
+        ("Denies chest pain", "Chest pain"),
+        ("No evidence of malignancy", "Malignancy"),
+    ):
+        assert is_negated_status(status, name), f"{status!r} / {name!r}"
+
+
+def test_cue_phrase_is_inert_without_a_diagnosis_name():
+    """Without the name there is no way to tell a pertinent negative from
+    an oncology surveillance status, and the safe answer is to keep the
+    diagnosis: a missed negative is visible and correctable, a deleted
+    condition is neither."""
+    for status in (
+        "Negative for diabetes",
+        "No history of asthma",
+        "Denies chest pain",
+        "No evidence of malignancy",
+    ):
+        assert not is_negated_status(status), status
+
+
+def test_surveillance_statuses_never_delete_a_real_condition():
+    """THE dangerous direction. "No evidence of disease" (NED) and
+    "negative for recurrence" are standard oncology surveillance statuses
+    on a cancer the patient definitively HAS. Reading them as negations
+    erases a cancer history, and PHI-safe logging records only a count —
+    so the loss is both unrecoverable and invisible."""
+    for status, name in (
+        ("No evidence of disease", "Breast cancer, left"),
+        ("No evidence of disease", "Coronary artery disease"),
+        ("Negative for recurrence", "Stage II colon adenocarcinoma"),
+        ("No history of recurrence", "Hodgkin lymphoma"),
+        ("No evidence of metastasis", "Melanoma"),
+        ("No history available", "Hypertension"),
+        ("Denies adherence", "Hypertension"),
+        ("Negative for diabetes, positive for prediabetes", "Prediabetes"),
+    ):
+        assert not is_negated_status(status, name), f"{status!r} / {name!r}"
 
 
 # ── Storage guard at the pipeline choke point ───────────────
@@ -88,6 +131,46 @@ def test_append_extraction_results_drops_ruled_out_diagnoses():
     })
     stored = [d.name for d in pipeline._profile.clinical_timeline.diagnoses]
     assert stored == ["Asthma"]
+
+
+def test_append_extraction_results_keeps_oncology_surveillance_diagnoses():
+    """The guard is a permanent `continue` at the only diagnoses write
+    path, so a false positive destroys a real condition with no undo.
+    Surveillance statuses must survive it."""
+    pipeline = _bare_pipeline()
+    pipeline._append_extraction_results({
+        "diagnoses": [
+            _dx("Breast cancer, left", "No evidence of disease"),
+            _dx("Stage II colon adenocarcinoma", "Negative for recurrence"),
+            _dx("Prediabetes", "Negative for diabetes, positive for prediabetes"),
+            _dx("Hypertension", "No history available"),
+            _dx("Pulmonary embolism", "Ruled out"),
+            _dx("Asthma", "Active"),
+        ],
+    })
+    stored = [d.name for d in pipeline._profile.clinical_timeline.diagnoses]
+    assert stored == [
+        "Breast cancer, left",
+        "Stage II colon adenocarcinoma",
+        "Prediabetes",
+        "Hypertension",
+        "Asthma",
+    ]
+
+
+def test_append_extraction_results_drops_cue_phrase_negatives_for_their_own_condition():
+    """A model echoing the record's cue phrase is still a pertinent
+    negative when the phrase names this very condition."""
+    pipeline = _bare_pipeline()
+    pipeline._append_extraction_results({
+        "diagnoses": [
+            _dx("Diabetes mellitus type 2", "Negative for diabetes"),
+            _dx("Asthma", "No history of asthma"),
+            _dx("Hyperlipidemia", "Active"),
+        ],
+    })
+    stored = [d.name for d in pipeline._profile.clinical_timeline.diagnoses]
+    assert stored == ["Hyperlipidemia"]
 
 
 def test_append_extraction_results_keeps_normal_statuses():
