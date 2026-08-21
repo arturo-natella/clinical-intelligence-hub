@@ -316,7 +316,7 @@ class TextExtractor:
 Extract these categories:
 1. **medications** — name, generic_name, dosage, frequency, route, status (active/discontinued/prn), reason
 2. **labs** — name, loinc_code (only when explicitly present), value (numeric), value_text (non-numeric), unit, flag (High/Low/Normal/Critical), test_date (YYYY-MM-DD)
-3. **diagnoses** — name, date_diagnosed (YYYY-MM-DD), status (Active/Resolved/Chronic)
+3. **diagnoses** — name, date_diagnosed (YYYY-MM-DD), status (Active/Resolved/Chronic/Ruled out)
 4. **procedures** — name, procedure_date (YYYY-MM-DD), outcome
 5. **allergies** — allergen, reaction, severity (Mild/Moderate/Severe/Life-threatening)
 6. **genetics** — gene, variant, phenotype, clinical_significance, implications
@@ -324,6 +324,7 @@ Extract these categories:
 
 Rules:
 - Extract EVERY clinical entity you find, no matter how minor
+- Conditions listed under a "Pertinent Negatives" heading, or explicitly negated in the text ("denies", "no history of", "negative for", "ruled out"), are conditions the patient does NOT have — set their status to "Ruled out", never "Active"
 - Use null for fields you cannot determine
 - Dates should be YYYY-MM-DD format when possible
 - Do NOT invent data — only extract what is explicitly stated

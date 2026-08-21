@@ -38,7 +38,21 @@ function severityBadge(severity) {
 function formatDate(dateStr) {
     if (!dateStr) return "\u2014";
     try {
-        const d = new Date(dateStr);
+        // Bare YYYY-MM-DD parses as UTC midnight and renders one day early
+        // in western timezones \u2014 pin date-only values to the local calendar day.
+        const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+        let d;
+        if (dateOnly) {
+            const y = +dateOnly[1], m = +dateOnly[2] - 1, day = +dateOnly[3];
+            d = new Date(y, m, day);
+            // The Date constructor rolls impossible dates over (Feb 30 \u2192 Mar 2);
+            // show a malformed extracted date raw rather than fabricating one.
+            if (d.getFullYear() !== y || d.getMonth() !== m || d.getDate() !== day) {
+                return escapeHtml(dateStr);
+            }
+        } else {
+            d = new Date(dateStr);
+        }
         return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
     } catch (e) { return escapeHtml(dateStr); }
 }

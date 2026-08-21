@@ -59,11 +59,11 @@ class VisitPrepGenerator:
         diagnoses = timeline.get("diagnoses", [])
         active = []
         for dx in diagnoses:
-            status = dx.get("status", "").lower()
+            status = (dx.get("status") or "").lower()
             if status in ("active", "current", "ongoing", "chronic", ""):
                 active.append({
                     "name": dx.get("name", "Unknown"),
-                    "status": dx.get("status", "active"),
+                    "status": dx.get("status") or "active",
                     "date_diagnosed": dx.get("date_diagnosed"),
                     "icd10": dx.get("icd10_code"),
                 })
@@ -133,7 +133,7 @@ class VisitPrepGenerator:
             )
 
             latest = entries[0]
-            flag = latest.get("flag", "").lower()
+            flag = (latest.get("flag") or "").lower()
 
             if flag and flag != "normal":
                 trend = "→"  # stable

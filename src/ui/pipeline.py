@@ -43,6 +43,7 @@ from src.models import (
     ProcessingStatus,
     Provenance,
     Procedure,
+    is_negated_status,
 )
 
 logger = logging.getLogger("CIH-Pipeline")
@@ -1121,6 +1122,7 @@ class Pipeline:
                     pass  # If fingerprinting fails, allow the item through
 
             skipped = 0
+            negated = 0
             for item in results.get(key, []):
                 try:
                     parsed = (
@@ -1128,6 +1130,9 @@ class Pipeline:
                         if isinstance(item, model_cls)
                         else model_cls.model_validate(item)
                     )
+                    if key == "diagnoses" and is_negated_status(parsed.status):
+                        negated += 1
+                        continue
                     if key == "labs":
                         parsed = self._standardize_lab(parsed)
                     fp = self._fingerprint(parsed, key)
@@ -1148,6 +1153,12 @@ class Pipeline:
                 logger.info(
                     "Dedup: skipped %d duplicate %s (already in profile)",
                     skipped, key,
+                )
+            if negated:
+                logger.info(
+                    "Skipped %d ruled-out/negated diagnoses "
+                    "(pertinent negatives are not stored as conditions)",
+                    negated,
                 )
 
     def _merge_extraction_results(self, results: dict, item: dict):

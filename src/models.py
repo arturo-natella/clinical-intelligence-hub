@@ -9,6 +9,7 @@ This is the single source of truth for data shapes across the entire system.
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import date, datetime
 from enum import Enum
@@ -183,9 +184,48 @@ class Diagnosis(BaseModel):
     snomed_code: Optional[str] = Field(default=None, description="SNOMED CT code")
     icd10_code: Optional[str] = None
     date_diagnosed: Optional[date] = None
-    status: Optional[str] = None            # "Active", "Resolved", "Chronic"
+    status: Optional[str] = None            # "Active", "Resolved", "Chronic", "Ruled out"
     diagnosing_provider: Optional[str] = None
     provenance: Provenance
+
+
+# Status strings that mark a condition the record explicitly negates —
+# e.g. a "Pertinent Negatives" table, "denies", "no history of". These must
+# never be stored or displayed as conditions the patient has.
+NEGATED_DIAGNOSIS_STATUSES = frozenset({
+    "ruled out",
+    "denied",
+    "denies",
+    "negative",
+    "refuted",
+    "pertinent negative",
+    "not present",
+    "absent",
+    "excluded",
+})
+
+# Cue phrases the extraction model may echo verbatim from the record
+# ("Pertinent negatives", "Negative for diabetes", "Denies chest pain")
+# instead of the canonical "Ruled out" the prompt asks for.
+_NEGATED_STATUS_PREFIXES = (
+    "ruled out",
+    "pertinent negative",
+    "negative for",
+    "no history",
+    "no evidence of",
+    "denies",
+    "denied",
+)
+
+
+def is_negated_status(status: Optional[str]) -> bool:
+    """True when a diagnosis status marks a condition the record ruled out."""
+    if not status:
+        return False
+    normalized = re.sub(r"[\s_\-]+", " ", str(status)).strip().lower()
+    if normalized in NEGATED_DIAGNOSIS_STATUSES:
+        return True
+    return normalized.startswith(_NEGATED_STATUS_PREFIXES)
 
 
 class Procedure(BaseModel):
