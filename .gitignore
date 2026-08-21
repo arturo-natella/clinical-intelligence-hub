@@ -15,31 +15,17 @@ venv/
 .venv/
 env/
 
-# Patient data — NEVER commit
-data/uploads/
-data/processed/
-data/databases/
-data/reports/
-data/environmental/
-data/extracted_images/
-data/*.json
-data/*.db
-data/*.db-shm
-data/*.db-wal
-data/*.sqlite
-data/*.enc
-data/.encryption_key
+# Patient data — NEVER commit.
+# Deliberately a blanket rule. This was previously an enumeration of
+# subdirectories and extensions, and data/profiles/ — encrypted vaults plus an
+# index.json holding profile names in PLAINTEXT — was added later and matched
+# none of them (data/*.enc only matches direct children of data/). Nothing
+# under data/ is tracked, so ignore the whole tree and let anything the
+# pipeline creates in future be covered automatically.
+data/
 
 # Model weights — too large for git
 models/
-
-# Local databases — downloaded on setup
-data/loinc/
-data/snomed/
-data/rxnorm/
-
-# ChromaDB (legacy)
-data/chroma_db/
 
 # Claude Code workspace
 .claude/
