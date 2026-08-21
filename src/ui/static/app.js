@@ -436,6 +436,7 @@ var App = {
         App.renderFileList();
         $("files-card").style.display = "none";
         App.restoreStagedUploads();
+        App.loadPersistenceStatus();
     },
 
     _updateProfileIndicator: function() {
@@ -678,6 +679,7 @@ var App = {
                 Boolean(result.demo_mode),
                 Boolean(result.demo_was_persisted)
             );
+            App.loadPersistenceStatus();
             App.loadDashboard();
             // Reload whichever view is active
             var active = document.querySelector(".nav-link.active");
@@ -704,6 +706,48 @@ var App = {
         } catch (e) {
             alert("Could not exit the sample patient: " + e.message);
         }
+    },
+
+    loadPersistenceStatus: async function() {
+        var statusEl = $("profile-save-status");
+        var backupButton = $("download-parsed-backup");
+        if (!statusEl || !backupButton) return;
+
+        try {
+            var status = await api("/api/profile/persistence");
+            backupButton.disabled = !status.backup_available;
+
+            if (status.demo_mode) {
+                statusEl.textContent = "Sample data is temporary and is never written into your encrypted patient profile.";
+                statusEl.style.color = "var(--accent-amethyst)";
+                return;
+            }
+
+            var itemCount = Number(status.parsed_items || 0);
+            if (status.pipeline_running) {
+                statusEl.textContent = "Processing is active. " + itemCount
+                    + " parsed item" + (itemCount === 1 ? " has" : "s have")
+                    + " been encrypted and saved so far.";
+            } else if (status.saved && itemCount > 0) {
+                statusEl.textContent = itemCount + " parsed item"
+                    + (itemCount === 1 ? " is" : "s are")
+                    + " saved in your encrypted local vault. You can safely close this browser window.";
+            } else if (status.saved) {
+                statusEl.textContent = "Your encrypted profile is saved locally. Parsed results will be added after every completed processing chunk.";
+            } else {
+                statusEl.textContent = "Nothing has been parsed yet. Completed chunks will be encrypted and saved automatically.";
+            }
+            statusEl.style.color = "var(--accent-green)";
+        } catch (e) {
+            backupButton.disabled = true;
+            statusEl.textContent = "Local save status is temporarily unavailable.";
+            statusEl.style.color = "var(--accent-amber)";
+        }
+    },
+
+    downloadEncryptedBackup: function() {
+        if (App._demoMode) return;
+        window.location.href = "/api/profile/backup";
     },
 
     // ── File Upload ───────────────────────────────────
@@ -916,6 +960,7 @@ var App = {
             App._appendTerminalLine(timeStr, data.message, color);
 
             if (data.pass === "profile_updated") {
+                App.loadPersistenceStatus();
                 App.loadAllData();
                 return;
             }
@@ -943,6 +988,7 @@ var App = {
                 App._apiCallsReady = false;
                 $("progress-card").style.display = "none";
                 $("actions-card").style.display = "block";
+                App.loadPersistenceStatus();
                 App.loadAllData();
             }
 
@@ -953,6 +999,7 @@ var App = {
                 $("progress-text").textContent = data.message;
                 $("progress-fill").style.background = "var(--accent-red)";
                 $("upload-card").style.display = "block";
+                App.loadPersistenceStatus();
             }
         };
 

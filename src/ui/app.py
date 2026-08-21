@@ -742,6 +742,97 @@ def session_status():
     })
 
 
+def _parsed_clinical_item_count(profile: dict | None) -> int:
+    """Count parsed timeline records without exposing their contents."""
+    if not isinstance(profile, dict):
+        return 0
+    timeline = profile.get("clinical_timeline", {})
+    if not isinstance(timeline, dict):
+        return 0
+    return sum(
+        len(items)
+        for items in timeline.values()
+        if isinstance(items, list)
+    )
+
+
+@app.route("/api/profile/persistence")
+def profile_persistence_status():
+    """Report privacy-safe local autosave status for the active profile."""
+    if not _passphrase:
+        return jsonify({"error": "Vault not unlocked"}), 401
+
+    if _demo_mode:
+        return jsonify({
+            "saved": False,
+            "encrypted": True,
+            "automatic": True,
+            "demo_mode": True,
+            "backup_available": False,
+            "parsed_items": _parsed_clinical_item_count(_profile_data),
+            "last_saved": None,
+            "pipeline_running": _pipeline_running(),
+        })
+
+    from src.encryption import EncryptedVault
+
+    vault = EncryptedVault(DATA_DIR, _passphrase)
+    vault.active_profile_id = _active_profile_id
+    saved = vault.profile_exists(_active_profile_id)
+    last_saved = None
+    if isinstance(_profile_data, dict):
+        last_saved = _profile_data.get("updated_at")
+
+    return jsonify({
+        "saved": saved,
+        "encrypted": True,
+        "automatic": True,
+        "demo_mode": False,
+        "backup_available": bool(saved and _profile_data),
+        "parsed_items": _parsed_clinical_item_count(_profile_data),
+        "last_saved": str(last_saved) if last_saved else None,
+        "pipeline_running": _pipeline_running(),
+    })
+
+
+@app.route("/api/profile/backup")
+def download_encrypted_profile_backup():
+    """Download an authenticated encrypted JSON snapshot of parsed data."""
+    if not _passphrase:
+        return jsonify({"error": "Vault not unlocked"}), 401
+    if _demo_mode:
+        return jsonify({"error": "Sample patient data cannot be exported"}), 409
+    if not isinstance(_profile_data, dict) or not _profile_data:
+        return jsonify({"error": "No parsed patient data is available to back up"}), 404
+
+    from copy import deepcopy
+    from src.encryption import encrypt_data
+
+    created_at = datetime.now().astimezone().isoformat()
+    payload = {
+        "format": "medprep-encrypted-parsed-data",
+        "version": 1,
+        "created_at": created_at,
+        "profile_id": _active_profile_id,
+        "profile": deepcopy(_profile_data),
+    }
+    serialized = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    encrypted = encrypt_data(serialized, _passphrase)
+    filename_time = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
+    response = Response(encrypted, mimetype="application/octet-stream")
+    response.headers["Content-Disposition"] = (
+        f'attachment; filename="medprep-parsed-data-{filename_time}.json.enc"'
+    )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
 @app.route("/api/demo-data", methods=["POST"])
 def load_demo_data():
     """Open an isolated, temporary sample patient for UI exploration."""
@@ -1471,6 +1562,7 @@ def _run_pipeline(input_files: list[Path]):
             profile_update_callback=profile_update_callback,
             pause_event=_pipeline_paused,
             api_calls_event=_api_calls_allowed,
+            profile_id=_active_profile_id,
         )
         profile = pipeline.run(input_files)
 

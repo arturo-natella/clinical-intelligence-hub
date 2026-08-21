@@ -404,6 +404,29 @@
             </div>
         </div>
 
+        <div class="card" id="local-save-card" style="border-color:rgba(63,185,80,0.35);">
+            <div style="display:flex; align-items:flex-start; gap:16px; flex-wrap:wrap;">
+                <div style="flex:1; min-width:260px;">
+                    <div class="card-title" style="margin-bottom:6px;">Your Progress Is Saved Locally</div>
+                    <div id="profile-save-status" style="font-size:14px; color:var(--text-secondary); line-height:1.5;">
+                        Parsed results are encrypted and saved after every completed processing chunk.
+                    </div>
+                    <div style="margin-top:6px; font-size:12px; color:var(--text-muted); line-height:1.45;">
+                        Closing the browser does not erase completed parsing. Staged uploads also remain on this Mac until processing starts or you clear local patient data.
+                    </div>
+                </div>
+                <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
+                    <button id="download-parsed-backup" class="btn btn-outline btn-sm"
+                            onclick="App.downloadEncryptedBackup();" disabled>
+                        Download Encrypted Parsed-Data Backup
+                    </button>
+                    <span style="font-size:11px; color:var(--text-muted); max-width:300px; text-align:right;">
+                        Encrypted with your vault passphrase; no plaintext medical JSON is written to disk.
+                    </span>
+                </div>
+            </div>
+        </div>
+
         <!-- Uploaded Files -->
         <div class="card" id="files-card" style="display:none;">
             <div class="card-title">Staged Files</div>

@@ -65,7 +65,8 @@ class Pipeline:
                  progress_callback: Callable = None,
                  pause_event=None,
                  api_calls_event=None,
-                 profile_update_callback: Callable = None):
+                 profile_update_callback: Callable = None,
+                 profile_id: str = None):
         """
         Args:
             data_dir: Base directory for all data
@@ -74,6 +75,7 @@ class Pipeline:
             pause_event: threading.Event — cleared when paused, set when running
             api_calls_event: threading.Event — cleared to pause external API calls
             profile_update_callback: Called with profile dict after each chunk
+            profile_id: Active encrypted profile for durable checkpoints
         """
         self.data_dir = data_dir
         self._passphrase = passphrase
@@ -81,6 +83,7 @@ class Pipeline:
         self._pause_event = pause_event
         self._api_calls_event = api_calls_event
         self._on_profile_update = profile_update_callback or (lambda p: None)
+        self._profile_id = profile_id
         self._caffeinate_proc = None
         self._local_processing_errors: list[str] = []
 
@@ -1173,6 +1176,7 @@ class Pipeline:
 
         self._db = Database(self.data_dir / "cih.db")
         self._vault = EncryptedVault(self.data_dir, self._passphrase)
+        self._vault.active_profile_id = self._profile_id
 
     def _start_caffeinate(self):
         """Prevent macOS from sleeping during analysis."""
