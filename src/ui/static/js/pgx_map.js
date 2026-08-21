@@ -86,7 +86,8 @@ var PgxMap = {
 
             var genesStat = document.createElement("span");
             genesStat.className = "pgx-summary-stat";
-            genesStat.textContent = (summary.total_genes_tested || 0) + " genes tested";
+            var geneCount = summary.total_genes_tested || 0;
+            genesStat.textContent = geneCount + " gene" + (geneCount === 1 ? "" : "s") + " tested";
             summaryBar.appendChild(genesStat);
 
             if (summary.total_collisions > 0) {
@@ -382,6 +383,12 @@ var PgxMap = {
             .attr("fill", "#6b7280")
             .attr("text-transform", "uppercase")
             .attr("letter-spacing", "1px");
+
+        // Start with the finding the map is highlighting instead of leaving
+        // an unrelated medication detail visible by default.
+        if (edges.length > 0) {
+            self._showEdgeDetail(edges[0], nodeLookup);
+        }
     },
 
     _showEdgeDetail: function(edge, nodeLookup) {
