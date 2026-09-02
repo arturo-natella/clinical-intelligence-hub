@@ -23,6 +23,7 @@ from src.analysis.diagnostic_engine.evidence_match import (
     build_evidence,
     is_specific_symptom,
 )
+from src.analysis.imaging_findings import normalize_findings
 from src.local_llm import call_local_text_model, parse_json_array_from_text
 
 logger = logging.getLogger("CIH-CrossSpecialty")
@@ -1076,11 +1077,10 @@ class CrossSpecialtyEngine:
             desc = img.get("description", "").lower()
             if desc:
                 corpus.append(desc)
-            for finding in img.get("findings", []):
-                if isinstance(finding, str):
-                    corpus.append(finding.lower())
-                elif isinstance(finding, dict):
-                    corpus.append(finding.get("description", "").lower())
+            for finding in normalize_findings(img.get("findings")):
+                description = str(finding.get("description") or "").lower()
+                if description:
+                    corpus.append(description)
 
         # Genetic variants
         for variant in timeline.get("genetics", []):

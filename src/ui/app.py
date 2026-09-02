@@ -2216,10 +2216,12 @@ def get_flags():
 
     # Append radiomic threshold flags from imaging findings
     try:
+        from src.analysis.imaging_findings import normalize_findings
+
         timeline = _profile_data.get("clinical_timeline", {})
         for study in timeline.get("imaging", []):
-            for finding in study.get("findings", []):
-                radiomic = finding.get("radiomic_features", {})
+            for finding in normalize_findings(study.get("findings")):
+                radiomic = finding.get("radiomic_features") or {}
                 for tf in radiomic.get("threshold_flags", []):
                     flags.append({
                         "severity": tf.get("level", "moderate"),
