@@ -25,6 +25,7 @@ from src.analysis.diagnostic_engine.evidence_match import (
 )
 from src.analysis.imaging_findings import normalize_findings
 from src.local_llm import call_local_text_model, parse_json_array_from_text
+from src.standardization.record_categories import lab_has_result
 
 logger = logging.getLogger("CIH-CrossSpecialty")
 
@@ -1036,16 +1037,17 @@ class CrossSpecialtyEngine:
 
         # Diagnoses
         for dx in timeline.get("diagnoses", []):
-            name = dx.get("name", "").lower()
-            status = dx.get("status", "").lower()
+            name = (dx.get("name") or "").lower()
+            status = (dx.get("status") or "").lower()
             if status not in ("resolved", "inactive", "historical"):
                 corpus.append(name)
 
         # Labs — include name + flag info
         for lab in timeline.get("labs", []):
-            name = lab.get("name", "").lower()
-            flag = lab.get("flag", "").lower()
-            if name:
+            name = (lab.get("name") or "").lower()
+            flag = (lab.get("flag") or "").lower()
+            # A test listed without a result adds no evidence to search.
+            if name and lab_has_result(lab, include_outcome=False):
                 corpus.append(name)
                 if flag and flag not in ("normal", ""):
                     corpus.append(f"{flag} {name}")
@@ -1053,28 +1055,28 @@ class CrossSpecialtyEngine:
 
         # Medications (can hint at conditions)
         for med in timeline.get("medications", []):
-            name = med.get("name", "").lower()
-            status = med.get("status", "").lower()
+            name = (med.get("name") or "").lower()
+            status = (med.get("status") or "").lower()
             if name and status not in ("discontinued", "stopped"):
                 corpus.append(name)
 
         # Symptom logger — symptom names + episode descriptions
         for symptom in timeline.get("symptoms", []):
-            sname = symptom.get("symptom_name", "").lower()
+            sname = (symptom.get("symptom_name") or "").lower()
             if sname:
                 corpus.append(sname)
 
-            for ep in symptom.get("episodes", []):
-                desc = ep.get("description", "").lower()
+            for ep in symptom.get("episodes") or []:
+                desc = (ep.get("description") or "").lower()
                 if desc:
                     corpus.append(desc)
-                triggers = ep.get("triggers", "").lower()
+                triggers = (ep.get("triggers") or "").lower()
                 if triggers:
                     corpus.append(triggers)
 
         # Imaging findings
         for img in timeline.get("imaging", []):
-            desc = img.get("description", "").lower()
+            desc = (img.get("description") or "").lower()
             if desc:
                 corpus.append(desc)
             for finding in normalize_findings(img.get("findings")):
@@ -1084,8 +1086,8 @@ class CrossSpecialtyEngine:
 
         # Genetic variants
         for variant in timeline.get("genetics", []):
-            gene = variant.get("gene", "").lower()
-            var_name = variant.get("variant", "").lower()
+            gene = (variant.get("gene") or "").lower()
+            var_name = (variant.get("variant") or "").lower()
             if gene:
                 corpus.append(gene)
             if var_name:

@@ -15,7 +15,7 @@ from datetime import date, datetime
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 # ── Enums ──────────────────────────────────────────────────
@@ -139,7 +139,8 @@ class Medication(BaseModel):
 
 
 class LabResult(BaseModel):
-    """A single lab test result."""
+    """A lab test, with a result only when explicitly recorded."""
+    source_procedure: Optional[dict] = None  # Original entry when reclassified
     name: str
     loinc_code: Optional[str] = Field(default=None, description="LOINC code for this lab test")
     value: Optional[float] = None
@@ -519,6 +520,14 @@ class ClinicalTimeline(BaseModel):
     vitals: list[Vital] = Field(default_factory=list)
     symptoms: list[Symptom] = Field(default_factory=list)
 
+    @model_validator(mode="before")
+    @classmethod
+    def separate_lab_tests(cls, data):
+        if isinstance(data, dict):
+            from src.standardization.record_categories import normalize_lab_procedures
+            return normalize_lab_procedures(data)
+        return data
+
 
 class DeepInsightSnapshot(BaseModel):
     """Cached local analysis output tied to its exact clinical inputs."""
@@ -578,6 +587,9 @@ class PatientProfile(BaseModel):
     analysis: AnalysisResults = Field(default_factory=AnalysisResults)
     processed_files: list[ProcessedFile] = Field(default_factory=list)
     pipeline_version: str = "1.0.0"
+    # The LOINC matcher version whose codes this profile's labs carry; older
+    # profiles are repaired once when they load (src/standardization/loinc.py).
+    lab_codes_version: int = 0
 
 
 # ── PII Redaction Log ─────────────────────────────────────

@@ -323,6 +323,7 @@ Extract these categories:
 7. **notes** — note_type (visit_summary/referral/patient_log/provider_note), summary (brief), provider, note_date (YYYY-MM-DD)
 
 Rules:
+- Classify by the clinical item, not the source section heading: a single laboratory test on a specimen (blood, urine, stool, or a swab), including one done at the point of care such as urine glucose, urine protein, or rapid strep, belongs in labs even if listed under Procedures. If the record gives only a status for such a test (ordered, declined, cancelled, completed, due), keep it under procedures with that status as the outcome. Panels such as urinalysis, CBC, or a metabolic or lipid panel stay in procedures; their component tests with results go in labs. Keep specimen collection, injections, and other interventions in procedures.
 - Extract EVERY clinical entity you find, no matter how minor
 - Conditions listed under a "Pertinent Negatives" heading, or explicitly negated in the text ("denies", "no history of", "negative for", "ruled out"), are conditions the patient does NOT have — set their status to "Ruled out", never "Active"
 - Use null for fields you cannot determine
@@ -456,6 +457,9 @@ Output strictly valid JSON:"""
     def _merge_results(self, results: dict, extracted: dict,
                        source_file: str, first_page: Optional[int]):
         """Merge extracted data into results with provenance."""
+        from src.standardization.record_categories import normalize_lab_procedures
+
+        extracted = normalize_lab_procedures(extracted)
         provenance = Provenance(
             source_file=source_file,
             source_page=first_page,
@@ -491,11 +495,19 @@ Output strictly valid JSON:"""
                         try:
                             value = float(value)
                         except ValueError:
-                            lab_data["value_text"] = value
+                            # Keep result text given beside a value like ">100,000".
+                            text = value.strip()
+                            existing = str(lab_data.get("value_text") or "").strip()
+                            lab_data["value_text"] = (
+                                f"{existing} {text}"
+                                if existing and text and existing.lower() != text.lower()
+                                else existing or text
+                            )
                             value = None
 
                     results["labs"].append(LabResult(
                         name=lab_data["name"],
+                        source_procedure=lab_data.get("source_procedure"),
                         loinc_code=lab_data.get("loinc_code"),
                         value=value,
                         value_text=lab_data.get("value_text"),
@@ -598,9 +610,10 @@ Output strictly valid JSON:"""
             return None
         try:
             from datetime import date
-            parts = str(date_str).split("-")
-            if len(parts) == 3:
-                return date(int(parts[0]), int(parts[1]), int(parts[2]))
+            # "2024-06-12", also with a time after it ("2024-06-12T14:05").
+            match = re.match(r"(\d{4})-(\d{1,2})-(\d{1,2})(?:$|[T ])", str(date_str).strip())
+            if match:
+                return date(*(int(part) for part in match.groups()))
         except (ValueError, TypeError):
             pass
         return None

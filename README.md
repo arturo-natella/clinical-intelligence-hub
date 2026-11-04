@@ -68,6 +68,7 @@ Use the sidebar to switch between views:
 |------|---------------|
 | **Dashboard** | Patient overview: risk score, medication count, conditions, flags, lab trends, overdue tests |
 | **Timeline** | D3.js swim-lane visualization of your medical history — medications, diagnoses, labs, procedures, imaging, symptoms — with zoom and brush navigation |
+| **Conditions** | Complete searchable condition list with full names, status, dates, providers, source details, and saved record notes (including undated notes); summaries are distinguished from source excerpts |
 | **Medications** | Active medications, drug-drug interactions, pharmacogenomic alerts |
 | **Labs** | Lab results table with flagged values and trends over time |
 | **Imaging** | Medical imaging studies with MONAI detection findings |

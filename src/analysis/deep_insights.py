@@ -15,6 +15,12 @@ from datetime import date, datetime
 from typing import Callable
 
 from src.models import DeepInsightSnapshot, Provenance
+from src.standardization.record_categories import (
+    flag_direction,
+    flag_key,
+    lab_has_result,
+    says_abnormal,
+)
 
 logger = logging.getLogger("CIH-DeepInsights")
 
@@ -25,6 +31,16 @@ INSIGHT_FIELDS = {
     "pgx_collisions": "pgx_collision_map",
     "trajectories": "lab_trajectories",
     "cross_specialty": "cross_specialty_patterns",
+}
+
+# Raised when an engine's rules change, so a result saved by the earlier rules
+# is computed again even though the record itself has not changed.
+INSIGHT_ENGINE_VERSIONS = {
+    "snowball": 2,
+    "biomarker_cascades": 2,
+    "pgx_collisions": 1,
+    "trajectories": 2,
+    "cross_specialty": 2,
 }
 
 
@@ -141,12 +157,19 @@ def _snowball_input(profile_data: dict) -> tuple[dict, dict]:
 
     normalized_labs = []
     for lab in timeline.get("labs", []):
-        if not isinstance(lab, dict):
+        # A test listed without a result is not evidence either way, and an
+        # outcome listed with procedures would reach the engine as a bare name.
+        if not isinstance(lab, dict) or not lab_has_result(lab, include_outcome=False):
             continue
         item = dict(lab)
         name = str(item.get("name") or item.get("test_name") or "").strip()
-        flag = str(item.get("flag") or "").strip().lower()
-        direction = {"high": "elevated", "critical": "elevated", "low": "low"}.get(flag, flag)
+        # A bare "Critical" says how far out, not which way: the range decides.
+        # Any other flag passes as its words ("not detected"), never as "abnormal".
+        flag = item.get("flag")
+        direction = {"high": "elevated", "low": "low"}.get(flag_direction(item)) or (
+            "abnormal" if says_abnormal(flag) else " ".join(
+                word for word in flag_key(flag).split() if word.isalnum())
+        )
         item["text"] = " ".join(part for part in (name, direction) if part)
         normalized_labs.append(item)
     normalized["labs"] = normalized_labs
@@ -256,7 +279,7 @@ def compute_deep_insight(
         raise ValueError(f"Unknown deep insight type: {insight_type}")
 
     inputs = _relevant_inputs(profile_data, insight_type)
-    fingerprint = _fingerprint(inputs)
+    fingerprint = _fingerprint({"engine": INSIGHT_ENGINE_VERSIONS[insight_type], **inputs})
     analysis = _analysis(profile_data)
     field_name = INSIGHT_FIELDS[insight_type]
     cached = analysis.get(field_name)

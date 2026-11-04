@@ -4916,6 +4916,70 @@ a, button, input, textarea, select {
 }
 
 /* ── Finding confidence, provenance, and plain-language notes ── */
+.conditions-heading, .conditions-search-row, .conditions-switch {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+}
+.conditions-heading { justify-content: space-between; }
+.conditions-heading h1 { font-size: 26px; font-weight: 600; }
+.conditions-muted { color: var(--text-secondary); font-size: 14px; line-height: 1.6; }
+.conditions-intro p, .condition-notes > p { margin-top: 10px; }
+.conditions-switch { margin: 22px 0; }
+.conditions-switch [aria-pressed="true"] {
+    border-color: var(--accent-primary);
+    background: var(--accent-primary-12);
+    color: var(--accent-primary-text);
+}
+.conditions-search-label { display: block; font-size: 16px; margin-bottom: 8px; }
+#conditions-search {
+    flex: 1 1 260px;
+    min-width: 0;
+    width: 100%;
+    padding: 12px;
+    border: 1px solid var(--border-muted);
+    border-radius: var(--radius-sm);
+    background: var(--bg-raised);
+    color: var(--text-primary);
+    font-size: 16px;
+}
+#view-conditions { min-width: 0; }
+.conditions-list { display: grid; gap: 14px; }
+.condition-card { margin-bottom: 0; min-width: 0; }
+.condition-name {
+    font-size: 20px;
+    font-weight: 600;
+    line-height: 1.5;
+    color: var(--text-primary);
+}
+.condition-fields { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-top: 12px; }
+.condition-field { font-size: 15px; line-height: 1.6; }
+.condition-source { border-top: 1px solid var(--border-faint); margin-top: 14px; padding-top: 12px; }
+.condition-notes { margin-top: 16px; }
+.condition-notes summary { cursor: pointer; color: var(--accent-primary-text); padding: 10px 0; font-size: 16px; }
+.condition-note { background: var(--bg-card); border: 1px solid var(--border-faint); border-radius: var(--radius-sm); padding: 20px; min-width: 0; }
+.condition-notes .condition-note { background: var(--bg-raised); margin-top: 12px; }
+.condition-note-title { font-size: 18px; font-weight: 600; margin-bottom: 10px; text-transform: capitalize; }
+.condition-note-label { color: var(--text-secondary); font-size: 14px; margin-top: 16px; margin-bottom: 6px; }
+.condition-note-text { white-space: pre-wrap; font-size: 16px; line-height: 1.7; }
+blockquote.condition-note-text { border-left: 3px solid var(--accent-primary); padding-left: 14px; }
+.condition-no-notes { margin-top: 14px; }
+.condition-card, .condition-note, .conditions-preview { overflow-wrap: anywhere; }
+.conditions-preview { list-style: none; margin: 0; padding: 0; font-size: 16px; line-height: 1.6; }
+.conditions-preview li { padding: 8px 0; border-bottom: 1px solid var(--border-faint); }
+.conditions-view-all { margin-top: 12px; width: 100%; white-space: normal; }
+.conditions-link { display: block; color: var(--accent-primary-text); font-size: 14px; text-align: left; padding: 12px 0 0; cursor: pointer; }
+.conditions-view-all:focus-visible, .conditions-link:focus-visible, #view-conditions :focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 3px;
+}
+@media (max-width: 760px) {
+    #view-conditions .card, .condition-note { padding: 16px; }
+    .conditions-search-row > button { width: 100%; }
+    .conditions-switch > button { flex: 1 1 180px; white-space: normal; }
+}
+
 .finding-metadata {
     display: flex;
     flex-wrap: wrap;

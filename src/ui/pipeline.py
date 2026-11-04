@@ -45,6 +45,13 @@ from src.models import (
     Procedure,
     is_negated_status,
 )
+from src.standardization.loinc import CODES_VERSION, repair_saved_lab_codes
+from src.standardization.record_categories import (
+    fold_listings,
+    lab_flag,
+    lab_result_token,
+    normalize_lab_procedures,
+)
 
 logger = logging.getLogger("CIH-Pipeline")
 
@@ -192,19 +199,7 @@ class Pipeline:
             self._progress("init", "Pipeline initialized", 0)
 
             # Load or create profile
-            try:
-                self._profile = self._vault.load_profile()
-                if self._profile and isinstance(self._profile, dict):
-                    self._profile = PatientProfile(**self._profile)
-            except Exception as e:
-                logger.warning(
-                    "Could not load existing profile; starting fresh "
-                    "(error_type=%s)",
-                    type(e).__name__,
-                )
-                self._profile = None
-            if not self._profile:
-                self._profile = PatientProfile()
+            self._profile = self._load_profile()
 
             run_id = f"run_{time.time_ns()}"
             self._db.start_pipeline_run(run_id)
@@ -1058,7 +1053,7 @@ class Pipeline:
                 else f"name:{normalized_name}"
             )
             return (
-                f"lab|{identity}|{_norm(item.value)}|{_norm(item.unit)}|"
+                f"lab|{identity}|{_norm(lab_result_token(item))}|{_norm(item.unit)}|"
                 f"{_norm(item.test_date)}"
             )
         if key == "diagnoses":
@@ -1074,27 +1069,62 @@ class Pipeline:
         # Fallback: use the full model dump
         return f"{key}|{item.model_dump_json(exclude={'provenance'})}"
 
-    def _standardize_lab(self, lab: LabResult) -> LabResult:
-        """Attach local LOINC identity/reference metadata when confidently known."""
+    def _loinc(self):
         if self._loinc_db is None:
             from src.standardization.loinc import LOINCDatabase
 
             self._loinc_db = LOINCDatabase(data_dir=self.data_dir)
+        return self._loinc_db
 
-        match = None
-        if lab.loinc_code:
-            match = self._loinc_db.lookup_by_code(lab.loinc_code)
-        if match is None and lab.name:
-            match = self._loinc_db.lookup(lab.name)
-        if not match:
-            return lab
-
-        lab.loinc_code = match.get("code") or lab.loinc_code
-        if lab.reference_low is None:
-            lab.reference_low = match.get("reference_low")
-        if lab.reference_high is None:
-            lab.reference_high = match.get("reference_high")
+    def _standardize_lab(self, lab: LabResult, saved_by_old_matcher: bool = False) -> LabResult:
+        """Attach local LOINC identity/reference metadata when confidently known."""
+        lab.loinc_code, lab.reference_low, lab.reference_high = self._loinc().standardize(
+            lab.name,
+            code=lab.loinc_code,
+            unit=lab.unit,
+            reference_low=lab.reference_low,
+            reference_high=lab.reference_high,
+            saved_by_old_matcher=saved_by_old_matcher,
+        )
         return lab
+
+    def _fill_from_duplicate(self, stored: LabResult, incoming: LabResult, printed: tuple):
+        """Keep what a second copy of one result adds: its flag, and the range
+        its lab printed in place of one taken from the seed. The first copy's
+        provenance stays."""
+        if not lab_flag(stored) and lab_flag(incoming):
+            stored.flag = incoming.flag
+        seed = self._loinc().lookup_by_code(stored.loinc_code) if stored.loinc_code else None
+        seed_range = (seed["reference_low"], seed["reference_high"]) if seed else None
+        current = (stored.reference_low, stored.reference_high)
+        if printed != (None, None) and current in ((None, None), seed_range):
+            stored.reference_low, stored.reference_high = printed
+
+    def _load_profile(self) -> PatientProfile:
+        """Load the saved profile, redoing lab codes an older matcher saved, once.
+
+        Saved records are repaired before they are validated: validation folds
+        a same-day listing into the result that shares its code, and an older
+        matcher gave unrelated tests one code.
+        """
+        try:
+            stored = self._vault.load_profile()
+            if isinstance(stored, dict):
+                repair_saved_lab_codes(stored, self._loinc())
+            profile = PatientProfile(**stored) if isinstance(stored, dict) else stored
+        except Exception as e:
+            logger.warning(
+                "Could not load existing profile; starting fresh "
+                "(error_type=%s)",
+                type(e).__name__,
+            )
+            profile = None
+        profile = profile or PatientProfile()
+        if profile.lab_codes_version < CODES_VERSION:
+            for lab in profile.clinical_timeline.labs:
+                self._standardize_lab(lab, saved_by_old_matcher=True)
+            profile.lab_codes_version = CODES_VERSION
+        return profile
 
     def _append_extraction_results(self, results: dict):
         """Append extracted timeline items, skipping duplicates.
@@ -1102,6 +1132,7 @@ class Pipeline:
         Builds a fingerprint set from existing items on first call,
         then checks each new item against it before appending.
         """
+        results = normalize_lab_procedures(results)
         timeline = self._profile.clinical_timeline
         model_map = (
             ("medications", Medication, timeline.medications),
@@ -1114,13 +1145,13 @@ class Pipeline:
         )
 
         for key, model_cls, target in model_map:
-            # Build fingerprint set from items already in the profile
-            existing_fps = set()
+            # Build fingerprint index from items already in the profile
+            existing_fps = {}
             for existing in target:
                 try:
                     if key == "labs":
                         self._standardize_lab(existing)
-                    existing_fps.add(self._fingerprint(existing, key))
+                    existing_fps.setdefault(self._fingerprint(existing, key), existing)
                 except Exception:
                     pass  # If fingerprinting fails, allow the item through
 
@@ -1139,12 +1170,15 @@ class Pipeline:
                         negated += 1
                         continue
                     if key == "labs":
+                        printed = (parsed.reference_low, parsed.reference_high)
                         parsed = self._standardize_lab(parsed)
                     fp = self._fingerprint(parsed, key)
                     if fp in existing_fps:
+                        if key == "labs":
+                            self._fill_from_duplicate(existing_fps[fp], parsed, printed)
                         skipped += 1
                         continue
-                    existing_fps.add(fp)
+                    existing_fps[fp] = parsed
                     target.append(parsed)
                 except Exception as e:
                     logger.warning(
@@ -1153,6 +1187,11 @@ class Pipeline:
                         key[:-1] if key.endswith("s") else key,
                         type(e).__name__,
                     )
+
+            if key == "labs":
+                # A test listed without a result, stored before or after the
+                # result it lists, is kept as that result's source.
+                target[:] = fold_listings(target)
 
             if skipped:
                 logger.info(

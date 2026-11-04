@@ -676,7 +676,7 @@ var TimelineFlow = (function () {
             _appendDetailField(grid, "Prescriber", eventData.prescriber);
             _appendDetailField(grid, "Status", eventData.status);
         } else if (eventData.type === "lab") {
-            _appendDetailField(grid, "Result", _compactParts([eventData.value, eventData.value_text, eventData.unit]));
+            _appendDetailField(grid, "Result", LabResults.resultText(eventData, true));
             _appendDetailField(grid, "Flag", eventData.flag);
             _appendDetailField(grid, "Reference Range", _formatReferenceRange(eventData.reference_low, eventData.reference_high, eventData.unit));
         } else if (eventData.type === "diagnosis") {
