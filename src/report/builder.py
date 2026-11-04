@@ -19,7 +19,7 @@ Sections:
 """
 
 import logging
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
@@ -30,6 +30,19 @@ from src.models import (
     Demographics,
     FindingCategory,
     PatientProfile,
+)
+from src.standardization.record_categories import (
+    is_flagged,
+    lab_flag,
+    lab_has_result,
+    lab_result_text,
+    lab_result_token,
+    lab_test_key,
+    newest_results,
+    number_text,
+    plain_number,
+    procedure_outcome,
+    unit_key,
 )
 
 logger = logging.getLogger("CIH-Report")
@@ -212,7 +225,7 @@ class ReportBuilder:
         summary = self._doc.add_paragraph()
         summary.add_run(f"Active Medications: {len(active_meds)}\n").bold = True
         summary.add_run(f"Active Conditions: {len(active_dx)}\n")
-        summary.add_run(f"Lab Results on File: {len(timeline.labs)}\n")
+        summary.add_run(f"Lab Results on File: {self._lab_count_text(timeline.labs)}\n")
         summary.add_run(f"Imaging Studies: {len(timeline.imaging)}\n")
         summary.add_run(f"Genetic Variants: {len(timeline.genetics)}\n")
         summary.add_run(f"Allergies: {len(timeline.allergies)}")
@@ -234,9 +247,9 @@ class ReportBuilder:
 
         for lab in timeline.labs:
             if lab.test_date:
-                flag = f" [{lab.flag}]" if lab.flag else ""
+                flag = f" [{lab_flag(lab)}]" if lab_flag(lab) else ""
                 events.append((lab.test_date, "Lab",
-                               f"{lab.name}: {lab.value or lab.value_text} {lab.unit or ''}{flag}".strip(),
+                               f"{lab.name}: {lab_result_text(lab)}{flag}",
                                lab.provenance))
 
         for dx in timeline.diagnoses:
@@ -247,8 +260,9 @@ class ReportBuilder:
 
         for proc in timeline.procedures:
             if proc.procedure_date:
-                events.append((proc.procedure_date, "Procedure",
-                               proc.name, proc.provenance))
+                # The outcome may be a result: a test left under procedures keeps it.
+                text = f"{proc.name}: {proc.outcome}" if proc.outcome else proc.name
+                events.append((proc.procedure_date, "Procedure", text, proc.provenance))
 
         for img in timeline.imaging:
             if img.study_date:
@@ -361,58 +375,48 @@ class ReportBuilder:
             self._doc.add_paragraph("No lab results found in processed records.")
             return
 
-        # Group labs by name
-        lab_groups: dict[str, list] = {}
-        for lab in timeline.labs:
-            key = lab.name.lower()
-            if key not in lab_groups:
-                lab_groups[key] = []
-            lab_groups[key].append(lab)
+        # Newest first, as on the Labs page: on one day an entry's own result
+        # comes before one listed with procedures, and undated entries come last.
+        newest_first = sorted(timeline.labs, key=lambda l: l.test_date or date.min, reverse=True)
+        lab_groups: dict[str, list] = {lab_test_key(lab): [] for lab in timeline.labs}
+        for lab in newest_first:
+            lab_groups[lab_test_key(lab)].append(lab)
 
-        # Sort each group by date
-        for key in lab_groups:
-            lab_groups[key].sort(
-                key=lambda l: l.test_date or datetime.min.date()
-            )
-
-        # Show flagged labs first
-        flagged_labs = {
-            k: v for k, v in lab_groups.items()
-            if any(l.flag and l.flag.lower() not in ("normal", "") for l in v)
-        }
+        # A test is flagged by an entry with a result: one listed without a
+        # result never stands in for it.
+        flagged_labs = []
+        for group in lab_groups.values():
+            resulted = newest_results(group)
+            marked = [l for l in resulted if self._is_flagged(l)]
+            if marked:
+                flagged_labs.append((marked[0], resulted))
 
         if flagged_labs:
             self._doc.add_heading("Flagged Results", level=2)
-            for lab_name, results in flagged_labs.items():
-                latest = results[-1]
-                flag_text = latest.flag or ""
+            for flagged, resulted in flagged_labs:
                 p = self._doc.add_paragraph()
-                p.add_run(f"{latest.name}: ").bold = True
-                p.add_run(
-                    f"{latest.value or latest.value_text} {latest.unit or ''} "
-                    f"[{flag_text}]"
-                )
-                if latest.reference_low is not None or latest.reference_high is not None:
-                    ref_range = f" (Reference: {latest.reference_low or '—'} – {latest.reference_high or '—'})"
-                    p.add_run(ref_range)
-                p.add_run(f"  [{self._format_provenance(latest.provenance)}]")
+                p.add_run(f"{flagged.name}: ").bold = True
+                p.add_run(f"{lab_result_text(flagged)} [{lab_flag(flagged)}] on {self._lab_date(flagged)}")
+                reference = self._reference_range(flagged)
+                if reference:
+                    p.add_run(f" (Reference: {reference})")
+                p.add_run(f"  [{self._format_provenance(flagged.provenance)}]")
 
-                # Show trend if multiple results
-                if len(results) > 1:
-                    oldest = results[0]
-                    if oldest.value and latest.value:
-                        if latest.value > oldest.value:
-                            trend = "↗ Increasing"
-                        elif latest.value < oldest.value:
-                            trend = "↘ Decreasing"
-                        else:
-                            trend = "→ Stable"
-                        self._doc.add_paragraph(
-                            f"    Trend: {trend} "
-                            f"({oldest.value} → {latest.value} over {len(results)} measurements)"
-                        )
+                latest = resulted[0]
+                if latest is not flagged:
+                    label = self._flag_label(latest)
+                    self._doc.add_paragraph(
+                        f"    {self._other_result_label(latest, flagged)}: {lab_result_text(latest)}"
+                        f"{f' [{label}]' if label else ''} on {self._lab_date(latest)}"
+                    )
+                trend = self._lab_trend(resulted)
+                if trend:
+                    self._doc.add_paragraph(f"    Trend: {trend}")
 
-        # All labs table
+        resulted = [lab for lab in newest_first if lab_has_result(lab)]
+        listed = [lab for lab in newest_first if not lab_has_result(lab)]
+
+        # All labs table: results only, so listings never push them out.
         self._doc.add_heading("All Lab Results", level=2)
         table = self._doc.add_table(rows=1, cols=6)
         table.style = "Light Grid Accent 1"
@@ -424,16 +428,120 @@ class ReportBuilder:
         headers[4].text = "Date"
         headers[5].text = "Source"
 
-        for lab in sorted(timeline.labs,
-                          key=lambda l: l.test_date or datetime.min.date(),
-                          reverse=True)[:100]:
+        for lab in resulted[:100]:
             row = table.add_row()
             row.cells[0].text = lab.name
-            row.cells[1].text = str(lab.value if lab.value is not None else lab.value_text or "—")
+            row.cells[1].text = lab_result_text(lab, include_unit=False)
             row.cells[2].text = lab.unit or "—"
-            row.cells[3].text = lab.flag or "Normal"
+            row.cells[3].text = self._flag_label(lab) or "—"
             row.cells[4].text = str(lab.test_date or "Unknown")
             row.cells[5].text = self._format_provenance(lab.provenance)
+        if len(resulted) > 100:
+            self._doc.add_paragraph(
+                f"(Showing 100 of {len(resulted)} lab results. The full list is in the Hub.)"
+            )
+
+        if listed:
+            self._doc.add_heading("Tests Listed Without a Result", level=2)
+            self._doc.add_paragraph(
+                "These tests appear in your records without a result, for example "
+                "as an order or a visit item marked completed."
+            )
+            table = self._doc.add_table(rows=1, cols=4)
+            table.style = "Light Grid Accent 1"
+            headers = table.rows[0].cells
+            headers[0].text = "Test"
+            headers[1].text = "As Listed"
+            headers[2].text = "Date"
+            headers[3].text = "Source"
+            for lab in listed[:50]:
+                row = table.add_row()
+                row.cells[0].text = lab.name
+                # The entry's own words first: a lab's "Cancelled" outranks the
+                # visit list's "Completed".
+                row.cells[1].text = (lab.value_text or "").strip() or procedure_outcome(lab) or "—"
+                row.cells[2].text = str(lab.test_date or "Unknown")
+                row.cells[3].text = self._format_provenance(lab.provenance)
+            if len(listed) > 50:
+                self._doc.add_paragraph(
+                    f"(Showing 50 of {len(listed)} tests listed without a result. "
+                    "The full list is in the Hub.)"
+                )
+
+    @staticmethod
+    def _lab_count_text(labs) -> str:
+        """Lab results counted apart from tests listed without one."""
+        listed = sum(not lab_has_result(lab) for lab in labs)
+        text = str(len(labs) - listed)
+        if listed:
+            text += f" (plus {listed} test{'s' if listed != 1 else ''} listed without a result)"
+        return text
+
+    @staticmethod
+    def _is_flagged(lab) -> bool:
+        return is_flagged(lab_flag(lab))
+
+    @staticmethod
+    def _flag_label(lab) -> str:
+        """The flag as recorded; 'Not flagged' only for the entry's own result.
+
+        An outcome copied from a procedure list never carried a flag, so no
+        claim is made about one.
+        """
+        return lab_flag(lab) or ("Not flagged" if lab_has_result(lab, include_outcome=False) else "")
+
+    @staticmethod
+    def _other_result_label(latest, flagged) -> str:
+        """'Most recent result' only when both dates show the other entry is newer."""
+        if latest.test_date and flagged.test_date:
+            if latest.test_date > flagged.test_date:
+                return "Most recent result"
+            if latest.test_date == flagged.test_date:
+                return "Another result the same day"
+        return "Another result"
+
+    @staticmethod
+    def _lab_date(lab) -> str:
+        return str(lab.test_date) if lab.test_date else "date not recorded"
+
+    @staticmethod
+    def _reference_range(lab) -> str:
+        """The range as the Labs page writes it: '0 to 65 U/L', '>= 40', '<= 200'."""
+        low, high = lab.reference_low, lab.reference_high
+        if low is None and high is None:
+            return ""
+        if low is not None and high is not None:
+            text = f"{number_text(low)} to {number_text(high)}"
+        elif low is not None:
+            text = f">= {number_text(low)}"
+        else:
+            text = f"<= {number_text(high)}"
+        return f"{text} {lab.unit}" if lab.unit else text
+
+    @staticmethod
+    def _lab_trend(resulted) -> str:
+        """The newest result against the earliest dated one.
+
+        A direction is stated only when both ends are plain numbers in one
+        unit, and neither end's day holds another value that could be that end.
+        """
+        dated = [lab for lab in resulted if lab.test_date]
+        if len(dated) < 2 or dated[0] is not resulted[0]:
+            return ""
+        latest, first = dated[0], dated[-1]
+        if latest.test_date == first.test_date or unit_key(latest) != unit_key(first):
+            return ""
+        a, b = plain_number(first), plain_number(latest)
+        if a is None or b is None:
+            return ""
+        for end in (first, latest):
+            if len({lab_result_token(lab) for lab in dated if lab.test_date == end.test_date}) > 1:
+                return ""
+        direction = "↗ Higher than" if b > a else "↘ Lower than" if b < a else "→ Same as"
+        return (
+            f"{direction} the earliest dated result: {lab_result_text(first)} on {first.test_date}"
+            f" → {lab_result_text(latest)} on {latest.test_date}"
+        )
 
     # ── Section 4b: Treatment Response ──────────────────────────
 
@@ -1344,12 +1452,14 @@ class ReportBuilder:
         table = self._doc.add_table(rows=0, cols=2)
         table.style = "Light Grid Accent 1"
 
+        listed_count = sum(not lab_has_result(lab) for lab in profile.clinical_timeline.labs)
         stats = [
             ("Documents Processed", str(file_count or len(profile.processed_files))),
             ("Report Generated", datetime.now().strftime("%Y-%m-%d %H:%M")),
             ("Pipeline Version", profile.pipeline_version),
             ("Medications Found", str(len(profile.clinical_timeline.medications))),
-            ("Lab Results Found", str(len(profile.clinical_timeline.labs))),
+            ("Lab Results Found", str(sum(map(lab_has_result, profile.clinical_timeline.labs)))),
+            *([("Tests Listed Without a Result", str(listed_count))] if listed_count else []),
             ("Diagnoses Found", str(len(profile.clinical_timeline.diagnoses))),
             ("Imaging Studies", str(len(profile.clinical_timeline.imaging))),
             ("Genetic Variants", str(len(profile.clinical_timeline.genetics))),

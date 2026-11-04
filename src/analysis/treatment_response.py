@@ -19,6 +19,8 @@ from typing import Optional
 
 logger = logging.getLogger("CIH-TreatmentResponse")
 
+from src.standardization.record_categories import matches_test, plain_number, unit_key
+
 
 class TreatmentResponseAnalyzer:
     """
@@ -370,14 +372,12 @@ class TreatmentResponseAnalyzer:
         points = []
         for lab in all_labs:
             name = (lab.get("name") or lab.get("test_name") or "").strip()
-            if not name:
+            # "hemoglobin" never reads "Hemoglobin A1c", nor "glucose" a urine test.
+            if not name or not matches_test(lab, lab_key):
                 continue
 
-            name_lower = name.lower()
-            if lab_key not in name_lower and name_lower not in lab_key:
-                continue
-
-            value = self._parse_numeric(lab.get("value") or lab.get("value_text"))
+            # '<0.01' or a value beside other text is not a measured point.
+            value = plain_number(lab)
             if value is None:
                 continue
 
@@ -399,12 +399,18 @@ class TreatmentResponseAnalyzer:
                 "value": value,
                 "display_name": name,
                 "unit": lab.get("unit", ""),
+                "_unit_key": unit_key(lab),
                 "source_file": source_file,
                 "source_page": source_page,
             })
 
         points.sort(key=lambda p: p["date"])
-        return points
+        # One unit per series: 8.4 % and 64 mmol/mol are about the same level.
+        newest_unit = points[-1]["_unit_key"] if points else ""
+        return [
+            {k: v for k, v in p.items() if k != "_unit_key"}
+            for p in points if p["_unit_key"] == newest_unit
+        ]
 
     def _linear_regression(self, points: list[dict]) -> dict:
         """

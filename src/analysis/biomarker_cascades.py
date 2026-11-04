@@ -19,6 +19,16 @@ Results feed into:
 import logging
 from typing import Optional
 
+from src.standardization.record_categories import (
+    flag_direction,
+    is_flagged,
+    lab_flag,
+    lab_result_text,
+    lab_test_key,
+    matches_test,
+    newest_results,
+)
+
 logger = logging.getLogger("CIH-BiomarkerCascades")
 
 
@@ -110,7 +120,7 @@ CASCADE_CHAINS = [
             {"id": "ft4_low", "label": "Low Free T4", "type": "biomarker",
              "tests": ["free t4", "ft4", "thyroxine"], "flag": "low"},
             {"id": "cholesterol_high", "label": "Elevated LDL Cholesterol", "type": "biomarker",
-             "tests": ["ldl", "cholesterol", "ldl cholesterol"], "flag": "high"},
+             "tests": ["ldl", "ldl cholesterol"], "flag": "high"},
             {"id": "cpk_high", "label": "Elevated CPK", "type": "biomarker",
              "tests": ["cpk", "creatine kinase", "ck"], "flag": "high"},
             {"id": "anemia_hypo", "label": "Anemia of Hypothyroidism", "type": "condition",
@@ -444,25 +454,31 @@ class BiomarkerCascadeEngine:
     # ── Helpers ───────────────────────────────────────
 
     def _build_lab_lookup(self, labs: list) -> dict:
-        """Build lookup: lowered test name → latest result dict."""
+        """Build lookup: test name key → its newest result."""
         lookup = {}
-        for lab in labs:
-            name = (lab.get("name") or lab.get("test_name") or "").lower().strip()
-            if not name:
+        for lab in newest_results(labs):
+            name = lab_test_key(lab)
+            if not name or name in lookup:
                 continue
-
-            entry = {
+            lookup[name] = {
                 "value": lab.get("value", lab.get("value_text", "")),
                 "unit": lab.get("unit", ""),
-                "flag": (lab.get("flag") or "").lower(),
+                "flag": lab_flag(lab).lower(),
+                "direction": flag_direction(lab),
                 "date": lab.get("test_date") or lab.get("date", ""),
+                "display": lab_result_text(lab),
+                "lab": lab,
             }
-
-            # Keep most recent
-            if name not in lookup or (entry["date"] > lookup[name]["date"]):
-                lookup[name] = entry
-
         return lookup
+
+    @staticmethod
+    def _find_lab(test: str, lab_lookup: dict) -> Optional[dict]:
+        """The patient's newest result for a node's test: the same LOINC code or
+        whole name, so 'Hemoglobin' never reads 'Hemoglobin A1c'."""
+        for lab_entry in lab_lookup.values():
+            if matches_test(lab_entry["lab"], test):
+                return lab_entry
+        return None
 
     def _match_node(self, node_def: dict, lab_lookup: dict) -> Optional[dict]:
         """
@@ -473,37 +489,15 @@ class BiomarkerCascadeEngine:
         test_names = node_def.get("tests", [])
 
         for test in test_names:
-            test_lower = test.lower()
-
-            # Direct match
-            match = lab_lookup.get(test_lower)
+            match = self._find_lab(test, lab_lookup)
             if not match:
-                # Partial match
-                for lab_name, lab_entry in lab_lookup.items():
-                    if test_lower in lab_name or lab_name in test_lower:
-                        match = lab_entry
-                        break
-
-            if match:
-                lab_flag = match.get("flag", "")
-                # Check if the flag direction matches what we expect
-                if expected_flag == "any":
-                    if lab_flag and lab_flag not in ("normal", ""):
-                        return {
-                            "display": f"{match['value']} {match['unit']}".strip(),
-                            "flag": lab_flag,
-                        }
-                elif expected_flag == "high":
-                    if lab_flag in ("high", "critical high", "h", "critical"):
-                        return {
-                            "display": f"{match['value']} {match['unit']}".strip(),
-                            "flag": lab_flag,
-                        }
-                elif expected_flag == "low":
-                    if lab_flag in ("low", "critical low", "l"):
-                        return {
-                            "display": f"{match['value']} {match['unit']}".strip(),
-                            "flag": lab_flag,
-                        }
+                continue
+            # A bare "Critical" is high or low only when the range shows which.
+            if expected_flag == "any":
+                matched = is_flagged(match["flag"])
+            else:
+                matched = expected_flag in ("high", "low") and match["direction"] == expected_flag
+            if matched:
+                return {"display": match["display"], "flag": match["flag"]}
 
         return None

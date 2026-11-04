@@ -23,6 +23,7 @@ from datetime import date, timedelta
 from typing import Optional
 
 from src.analysis.med_lab_mapping import get_relevant_medications
+from src.standardization.record_categories import plain_number, unit_key
 
 logger = logging.getLogger("CIH-Trajectory")
 
@@ -234,7 +235,8 @@ class TrajectoryForecaster:
             if not name:
                 continue
 
-            value = self._parse_numeric(lab.get("value") or lab.get("value_text"))
+            # '<0.01' or a value beside other text is not a measured point.
+            value = plain_number(lab)
             if value is None:
                 continue
 
@@ -245,11 +247,17 @@ class TrajectoryForecaster:
             key = name.lower()
             if key not in groups:
                 groups[key] = {"display_name": name, "points": []}
-            groups[key]["points"].append({"date": test_date, "value": value})
+            groups[key]["points"].append({"date": test_date, "value": value, "unit": unit_key(lab)})
 
-        # Sort each group by date
-        for key in groups:
-            groups[key]["points"].sort(key=lambda p: p["date"])
+        # Sort each group by date, keeping the newest point's unit: one line
+        # cannot hold 8.4 % and 64 mmol/mol.
+        for group in groups.values():
+            group["points"].sort(key=lambda p: p["date"])
+            newest_unit = group["points"][-1]["unit"]
+            group["points"] = [
+                {"date": p["date"], "value": p["value"]}
+                for p in group["points"] if p["unit"] == newest_unit
+            ]
 
         return {k: v for k, v in groups.items()}
 

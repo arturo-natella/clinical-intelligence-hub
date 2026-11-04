@@ -108,6 +108,10 @@
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6"/></svg>
             <span class="sidebar-label">Timeline</span>
         </button>
+        <button class="sidebar-item" data-view="conditions" aria-label="Conditions">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H6a2 2 0 00-2 2v13h16V7a2 2 0 00-2-2h-3M9 3h6v4H9V3zm-1 9h8m-8 4h8"/></svg>
+            <span class="sidebar-label">Conditions</span>
+        </button>
         <button class="sidebar-item" data-view="medications" aria-label="Medications">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19.5 12c0-1.232-.046-2.453-.138-3.662a4.006 4.006 0 00-3.7-3.7 48.678 48.678 0 00-7.324 0 4.006 4.006 0 00-3.7 3.7c-.017.22-.032.441-.046.662M19.5 12l3-3m-3 3l-3-3m-12 3c0 1.232.046 2.453.138 3.662a4.006 4.006 0 003.7 3.7 48.656 48.656 0 007.324 0 4.006 4.006 0 003.7-3.7c.017-.22.032-.441.046-.662M4.5 12l3 3m-3-3l-3 3"/></svg>
             <span class="sidebar-label">Medications</span>
@@ -265,6 +269,7 @@
                     <div class="dash-kpi-value" id="kpi-dx-count">—</div>
                     <div class="dash-kpi-unit">diagnoses</div>
                 </div>
+                <button type="button" class="conditions-link" onclick="Conditions.showAll();">View all conditions →</button>
             </div>
 
             <div class="dash-kpi">
@@ -324,10 +329,12 @@
                 <div id="dash-lab-trends" style="min-height:180px; color:var(--text-secondary); font-size:14px;">No trend data</div>
             </div>
 
-            <!-- Conditions — horizontal bar chart -->
+            <!-- Conditions — readable preview with access to the full list -->
             <div class="dash-card">
                 <div class="dash-eyebrow">Conditions</div>
-                <div id="dash-dx-chart" style="min-height:120px;"></div>
+                <div id="dash-dx-chart">Loading conditions…</div>
+                <p id="dash-dx-preview-count" class="conditions-muted"></p>
+                <button type="button" class="btn btn-outline conditions-view-all" onclick="Conditions.showAll();">View all conditions →</button>
             </div>
 
             <!-- Symptoms — bar chart -->
@@ -508,6 +515,31 @@
             </div>
         </div>
     </div>
+
+    <!-- ── Conditions and available record notes ──────── -->
+    <section id="view-conditions" class="view" aria-labelledby="conditions-title">
+        <div class="card conditions-intro">
+            <div class="conditions-heading">
+                <div>
+                    <h1 id="conditions-title">Conditions &amp; Notes</h1>
+                    <p class="conditions-muted">Your complete condition list, with full names and details from your records.</p>
+                </div>
+                <button type="button" class="btn btn-outline" onclick="Conditions.load();">Refresh list</button>
+            </div>
+            <div class="conditions-switch" role="group" aria-label="Browse conditions or notes">
+                <button type="button" class="btn btn-outline" id="conditions-tab" aria-pressed="true" onclick="Conditions.setMode('conditions');">Conditions</button>
+                <button type="button" class="btn btn-outline" id="condition-notes-tab" aria-pressed="false" onclick="Conditions.setMode('notes');">Available record notes</button>
+            </div>
+            <label for="conditions-search" class="conditions-search-label">Search this list</label>
+            <div class="conditions-search-row">
+                <input id="conditions-search" type="search" placeholder="Search conditions by name, doctor, or code" oninput="Conditions.render();" autocomplete="off">
+                <button type="button" class="btn btn-outline" onclick="Conditions.clearSearch();">Clear search</button>
+            </div>
+            <p id="conditions-count" class="conditions-muted" role="status" aria-live="polite"></p>
+            <p id="conditions-notes-status" class="conditions-muted"></p>
+        </div>
+        <div id="conditions-list" class="conditions-list" aria-busy="false"></div>
+    </section>
 
     <!-- ── Timeline ───────────────────────────────────── -->
     <div id="view-timeline" class="view">
@@ -1100,8 +1132,10 @@
 <script src="/js/sparklines.js"></script>
 <script src="/js/dashboard_charts.js"></script>
 <script src="/js/crossdisc_graph.js"></script>
+<script src="/js/lab_results.js"></script>
 <script src="/js/timeline_flow.js"></script>
 <script src="/js/symptom_landscape.js"></script>
+<script src="/js/conditions.js"></script>
 <script src="/app.js"></script>
 
 </body>
