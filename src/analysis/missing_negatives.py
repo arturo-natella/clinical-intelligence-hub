@@ -14,6 +14,8 @@ import logging
 from datetime import date, timedelta
 from typing import Optional
 
+from src.standardization.record_categories import lab_has_result
+
 logger = logging.getLogger("CIH-MissingNegatives")
 
 
@@ -312,9 +314,10 @@ class MissingNegativeDetector:
         """Build lookup: lowered test name → most recent date."""
         history = {}
         for lab in labs:
-            name = lab.get("name", "").lower().strip()
+            name = (lab.get("name") or "").lower().strip()
             date_str = lab.get("test_date") or lab.get("date", "")
-            if not name or not date_str:
+            # An ordered, cancelled or unreported test does not close a gap.
+            if not name or not date_str or not lab_has_result(lab):
                 continue
             try:
                 if isinstance(date_str, str):
@@ -336,8 +339,8 @@ class MissingNegativeDetector:
         # Build a search corpus from diagnoses + meds
         corpus = []
         for dx in diagnoses:
-            name = dx.get("name", "").lower()
-            status = dx.get("status", "").lower()
+            name = (dx.get("name") or "").lower()
+            status = (dx.get("status") or "").lower()
             if status not in ("resolved", "inactive", "historical"):
                 corpus.append(name)
 
@@ -360,23 +363,15 @@ class MissingNegativeDetector:
         E.g., "HbA1c" matches "hba1c", "hemoglobin a1c", "glycated hemoglobin".
         """
         test_lower = test_name.lower()
+        names = {test_lower, *_TEST_SYNONYMS.get(test_lower, [])}
 
-        # Direct match
-        if test_lower in lab_history:
-            return lab_history[test_lower]
-
-        # Synonym matching for common tests
-        synonyms = _TEST_SYNONYMS.get(test_lower, [])
-        for syn in synonyms:
-            if syn in lab_history:
-                return lab_history[syn]
-
-        # Partial match: if any lab name contains our test name
-        for lab_name, lab_date in lab_history.items():
-            if test_lower in lab_name or lab_name in test_lower:
-                return lab_date
-
-        return None
+        # The newest date across every name for the test: the same test can be
+        # written several ways ("TSH" and "TSH, 3rd Generation").
+        dates = [
+            lab_date for lab_name, lab_date in lab_history.items()
+            if lab_name in names or test_lower in lab_name or lab_name in test_lower
+        ]
+        return max(dates) if dates else None
 
 
 # ── Test Name Synonyms ──────────────────────────────────

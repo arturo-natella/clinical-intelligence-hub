@@ -20,6 +20,15 @@ from pathlib import Path
 from typing import Optional
 
 from src.local_llm import call_local_text_model
+from src.standardization.record_categories import (
+    is_flagged,
+    lab_flag,
+    lab_result_text,
+    lab_test_key,
+    newest_results,
+    plain_number,
+    unit_key,
+)
 
 logger = logging.getLogger("CIH-VisitPrep")
 
@@ -117,42 +126,34 @@ class VisitPrepGenerator:
         labs = timeline.get("labs", [])
         flagged = []
 
-        # Group by lab name
+        # One group per test, however its name is written.
         lab_groups = {}
         for lab in labs:
-            name = lab.get("name", "Unknown")
-            if name not in lab_groups:
-                lab_groups[name] = []
-            lab_groups[name].append(lab)
+            lab_groups.setdefault(lab_test_key(lab), []).append(lab)
 
-        for name, entries in lab_groups.items():
-            # Sort by date (newest first)
-            entries.sort(
-                key=lambda x: x.get("test_date") or "",
-                reverse=True,
-            )
+        for entries in lab_groups.values():
+            # Newest first, among entries with a result: a test listed without
+            # one never stands in for the latest measured result.
+            entries = newest_results(entries)
+            if not entries:
+                continue
 
             latest = entries[0]
-            flag = (latest.get("flag") or "").lower()
-
-            if flag and flag != "normal":
-                trend = "→"  # stable
-                if len(entries) >= 2:
-                    try:
-                        v1 = float(latest.get("value", 0))
-                        v2 = float(entries[1].get("value", 0))
-                        if v1 > v2 * 1.05:
-                            trend = "↑"
-                        elif v1 < v2 * 0.95:
-                            trend = "↓"
-                    except (ValueError, TypeError):
-                        pass
+            if is_flagged(lab_flag(latest)):
+                # Unknown unless two plain numbers in one unit, from two days, compare.
+                trend = "—"
+                previous = entries[1] if len(entries) >= 2 else {}
+                v1, v2 = plain_number(latest), plain_number(previous)
+                if (v1 is not None and v2 is not None and unit_key(latest) == unit_key(previous)
+                        and latest.get("test_date") != previous.get("test_date")):
+                    trend = "↑" if v1 > v2 * 1.05 else "↓" if v1 < v2 * 0.95 else "→"
 
                 flagged.append({
-                    "name": name,
+                    "name": latest.get("name") or latest.get("test_name") or "Unknown",
                     "value": latest.get("value"),
-                    "unit": latest.get("unit", ""),
-                    "flag": flag,
+                    "unit": latest.get("unit") or "",
+                    "result": lab_result_text(latest),
+                    "flag": lab_flag(latest).lower(),
                     "reference_range": latest.get("reference_range", ""),
                     "test_date": latest.get("test_date"),
                     "trend": trend,
@@ -589,11 +590,9 @@ class VisitPrepGenerator:
             for lab in flagged:
                 row = table.add_row().cells
                 row[0].text = lab.get("name", "")
-                val = lab.get("value", "")
-                unit = lab.get("unit", "")
-                row[1].text = f"{val} {unit}".strip()
+                row[1].text = lab.get("result") or lab_result_text(lab)
                 row[2].text = lab.get("flag", "")
-                row[3].text = lab.get("trend", "→")
+                row[3].text = lab.get("trend") or "—"
                 row[4].text = lab.get("test_date", "") or "—"
 
         # Section 4: Medication Review

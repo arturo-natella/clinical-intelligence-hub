@@ -359,9 +359,7 @@ var App = {
                 } catch (e2) { /* profiles not available in bypass mode */ }
 
                 App._showMainUI();
-                if (status.has_profile) {
-                    App.loadAllData();
-                }
+                App.loadAllData();  // an empty profile says so rather than "Loading…"
                 if (App._profiles.length === 0 && !App._demoMode) {
                     App.showProfileSelector();
                 }
@@ -415,9 +413,7 @@ var App = {
             } else {
                 // Bypass mode or single profile already loaded
                 App._showMainUI();
-                if (result.has_profile) {
-                    App.loadAllData();
-                }
+                App.loadAllData();
             }
         } catch (e) {
             $("passphrase-error").textContent = e.message || "Failed to unlock vault";
@@ -426,6 +422,8 @@ var App = {
     },
 
     _showMainUI: function() {
+        Conditions.reset();
+        App._resetDashboardCards();
         $("sidebar").style.display = "flex";
         $("main-content").style.display = "block";
         App._setDemoMode(App._demoMode, App._demoWasPersisted);
@@ -437,6 +435,38 @@ var App = {
         $("files-card").style.display = "none";
         App.restoreStagedUploads();
         App.loadPersistenceStatus();
+    },
+
+    // The dashboard cards as the page first drew them, put back before each
+    // profile's answer so no card shows another profile's data.
+    _DASHBOARD_CARDS: [
+        "kpi-med-count", "kpi-dx-count", "kpi-flags-count", "kpi-symptom-count", "kpi-lab-count",
+        "kpi-pgx-badge", "dash-risk-score", "dash-risk-gauge", "dash-ai-narrative", "dash-blood-panel",
+        "dash-med-chart", "dash-pgx-alert", "dash-lab-trends", "dash-flags-chart",
+        "dash-flags-severity-bar", "dash-flags-urgency", "dash-symptom-chart", "dash-cross-spec",
+        "dash-overdue",
+    ],
+    _dashboardDefaults: null,
+
+    _resetDashboardCards: function() {
+        var first = !App._dashboardDefaults;
+        if (first) App._dashboardDefaults = {};
+        App._DASHBOARD_CARDS.forEach(function(id) {
+            var el = $(id);
+            if (!el || !el.childNodes) return;
+            if (first) {
+                App._dashboardDefaults[id] = {
+                    nodes: Array.prototype.map.call(el.childNodes, function(n) { return n.cloneNode(true); }),
+                    display: el.style.display, color: el.style.color,
+                };
+                return;
+            }
+            var saved = App._dashboardDefaults[id];
+            if (!saved) return;
+            el.replaceChildren.apply(el, saved.nodes.map(function(n) { return n.cloneNode(true); }));
+            el.style.display = saved.display;
+            el.style.color = saved.color;
+        });
     },
 
     _updateProfileIndicator: function() {
@@ -524,6 +554,7 @@ var App = {
             $("profile-modal-error").style.display = "none";
             $("profile-modal").style.display = "none";
             App._showMainUI();
+            App.loadAllData();
         } catch (e) {
             $("profile-modal-error").textContent = e.message || "Failed to create profile";
             $("profile-modal-error").style.display = "block";
@@ -604,6 +635,7 @@ var App = {
         // Load data for the view if needed
         var loaders = {
             dashboard: function() { App.loadDashboard(); },
+            conditions: function() { Conditions.load(); },
             medications: function() { App.loadMedications(); },
             labs: function() { App.loadLabs(); },
             imaging: function() { App.loadImaging(); },
@@ -647,6 +679,7 @@ var App = {
     // ── Demo Data ──────────────────────────────────────
 
     _setDemoMode: function(active, wasPersisted) {
+        if (App._demoMode !== Boolean(active)) Conditions.reset();
         App._demoMode = Boolean(active);
         App._demoWasPersisted = App._demoMode && Boolean(wasPersisted);
         var banner = $("demo-mode-banner");
@@ -1294,7 +1327,16 @@ var App = {
         App.loadSystemHealth();
         App.loadDeepInsights();
         try {
-            var data = await api("/api/dashboard");
+            var data;
+            try {
+                data = await api("/api/dashboard");
+            } catch (e) {
+                Conditions.renderPreviewMessage("Conditions could not be loaded.");
+                throw e;
+            }
+            Conditions.renderPreview(data.diagnoses_list || [], data.ruled_out_count || 0);
+            // Cards keep nothing from another profile or an earlier answer.
+            App._resetDashboardCards();
             if (!data.has_data) return;
 
             var hasDC = typeof DashboardCharts !== "undefined";
@@ -1407,19 +1449,6 @@ var App = {
                         if (typeof Sparkline !== "undefined") Sparkline.render(sparkC.id, data.lab_trends[sn]);
                     }
                 }
-            }
-
-            // ── Conditions — horizontal bar chart ─────────────
-            if (data.diagnoses_list && data.diagnoses_list.length > 0 && hasDC) {
-                var sevScore = { critical: 4, high: 3, moderate: 2, low: 1, info: 0 };
-                var dxItems = data.diagnoses_list.map(function(dx, i) {
-                    return {
-                        label: dx.name,
-                        value: sevScore[dx.severity] || 1,
-                        color: { critical: "#dc2626", high: "#f05545", moderate: "#f0c550", low: "#5cd47f", info: "#5a8ffc" }[dx.severity] || "#5a8ffc",
-                    };
-                });
-                DashboardCharts.renderHBars("dash-dx-chart", dxItems, { maxItems: 8 });
             }
 
             // ── Flags — donut by severity + stacked bar ───────
@@ -1660,6 +1689,7 @@ var App = {
             facility: true,
             loinc_code: true,
             provenance: true,
+            source_procedure: true,
             panel_name: true,
             description: true,
             summary: true,
@@ -1675,6 +1705,7 @@ var App = {
         var normalized = {
             _labKey: "lab:" + index,
             _original: lab,
+            source_procedure: lab.source_procedure || null,
             name: lab.name || lab.test_name || "Lab Result",
             value: lab.value,
             value_text: lab.value_text,
@@ -1711,7 +1742,8 @@ var App = {
         var order = [];
         for (var i = 0; i < normalizedLabs.length; i++) {
             var lab = normalizedLabs[i];
-            var key = normalizeLabGlossaryKey(lab.name);
+            // One row per test, however written: "HbA1c" and "Hemoglobin A1c" share a code.
+            var key = LabResults.testKey(lab);
             if (!key) key = "lab:" + i;
             if (!buckets[key]) {
                 buckets[key] = { key: key, entries: [] };
@@ -1730,8 +1762,12 @@ var App = {
                 if (!bd) return -1;
                 return bd.localeCompare(ad);
             });
-            g.latest = g.entries[0];
-            g.prior = g.entries.length > 1 ? g.entries[1] : null;
+            // A test listed without a result never stands in for the latest
+            // measured one; it stays in the history.
+            var resulted = g.entries.filter(LabResults.hasResult);
+            g.latest = LabResults.newestWithResult(g.entries);
+            var latestIndex = resulted.indexOf(g.latest);
+            g.prior = latestIndex >= 0 && latestIndex + 1 < resulted.length ? resulted[latestIndex + 1] : null;
             g.history = g.entries;
             out.push(g);
         }
@@ -1790,7 +1826,7 @@ var App = {
         if (group.entries.length > 1) {
             var countEl = document.createElement("div");
             countEl.className = "lab-test-count";
-            countEl.textContent = group.entries.length + " readings";
+            countEl.textContent = group.entries.length + " records";
             testCell.appendChild(countEl);
         }
         mainRow.appendChild(testCell);
@@ -1801,12 +1837,11 @@ var App = {
 
         var valueMain = document.createElement("div");
         valueMain.className = "lab-value-main";
-        var rawValue = lab.value != null ? lab.value : (lab.value_text || "\u2014");
-        valueMain.textContent = String(rawValue);
+        valueMain.textContent = LabResults.resultText(lab, false);
         valueWrap.appendChild(valueMain);
 
         var trend = App._buildTrendIndicator(lab, group.prior);
-        var spark = App._buildSparkline(group.history);
+        var spark = App._buildSparkline(group.history, lab);
         if (trend || spark) {
             var meta = document.createElement("div");
             meta.className = "lab-value-meta";
@@ -1822,7 +1857,8 @@ var App = {
         mainRow.appendChild(unitCell);
 
         var flagCell = document.createElement("td");
-        flagCell.appendChild(App._buildLabFlagBadge(lab.flag));
+        // "Not flagged" only for the entry's own result, never a listed outcome.
+        flagCell.appendChild(App._buildLabFlagBadge(lab.flag, LabResults.hasResult(lab, false)));
         mainRow.appendChild(flagCell);
 
         var dateCell = document.createElement("td");
@@ -1855,12 +1891,10 @@ var App = {
         tbody.appendChild(detailRow);
     },
 
+    // A measured value with nothing beside it that qualifies it: text such
+    // as "<0.01" or a titer "1:80" is not a point on a trend.
     _numericLabValue: function(lab) {
-        if (!lab) return null;
-        var raw = lab.value != null ? lab.value : lab.value_text;
-        if (raw == null || raw === "") return null;
-        var num = parseFloat(String(raw).replace(/,/g, ""));
-        return isFinite(num) ? num : null;
+        return LabResults.trendNumber(lab);
     },
 
     _monthsAgoLabel: function(laterStr, earlierStr) {
@@ -1878,7 +1912,9 @@ var App = {
     },
 
     _buildTrendIndicator: function(latest, prior) {
-        if (!prior) return null;
+        // 7.6 % and 58 mmol/mol are about the same level; only one unit, and
+        // two days, compare: nothing says which of one day's results came later.
+        if (!LabResults.comparable(latest, prior)) return null;
         var latestNum = App._numericLabValue(latest);
         var priorNum = App._numericLabValue(prior);
         if (latestNum == null || priorNum == null) return null;
@@ -1906,9 +1942,10 @@ var App = {
         return span;
     },
 
-    _buildSparkline: function(history) {
+    _buildSparkline: function(history, latest) {
         var nums = [];
         for (var i = history.length - 1; i >= 0; i--) {
+            if (latest && !LabResults.sameUnit(history[i], latest)) continue;
             var n = App._numericLabValue(history[i]);
             if (n != null) nums.push(n);
         }
@@ -1981,10 +2018,9 @@ var App = {
         var currentValue = document.createElement("div");
         currentValue.className = "lab-detail-current";
         currentValue.textContent = App._compactLabParts([
-            lab.value != null ? lab.value : lab.value_text,
-            lab.unit,
+            LabResults.resultText(lab, true),
             App._normalizedFlagLabel(lab.flag),
-        ]) || "No value available";
+        ]);
         header.appendChild(currentValue);
         panel.appendChild(header);
 
@@ -2020,7 +2056,7 @@ var App = {
         }
 
         var history = allLabs
-            .filter(function(other) { return normalizeLabGlossaryKey(other.name) === normalizeLabGlossaryKey(lab.name); })
+            .filter(function(other) { return LabResults.testKey(other) === LabResults.testKey(lab); })
             .sort(function(a, b) { return (b.test_date || "").localeCompare(a.test_date || ""); });
 
         if (history.length > 1) {
@@ -2038,10 +2074,7 @@ var App = {
 
                 var chipValue = document.createElement("div");
                 chipValue.className = "lab-history-value";
-                chipValue.textContent = App._compactLabParts([
-                    history[hi].value != null ? history[hi].value : history[hi].value_text,
-                    history[hi].unit,
-                ]) || "No value";
+                chipValue.textContent = LabResults.resultText(history[hi], true);
                 chip.appendChild(chipValue);
 
                 var chipMeta = document.createElement("div");
@@ -2123,38 +2156,38 @@ var App = {
         container.appendChild(block);
     },
 
-    _buildLabFlagBadge: function(flag) {
+    _buildLabFlagBadge: function(flag, hasResult) {
         var wrapper = document.createElement("span");
-        var normalized = String(flag || "").trim().toLowerCase();
+        var text = LabResults.flagText(flag, hasResult);
+        if (!text) return wrapper;  // no result and no flag: nothing to badge
 
-        if (normalized === "high" || normalized === "critical high" || normalized === "h") {
+        if (text === "HIGH") {
             wrapper.className = "badge badge-high";
-            wrapper.textContent = "HIGH";
-        } else if (normalized === "low" || normalized === "critical low" || normalized === "l") {
+        } else if (text === "LOW") {
             wrapper.className = "badge badge-moderate";
-            wrapper.textContent = "LOW";
-        } else if (normalized && normalized !== "normal") {
-            wrapper.className = "badge badge-warning";
-            wrapper.textContent = String(flag);
-        } else {
+        } else if (text === "Normal") {
             wrapper.className = "badge badge-active";
-            wrapper.textContent = "Normal";
+        } else if (text === "Not flagged") {
+            wrapper.className = "badge badge-info";
+        } else if (!LabResults.isFlagged(flag)) {
+            wrapper.className = "badge badge-active";  // "Not detected", "Non-reactive"
+        } else {
+            wrapper.className = "badge badge-warning";
         }
-
+        wrapper.textContent = text;
         return wrapper;
     },
 
     _normalizedFlagLabel: function(flag) {
-        var normalized = String(flag || "").trim().toLowerCase();
-        if (!normalized || normalized === "normal") return "";
-        if (normalized === "h" || normalized === "high" || normalized === "critical high") return "High";
-        if (normalized === "l" || normalized === "low" || normalized === "critical low") return "Low";
-        return String(flag);
+        var text = LabResults.flagText(flag, false);
+        if (!text || text === "Normal") return "";
+        if (text === "HIGH") return "High";
+        if (text === "LOW") return "Low";
+        return text;
     },
 
     _isFlaggedLab: function(flag) {
-        var normalized = String(flag || "").trim().toLowerCase();
-        return !!normalized && normalized !== "normal";
+        return LabResults.isFlagged(flag);
     },
 
     _formatLabReferenceRange: function(low, high, unit) {
@@ -3325,7 +3358,7 @@ var App = {
         if (labs.length > 0) {
             container.appendChild(
                 self._vpTable("Flagged Lab Results", ["Test", "Value", "Flag", "Trend", "Date"],
-                    labs.map(function(l) { return [l.name, (l.value || "") + " " + (l.unit || ""), l.flag, l.trend, l.test_date || "\u2014"]; }))
+                    labs.map(function(l) { return [l.name, l.result || LabResults.resultText(l, true), l.flag, l.trend || "\u2014", l.test_date || "\u2014"]; }))
             );
         }
 
@@ -3943,7 +3976,7 @@ var Timeline = {
             Timeline._appendListField(grid, "Prescriber", event.prescriber || event.provider);
             Timeline._appendListField(grid, "Status", event.status);
         } else if (event.type === "lab") {
-            Timeline._appendListField(grid, "Result", Timeline._compactParts([event.value, event.value_text, event.unit]));
+            Timeline._appendListField(grid, "Result", LabResults.resultText(event, true));
             Timeline._appendListField(grid, "Flag", event.flag);
             Timeline._appendListField(grid, "Reference Range", Timeline._formatReferenceRange(event.reference_low, event.reference_high, event.unit));
             Timeline._appendListField(grid, "Provider", event.provider);

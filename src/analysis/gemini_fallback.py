@@ -205,6 +205,7 @@ Extract these categories:
 7. **notes** — note_type (visit_summary/referral/patient_log/provider_note), summary, provider, note_date (YYYY-MM-DD)
 
 Rules:
+- Classify by the clinical item, not the source section heading: a single laboratory test on a specimen (blood, urine, stool, or a swab), including one done at the point of care such as urine glucose, urine protein, or rapid strep, belongs in labs even if listed under Procedures. If the record gives only a status for such a test (ordered, declined, cancelled, completed, due), keep it under procedures with that status as the outcome. Panels such as urinalysis, CBC, or a metabolic or lipid panel stay in procedures; their component tests with results go in labs. Keep specimen collection, injections, and other interventions in procedures.
 - Extract EVERY clinical entity, no matter how minor
 - Conditions listed under a "Pertinent Negatives" heading, or explicitly negated ("denies", "no history of", "negative for", "ruled out"), are conditions the patient does NOT have — set their status to "Ruled out", never "Active"
 - Use null for fields you cannot determine

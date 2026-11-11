@@ -23,6 +23,8 @@ import math
 from datetime import date, datetime, timedelta
 from typing import Optional
 
+from src.standardization.record_categories import lab_has_result
+
 logger = logging.getLogger("CIH-AnomalyInvestigator")
 
 
@@ -381,11 +383,14 @@ class AnomalyInvestigator:
             if lab_name.lower() != key:
                 continue
             lab_date = self._parse_date(lab.get("test_date") or lab.get("date"))
-            if lab_date and lab_date == anom_date:
+            # A same-day test listed without a value of its own says nothing about it.
+            if lab_date and lab_date == anom_date and lab_has_result(lab, include_outcome=False):
+                value = lab.get("value")
                 actual_value = self._parse_numeric(
-                    lab.get("value") or lab.get("value_text")
+                    value if value is not None else lab.get("value_text")
                 )
-                break
+                if actual_value is not None:
+                    break
 
         return {
             "date": anom_date.isoformat(),

@@ -543,16 +543,16 @@ var DashboardCharts = {
         data.forEach(function(lab, i) {
             var yPos = i * rH + 2;
             var name = lab.test_name || lab.name || "?";
-            var val = parseFloat(lab.value);
+            // A value printed with "<" or beside other text is never a point on the bar.
+            var val = LabResults.trendNumber(lab);
             var lo = lab.reference_low != null ? parseFloat(lab.reference_low) : null;
             var hi = lab.reference_high != null ? parseFloat(lab.reference_high) : null;
-            var unit = lab.unit || "";
 
             svg.append("text").attr("x", lW - 6).attr("y", yPos + 18)
                 .attr("text-anchor", "end").attr("fill", self.colors.text).attr("font-size", "11px")
                 .text(name.length > 12 ? name.substring(0, 12) + "…" : name);
 
-            if (lo !== null && hi !== null && !isNaN(val)) {
+            if (lo !== null && hi !== null && val !== null && !isNaN(lo) && !isNaN(hi)) {
                 var margin = (hi - lo) * 0.4;
                 var scale = d3.scaleLinear()
                     .domain([lo - margin, hi + margin]).range([0, bW]).clamp(true);
@@ -572,11 +572,17 @@ var DashboardCharts = {
                 svg.append("text").attr("x", lW + bW + 6).attr("y", yPos + 18)
                     .attr("fill", inRange ? self.colors.inRange : self.colors.outRange)
                     .attr("font-size", "11px").attr("font-weight", "600")
-                    .text(val + (unit ? " " + unit : ""));
+                    .text(LabResults.resultText(lab, true));
             } else {
+                var shown = LabResults.resultText(lab, true);
+                var flagShown = LabResults.flagText(lab.flag, true);
+                // A flag the result already says ("Non-reactive") is not repeated.
+                if (LabResults.labFlag(lab) && shown.toLowerCase().indexOf(flagShown.toLowerCase()) === -1) {
+                    shown += " (" + flagShown + ")";
+                }
                 svg.append("text").attr("x", lW).attr("y", yPos + 18)
                     .attr("fill", self.colors.text).attr("font-size", "11px")
-                    .text((val || lab.value || "—") + (unit ? " " + unit : ""));
+                    .text(shown);
             }
         });
     },

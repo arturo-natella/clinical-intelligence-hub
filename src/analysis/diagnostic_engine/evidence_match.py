@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import re
 
+from src.standardization.record_categories import latest_results
+
 # Flag vocabularies seen across the pipeline, FHIR imports, and legacy rows.
 _HIGH_FLAGS = {"h", "hh", "high", "abnormal high", "critical high", "elevated", "above"}
 _LOW_FLAGS = {"l", "ll", "low", "abnormal low", "critical low", "decreased", "below"}
@@ -252,7 +254,10 @@ def build_evidence(profile_data: dict) -> Evidence:
     """Structure a patient profile for matching (labs apart from free text)."""
     timeline = (profile_data or {}).get("clinical_timeline", {}) or {}
 
-    labs = [_Lab(lab) for lab in timeline.get("labs", []) or [] if isinstance(lab, dict)]
+    # The newest result of each test: an old low value the record has since
+    # seen return to normal is not evidence of a current deficiency.
+    current = latest_results([lab for lab in timeline.get("labs", []) or [] if isinstance(lab, dict)])
+    labs = [_Lab(lab) for lab in current]
     labs = [lab for lab in labs if lab.name]
 
     entries: list[str] = []

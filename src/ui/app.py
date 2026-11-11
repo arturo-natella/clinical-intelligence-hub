@@ -37,6 +37,18 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
+from src.models import is_negated_status
+from src.standardization.record_categories import (
+    is_flagged,
+    lab_flag,
+    lab_has_result,
+    lab_result_text,
+    latest_results,
+    normalize_lab_procedures,
+    plain_number,
+    unit_key,
+)
+
 DATA_DIR = BASE_DIR / "data"
 UPLOAD_DIR = DATA_DIR / "uploads"
 REPORTS_DIR = DATA_DIR / "reports"
@@ -461,6 +473,23 @@ def _matches_builtin_demo_profile(profile: dict | None) -> bool:
         and profile.get("clinical_timeline") == sample.get("clinical_timeline")
     )
 
+# Keys the pipeline owns. Everything else (symptoms, vitals, demographics) may
+# change in the UI during a run, so a snapshot never replaces it; the lab code
+# version travels with the labs it describes.
+_PIPELINE_KEYS = ("clinical_timeline", "analysis", "processed_files", "lab_codes_version")
+
+
+def _merge_pipeline_snapshot(snapshot):
+    """Merge a pipeline snapshot into the open profile, keeping the user's additions."""
+    global _profile_data
+    if _profile_data is None:
+        _profile_data = snapshot
+        return
+    for key in _PIPELINE_KEYS:
+        if key in snapshot:
+            _profile_data[key] = snapshot[key]
+
+
 @app.route("/api/unlock", methods=["POST"])
 def unlock_vault():
     """Unlock the encrypted vault with a passphrase."""
@@ -517,6 +546,8 @@ def unlock_vault():
             _demo_mode = True
             _demo_was_persisted = True
             logger.warning("Legacy built-in sample data detected in active profile")
+        else:
+            _profile_data = _prepare_loaded_profile(_profile_data)
 
         return jsonify({
             "status": "unlocked",
@@ -617,7 +648,7 @@ def activate_profile(profile_id):
     vault.active_profile_id = profile_id
     _active_profile_id = profile_id
     profile = vault.load_profile(profile_id)
-    _profile_data = profile or {}
+    _profile_data = _prepare_loaded_profile(profile or {})
     _demo_mode = False
     _profile_data_before_demo = None
     _demo_was_persisted = False
@@ -1538,21 +1569,11 @@ def _run_pipeline(input_files: list[Path]):
         def profile_update_callback(snapshot):
             """Called after each MedGemma chunk — update dashboard data.
 
-            Merges pipeline-owned keys (clinical_timeline, analysis,
-            processed_files) into the existing _profile_data rather than
-            replacing it wholesale.  This preserves user additions made
-            through the UI (symptoms, vitals, demographics) during the run.
-
-            Auto-saves to the encrypted vault after each merge so progress
-            survives crashes or browser refreshes.
+            Merges the pipeline-owned keys into the existing _profile_data
+            (see _merge_pipeline_snapshot), then auto-saves to the encrypted
+            vault so progress survives crashes or browser refreshes.
             """
-            global _profile_data
-            if _profile_data is None:
-                _profile_data = snapshot
-            else:
-                for key in ("clinical_timeline", "analysis", "processed_files"):
-                    if key in snapshot:
-                        _profile_data[key] = snapshot[key]
+            _merge_pipeline_snapshot(snapshot)
             _save_profile_to_vault()
 
         pipeline = Pipeline(
@@ -1947,7 +1968,7 @@ def get_labs():
     """Get lab results."""
     if not _profile_data:
         return jsonify([])
-    timeline = _profile_data.get("clinical_timeline", {})
+    timeline = normalize_lab_procedures(_profile_data.get("clinical_timeline", {}))
     return jsonify(timeline.get("labs", []))
 
 
@@ -1958,6 +1979,24 @@ def get_diagnoses():
         return jsonify([])
     timeline = _profile_data.get("clinical_timeline", {})
     return jsonify(timeline.get("diagnoses", []))
+
+
+@app.route("/api/conditions")
+def get_conditions():
+    """Complete conditions and saved notes, including undated records.
+
+    Keep both lists from the same profile snapshot. Notes are returned with
+    their original provenance; sharing a document is context, not a clinical
+    claim that a note is about a particular condition.
+    """
+    profile = _profile_data or {}
+    timeline = profile.get("clinical_timeline", {})
+    response = jsonify({
+        "conditions": timeline.get("diagnoses", []),
+        "notes": timeline.get("notes", []),
+    })
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.route("/api/imaging")
@@ -2247,33 +2286,38 @@ def get_flags():
     ])
 
 
+def _prepare_loaded_profile(profile):
+    """Bring a profile read from the vault up to date as it enters memory.
+
+    Lab codes an older matcher saved are redone once, and tests listed under
+    procedures move to labs, so every page and engine reads the same records
+    without waiting for a new analysis. The legacy sample patient is left
+    exactly as saved, so unlock still recognizes it.
+    """
+    if not isinstance(profile, dict) or not profile or _matches_builtin_demo_profile(profile):
+        return profile
+    from src.standardization.loinc import LOINCDatabase, code_uncoded_labs, repair_saved_lab_codes
+
+    db = LOINCDatabase(data_dir=DATA_DIR)
+    # Codes first: moving and folding match tests by code, and an older
+    # matcher gave unrelated tests one code. Then the moved tests get theirs.
+    repair_saved_lab_codes(profile, db)
+    timeline = profile.get("clinical_timeline")
+    if isinstance(timeline, dict):
+        profile["clinical_timeline"] = normalize_lab_procedures(timeline)
+        code_uncoded_labs(profile, db)
+    return profile
+
+
 # ── Dashboard Helpers ─────────────────────────────────────
 
 def _get_latest_labs(labs):
-    """Return the most recent result for each unique lab test name."""
-    latest = {}
-    for lab in labs:
-        name = lab.get("test_name") or lab.get("name") or "Unknown"
-        # The canonical field is `test_date` (LabResult model). The legacy
-        # `date` / `collected_date` fallbacks kept us from silently breaking
-        # on older payloads, but without `test_date` here every lab looked
-        # undated, so "latest" collapsed to "first seen in list order".
-        date = (
-            lab.get("test_date")
-            or lab.get("date")
-            or lab.get("collected_date")
-            or ""
-        )
-        if name not in latest or date > latest[name].get("_sort_date", ""):
-            entry = dict(lab)
-            entry["_sort_date"] = date
-            latest[name] = entry
-    # Remove helper key and return list
-    result = []
-    for entry in latest.values():
-        entry.pop("_sort_date", None)
-        result.append(entry)
-    return result
+    """Return the most recent result for each test, however its name is written.
+
+    Dates are read as test_date, then the legacy date / collected_date, so an
+    older payload is not ordered as if it were undated.
+    """
+    return [dict(lab) for lab in latest_results(labs)]
 
 
 def _normalize_lab_name(raw: str) -> str:
@@ -2301,7 +2345,6 @@ def _get_lab_trends(labs):
         norm = _normalize_lab_name(raw_name)
         if norm not in display_names:
             display_names[norm] = norm  # use the normalized title-case form
-        value = lab.get("value")
         date = (
             lab.get("test_date")
             or lab.get("date")
@@ -2313,23 +2356,26 @@ def _get_lab_trends(labs):
         # x coordinate, which looks like "several Low readings on one day".
         if not date:
             continue
-        if value is not None:
-            try:
-                numeric_val = float(str(value).replace(",", ""))
-            except (ValueError, TypeError):
-                continue
+        # A value printed with "<" or beside other text is not a point on a line.
+        numeric_val = plain_number(lab)
+        if numeric_val is not None:
             by_name[norm].append({
                 "date": date,
                 "value": numeric_val,
                 "unit": lab.get("unit", ""),
+                "_unit_key": unit_key(lab),
                 "ref_low": lab.get("reference_low"),
                 "ref_high": lab.get("reference_high"),
             })
-    # Only return tests with 3+ data points, sorted by date
+    # Only return tests with 3+ data points in the newest point's unit, by date:
+    # one axis cannot hold 7.5 % and 58 mmol/mol.
     trends = {}
     for norm, points in by_name.items():
+        points = sorted(points, key=lambda p: p["date"])
+        unit = points[-1]["_unit_key"]
+        points = [p for p in points if p.pop("_unit_key") == unit]
         if len(points) >= 3:
-            trends[display_names[norm]] = sorted(points, key=lambda p: p["date"])
+            trends[display_names[norm]] = points
     return trends
 
 
@@ -2416,7 +2462,7 @@ def get_dashboard():
     if not _profile_data:
         return jsonify({"has_data": False})
 
-    clinical = _profile_data.get("clinical_timeline", {})
+    clinical = normalize_lab_procedures(_profile_data.get("clinical_timeline", {}))
     analysis = _profile_data.get("analysis", {})
 
     # Latest labs with flags
@@ -2458,13 +2504,19 @@ def get_dashboard():
     meds_list = [{"name": m.get("name") or "Unknown", "dose": m.get("dose", ""),
                   "route": m.get("route", "")} for m in active_meds]
 
-    # Active diagnoses — list for bar chart
-    diagnoses = clinical.get("diagnoses", [])
+    # Conditions for the dashboard card: a ruled-out entry is not a condition
+    # the patient has, and current ones come first, each with its status.
+    all_diagnoses = clinical.get("diagnoses", [])
+    diagnoses = [
+        dx for dx in all_diagnoses
+        if not is_negated_status(dx.get("status"), dx.get("name") or dx.get("condition"))
+    ]
     diagnoses_list = []
     for dx in diagnoses:
         name = dx.get("name") or dx.get("condition") or "Unknown"
-        sev = (dx.get("severity") or "info").lower()
-        diagnoses_list.append({"name": name, "severity": sev})
+        sev = str(dx.get("severity") or "info").lower()
+        diagnoses_list.append({"name": name, "severity": sev, "status": dx.get("status") or ""})
+    diagnoses_list.sort(key=lambda d: str(d["status"]).strip().lower() not in ("active", "chronic"))
 
     # Symptoms — list with episode counts for bar chart
     symptoms = clinical.get("symptoms", [])
@@ -2521,6 +2573,7 @@ def get_dashboard():
         "medications_breakdown": meds_breakdown,
         "diagnoses_count": len(diagnoses),
         "diagnoses_list": diagnoses_list,
+        "ruled_out_count": len(all_diagnoses) - len(diagnoses),
         "symptoms_count": len(symptoms),
         "symptoms_list": symptoms_list,
         "flags_count": len(flags),
@@ -2958,7 +3011,7 @@ def get_timeline():
     if not _profile_data:
         return jsonify([])
 
-    timeline = _profile_data.get("clinical_timeline", {})
+    timeline = normalize_lab_procedures(_profile_data.get("clinical_timeline", {}))
     events = []
     notes = []
 
@@ -3088,20 +3141,24 @@ def get_timeline():
                 score -= 6
             if other.get("type") == current.get("type"):
                 score += 4
+            # An entry's own result ranks ahead of a test listed without one,
+            # or with only an outcome from the procedure list, whatever the score.
+            listed = other.get("type") == "lab" and not lab_has_result(other, include_outcome=False)
 
-            ranked.append((score, {
+            ranked.append((listed, score, {
                 "date": other.get("date"),
                 "type": other.get("type"),
                 "title": other.get("title"),
                 "detail": other.get("detail"),
             }))
 
-        ranked.sort(key=lambda pair: (pair[0], pair[1].get("date") or ""))
+        ranked.sort(key=lambda entry: (entry[0], entry[1], entry[2].get("date") or ""))
 
         seen = set()
         related = []
-        for _, item in ranked:
-            key = (item.get("date"), item.get("type"), item.get("title"))
+        for _, _, item in ranked:
+            # Two results of one test on one day are both shown.
+            key = (item.get("date"), item.get("type"), item.get("title"), item.get("detail"))
             if key in seen:
                 continue
             seen.add(key)
@@ -3135,15 +3192,13 @@ def get_timeline():
     for lab in timeline.get("labs", []):
         lab_date = _iso_date(_first_value(lab.get("test_date"), lab.get("date")))
         if lab_date:
-            value_text = str(_first_value(lab.get("value"), lab.get("value_text"), "")).strip()
-            unit_text = (lab.get("unit") or "").strip()
-            flag_text = (lab.get("flag") or "").strip()
+            flag_text = lab_flag(lab)
             provider = _first_value(lab.get("ordering_provider"), lab.get("provider"))
             events.append({
                 "date": lab_date,
                 "type": "lab",
                 "title": _first_value(lab.get("name"), lab.get("test_name"), "Lab result"),
-                "detail": " ".join(part for part in [value_text, unit_text, flag_text] if part),
+                "detail": " ".join(part for part in [lab_result_text(lab), flag_text] if part),
                 "name": _first_value(lab.get("name"), lab.get("test_name")),
                 "value": lab.get("value"),
                 "value_text": lab.get("value_text"),
@@ -3151,6 +3206,7 @@ def get_timeline():
                 "flag": lab.get("flag"),
                 "reference_low": lab.get("reference_low"),
                 "reference_high": lab.get("reference_high"),
+                "source_procedure": lab.get("source_procedure"),
                 "provider": provider,
                 "facility": _first_value(lab.get("lab_facility"), lab.get("facility")),
                 **_provenance_fields(lab),
@@ -4762,10 +4818,12 @@ def _record_date(record: dict) -> str:
     """Return the most relevant date-like field from a clinical record."""
     for key in (
         "date",
+        "test_date",
         "study_date",
         "episode_date",
         "procedure_date",
         "start_date",
+        "note_date",
         "date_created",
         "date_diagnosed",
     ):
@@ -4775,18 +4833,13 @@ def _record_date(record: dict) -> str:
     return ""
 
 
-def _latest_unique_records(records, *, name_keys: tuple[str, ...], limit: int, require_flag: bool = False) -> list[dict]:
+def _latest_unique_records(records, *, name_keys: tuple[str, ...], limit: int) -> list[dict]:
     """Return latest unique records keyed by their display name."""
     normalized = []
     for item in records or []:
         record = _coerce_record(item)
         if not record:
             continue
-
-        if require_flag:
-            flag = str(record.get("flag") or "").strip().lower()
-            if flag in {"", "normal", "n"}:
-                continue
 
         normalized.append(record)
 
@@ -4804,6 +4857,12 @@ def _latest_unique_records(records, *, name_keys: tuple[str, ...], limit: int, r
             break
 
     return selected
+
+
+def _current_flagged_labs(labs, limit: int) -> list[dict]:
+    """The newest result of each test, kept only when that result is flagged."""
+    records = [record for record in map(_coerce_record, labs or []) if record]
+    return [record for record in latest_results(records) if is_flagged(lab_flag(record))][:limit]
 
 
 def _call_local_assistant_model(
@@ -4922,21 +4981,14 @@ def _build_chat_profile_context(profile: dict) -> str:
     if meds:
         lines.append("Active medications: " + "; ".join(meds[:8]))
 
-    flagged_labs = _latest_unique_records(
-        timeline.get("labs", []),
-        name_keys=("test_name", "name"),
-        limit=8,
-        require_flag=True,
-    )
+    flagged_labs = _current_flagged_labs(timeline.get("labs", []), limit=8)
     if flagged_labs:
         lab_bits = []
         for item in flagged_labs:
             name = _record_name(item, "test_name", "name")
-            value = item.get("value")
-            unit = item.get("unit")
             flag = item.get("flag")
             item_date = _record_date(item)
-            detail = f"{name} {value or ''} {unit or ''}".strip()
+            detail = f"{name} {lab_result_text(item)}".strip()
             qualifiers = [part for part in (flag, item_date) if part]
             if qualifiers:
                 detail = f"{detail} ({', '.join(str(part) for part in qualifiers)})"
@@ -5057,17 +5109,20 @@ def _simple_chat_response(message: str) -> str:
 
     if "lab" in msg_lower or "test" in msg_lower:
         labs = timeline.get("labs", [])
-        flagged = [
-            l for l in labs
-            if l.get("flag") and str(l["flag"]).lower() not in ("normal", "")
-        ]
+        flagged = _current_flagged_labs(labs, limit=5)
         if flagged:
             lab_list = ", ".join(
                 f"{l.get('test_name') or l.get('name', 'Unknown')} ({l.get('flag', '')})"
-                for l in flagged[:5]
+                for l in flagged
             )
             return f"Your flagged lab results include: {lab_list}. Would you like to know more about any of these?"
-        return "Your lab results are all within normal range based on available records."
+        # A missing flag is not a normal result: say only what the record says.
+        if any(lab_has_result(_coerce_record(l)) for l in labs):
+            return (
+                "None of your most recent lab results are marked high or low in your "
+                "records. Your doctor can tell you what they mean for you."
+            )
+        return "I couldn't find lab results with recorded values in your records."
 
     if "diagnosis" in msg_lower or "condition" in msg_lower:
         dxs = timeline.get("diagnoses", [])
@@ -5185,7 +5240,7 @@ def run(host: str = "127.0.0.1", port: int = 5000, debug: bool = False):
                 _passphrase = env_passphrase
                 profile = vault.load_profile()
                 if profile:
-                    _profile_data = profile
+                    _profile_data = _prepare_loaded_profile(profile)
                 logger.info("Vault auto-unlocked from VAULT_PASSPHRASE")
             else:
                 logger.warning("VAULT_PASSPHRASE did not match existing vault")
